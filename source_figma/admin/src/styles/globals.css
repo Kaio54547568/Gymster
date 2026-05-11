@@ -1,0 +1,79 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  background: #050607;
+  color: #FFFFFF;
+  overflow-x: hidden;
+}
+
+.bebas {
+  font-family: 'Bebas Neue', cursive;
+  letter-spacing: 0.05em;
+}
+
+/* Premium Glassmorphism */
+.glass {
+  background: rgba(12, 16, 20, 0.7);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+.glass-strong {
+  background: rgba(12, 16, 20, 0.85);
+  backdrop-filter: blur(40px);
+  -webkit-backdrop-filter: blur(40px);
+}
+
+/* Soft Shadows */
+.shadow-premium {
+  box-shadow:
+    0 4px 24px -2px rgba(0, 0, 0, 0.5),
+    0 0 40px -4px rgba(239, 35, 60, 0.15);
+}
+
+.shadow-float {
+  box-shadow:
+    0 8px 32px -4px rgba(0, 0, 0, 0.6),
+    0 0 60px -8px rgba(239, 35, 60, 0.2),
+    inset 0 1px 1px rgba(255, 255, 255, 0.05);
+}
+
+.shadow-glow-red {
+  box-shadow:
+    0 0 30px rgba(239, 35, 60, 0.4),
+    0 4px 20px rgba(0, 0, 0, 0.5);
+}
+
+/* Smooth Gradients */
+.gradient-premium {
+  background: linear-gradient(135deg, rgba(12, 16, 20, 0.9) 0%, rgba(5, 6, 7, 0.95) 100%);
+}
+
+.gradient-glow {
+  background: linear-gradient(135deg, rgba(239, 35, 60, 0.15) 0%, rgba(153, 0, 0, 0.1) 100%);
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(12, 16, 20, 0.5);
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(135deg, #EF233C 0%, #990000 100%);
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(135deg, #FF2D2D 0%, #EF233C 100%);
+}

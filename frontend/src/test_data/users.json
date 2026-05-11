@@ -10,5 +10,29 @@
     "gender": "other",
     "membership": "vip",
     "role": "admin"
+  },
+  {
+    "id": 2,
+    "username": "staff",
+    "email": "staff@gymster.local",
+    "password": "Staff@123",
+    "fullName": "Nhân viên Gymster",
+    "phone": "0902345678",
+    "dob": "1997-05-10",
+    "gender": "other",
+    "membership": "standard",
+    "role": "staff"
+  },
+  {
+    "id": 3,
+    "username": "pt",
+    "email": "pt@gymster.local",
+    "password": "Pt@123",
+    "fullName": "Huấn luyện viên Gymster",
+    "phone": "0903456789",
+    "dob": "1994-09-20",
+    "gender": "other",
+    "membership": "standard",
+    "role": "pt"
   }
 ]

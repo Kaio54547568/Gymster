@@ -1,7 +1,7 @@
 import { Link, useNavigate } from "react-router";
 import { useState } from "react";
 import AuthHero from "../../components/auth/AuthHero";
-import { loginUser } from "../../services/authService";
+import { getRoleHome, loginUser } from "../../services/authService";
 import "./Auth.css";
 
 function LoginPage() {
@@ -29,8 +29,8 @@ function LoginPage() {
       return;
     }
 
-    window.alert(`Đăng nhập thành công!\nUsername: ${result.user.username}`);
     setStatus({ type: "success", message: `Đăng nhập thành công với tài khoản ${result.user.username}.` });
+    navigate(getRoleHome(result.user.role), { replace: true });
   };
 
   return (
