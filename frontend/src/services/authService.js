@@ -3,6 +3,13 @@ import seedUsers from "../test_data/users.json";
 const USERS_KEY = "gymster_test_data_users";
 const CURRENT_USER_KEY = "gymster_current_user";
 
+const ROLE_HOME = {
+  admin: "/admin",
+  staff: "/staff",
+  pt: "/pt",
+  member: "/",
+};
+
 function canUseStorage() {
   return typeof window !== "undefined" && Boolean(window.localStorage);
 }
@@ -14,7 +21,19 @@ export function getUsers() {
 
   const storedUsers = window.localStorage.getItem(USERS_KEY);
   if (storedUsers) {
-    return JSON.parse(storedUsers);
+    const parsedUsers = JSON.parse(storedUsers);
+    const mergedUsers = [
+      ...parsedUsers,
+      ...seedUsers.filter((seedUser) => {
+        return !parsedUsers.some((user) => user.username === seedUser.username || user.email === seedUser.email);
+      }),
+    ];
+
+    if (mergedUsers.length !== parsedUsers.length) {
+      window.localStorage.setItem(USERS_KEY, JSON.stringify(mergedUsers));
+    }
+
+    return mergedUsers;
   }
 
   window.localStorage.setItem(USERS_KEY, JSON.stringify(seedUsers));
@@ -46,6 +65,25 @@ export function loginUser(identifier, password) {
   }
 
   return { ok: true, user: safeUser };
+}
+
+export function getCurrentUser() {
+  if (!canUseStorage()) {
+    return null;
+  }
+
+  const storedUser = window.localStorage.getItem(CURRENT_USER_KEY);
+  return storedUser ? JSON.parse(storedUser) : null;
+}
+
+export function getRoleHome(role) {
+  return ROLE_HOME[role] || "/";
+}
+
+export function logoutUser() {
+  if (canUseStorage()) {
+    window.localStorage.removeItem(CURRENT_USER_KEY);
+  }
 }
 
 export function registerUser(payload) {
