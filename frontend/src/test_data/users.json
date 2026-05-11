@@ -1,0 +1,14 @@
+[
+  {
+    "id": 1,
+    "username": "admin",
+    "email": "admin@gymster.local",
+    "password": "Admin@123",
+    "fullName": "Quản trị viên Gymster",
+    "phone": "0901234567",
+    "dob": "1995-01-01",
+    "gender": "other",
+    "membership": "vip",
+    "role": "admin"
+  }
+]
