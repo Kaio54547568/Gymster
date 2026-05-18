@@ -34,5 +34,31 @@
     "gender": "other",
     "membership": "standard",
     "role": "pt"
+  },
+  {
+    "id": 4,
+    "username": "member",
+    "email": "member@gymster.local",
+    "password": "Member@123",
+    "fullName": "Hội viên Gymster",
+    "phone": "0904567890",
+    "dob": "1995-03-15",
+    "gender": "male",
+    "membership": "vip",
+    "role": "member",
+    "accountStatus": "Active"
+  },
+  {
+    "id": 5,
+    "username": "pendingmember",
+    "email": "pending.member@gymster.local",
+    "password": "Pending@123",
+    "fullName": "Pending Member",
+    "phone": "0905678901",
+    "dob": "1998-08-20",
+    "gender": "other",
+    "membership": "pending",
+    "role": "member",
+    "accountStatus": "PendingOnboarding"
   }
 ]

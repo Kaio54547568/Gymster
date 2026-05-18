@@ -1,5 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Camera, Edit2, Mail, Phone, Save, User, X } from 'lucide-react';
+import { getCurrentUser, setCurrentUser } from '../../services/authService';
+import { updateCurrentUserProfile } from '../../services/userProfileApi';
 
 type AccountProfileProps = {
   title: string;
@@ -31,10 +33,54 @@ export default function AccountProfile({
   const [lastName, setLastName] = useState(initialLastName);
   const [dob, setDob] = useState(initialDob);
   const [headline, setHeadline] = useState(initialHeadline);
+  const [statusMessage, setStatusMessage] = useState('');
+
+  useEffect(() => {
+    setFirstName(initialFirstName);
+    setLastName(initialLastName);
+    setDob(initialDob);
+    setHeadline(initialHeadline);
+  }, [initialFirstName, initialLastName, initialDob, initialHeadline]);
 
   const fieldClass = `mt-2 w-full rounded-xl border border-white/10 bg-[#222] px-4 py-3 text-sm text-white outline-none transition-colors ${
     editing ? 'focus:border-[#EF233C]/60' : 'cursor-not-allowed opacity-70'
   }`;
+
+  const cancelEdit = () => {
+    setFirstName(initialFirstName);
+    setLastName(initialLastName);
+    setDob(initialDob);
+    setHeadline(initialHeadline);
+    setStatusMessage('');
+    setEditing(false);
+  };
+
+  const saveProfile = async () => {
+    setStatusMessage('');
+    const result = await updateCurrentUserProfile(getCurrentUser(), {
+      firstName,
+      lastName,
+      dob,
+      headline,
+    });
+
+    setStatusMessage(result.message);
+
+    if (result.ok) {
+      const currentUser = getCurrentUser();
+      if (currentUser) {
+        setCurrentUser({
+          ...currentUser,
+          firstName,
+          lastName,
+          fullName: [firstName, lastName].filter(Boolean).join(' ').trim(),
+          dob,
+          date_of_birth: dob,
+        });
+      }
+      setEditing(false);
+    }
+  };
 
   return (
     <div className="min-h-full px-6 py-8">
@@ -59,11 +105,11 @@ export default function AccountProfile({
             </div>
             {editing ? (
               <div className="flex gap-2">
-                <button className="flex items-center gap-2 rounded-xl border border-white/10 px-4 py-3 text-sm font-bold text-white/70 hover:bg-white/5" onClick={() => setEditing(false)}>
+                <button className="flex items-center gap-2 rounded-xl border border-white/10 px-4 py-3 text-sm font-bold text-white/70 hover:bg-white/5" onClick={cancelEdit}>
                   <X className="h-4 w-4" />
                   Cancel
                 </button>
-                <button className="flex items-center gap-2 rounded-xl bg-[#EF233C] px-4 py-3 text-sm font-bold text-white hover:bg-[#990000]" onClick={() => setEditing(false)}>
+                <button className="flex items-center gap-2 rounded-xl bg-[#EF233C] px-4 py-3 text-sm font-bold text-white hover:bg-[#990000]" onClick={saveProfile}>
                   <Save className="h-4 w-4" />
                   Save
                 </button>
@@ -75,6 +121,7 @@ export default function AccountProfile({
               </button>
             )}
           </div>
+          {statusMessage && <p className="mt-4 text-xs font-semibold text-white/55">{statusMessage}</p>}
         </div>
 
         <section className="rounded-2xl border border-white/8 bg-[#181818]">

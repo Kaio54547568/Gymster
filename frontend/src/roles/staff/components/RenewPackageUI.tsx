@@ -1,803 +1,713 @@
-import { useState } from 'react';
-import { useParams, useNavigate, Link } from 'react-router';
-import { RefreshCw, User, CreditCard, CheckCircle, AlertCircle, FileText, Printer, Download, Crown, Zap, Target, Star, Building2, Wallet, QrCode, Smartphone, Calendar, DollarSign, Mail, Search, X } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { AlertCircle, CheckCircle, CreditCard, FileText, Plus, Search, X } from 'lucide-react';
+import { supabase } from '../../../services/supabaseClient';
+import { fetchPackagesFromSupabase } from '../../../services/packageApi';
+import {
+  approveRenewalRequest,
+  createManualRenewalRequest,
+  createPackageChangeRequest,
+  denyRenewalRequest,
+  getPackageChangeRequests,
+  getRenewalRequests,
+  updatePackageChangeRequestStatus,
+} from '../../../services/memberPackageApi';
 
-interface PaymentDTO {
-  memberId: string;
-  packageId: string;
-  paymentMethod: string;
-  amount: number;
-  cardNumber?: string;
-  cardHolder?: string;
-  expiryDate?: string;
-  cvv?: string;
-}
-
-interface TrainingPackage {
-  packageId: string;
-  packageName: string;
-  durationInMonths: number;
+type PackageOption = {
+  id: string;
+  name: string;
+  packageTypeLabel?: string;
+  durationMonths?: number;
   price: number;
-  isActive: boolean;
-  features: string[];
-  image: string;
-  badge?: string;
-  icon: any;
-  popular?: boolean;
+  sessionLimit?: string;
+  hasPersonalTrainer?: boolean;
+};
+
+type MemberOption = {
+  id: string;
+  name: string;
+  email?: string;
+  phone?: string;
+  currentPackageName: string;
+};
+
+type RenewalRequest = {
+  requestId: string;
+  memberId?: string;
+  memberName: string;
+  memberEmail?: string;
+  currentPackageName: string;
+  packageId?: string;
+  packageName: string;
+  amount: number;
+  paymentMethod?: string;
+  requestType: string;
+  status: string;
+  createdAt: string;
+  reviewedAt?: string;
+  denyReason?: string;
+  source?: string;
+};
+
+const fallbackPackages: PackageOption[] = [
+  {
+    id: 'PKG001',
+    name: 'Basic Gym 3 Months',
+    packageTypeLabel: 'Gym',
+    durationMonths: 3,
+    price: 850000,
+    sessionLimit: 'Unlimited gym access',
+    hasPersonalTrainer: false,
+  },
+  {
+    id: 'PKG002',
+    name: 'Basic Gym 6 Months',
+    packageTypeLabel: 'Gym',
+    durationMonths: 6,
+    price: 1600000,
+    sessionLimit: 'Unlimited gym access',
+    hasPersonalTrainer: false,
+  },
+  {
+    id: 'PKG003',
+    name: 'PT Package 3 Months',
+    packageTypeLabel: 'Personal Training',
+    durationMonths: 3,
+    price: 3500000,
+    sessionLimit: '24 PT sessions',
+    hasPersonalTrainer: true,
+  },
+];
+
+const fallbackMembers: MemberOption[] = [
+  {
+    id: 'M00123',
+    name: 'Nguyen Van A',
+    email: 'member@gymster.vn',
+    phone: '0912345678',
+    currentPackageName: 'Basic Gym 6 Months',
+  },
+  {
+    id: 'M00124',
+    name: 'Taylor Morgan',
+    email: 'taylor@gymster.vn',
+    phone: '0900000004',
+    currentPackageName: 'Basic Gym 3 Months',
+  },
+  {
+    id: 'M00125',
+    name: 'Jordan Lee',
+    email: 'jordan@gymster.vn',
+    phone: '0900000005',
+    currentPackageName: 'No active package',
+  },
+];
+
+const fallbackRequests: RenewalRequest[] = [
+  {
+    requestId: 'REQ-DEMO-001',
+    memberId: 'M00123',
+    memberName: 'Nguyen Van A',
+    memberEmail: 'member@gymster.vn',
+    currentPackageName: 'Basic Gym 6 Months',
+    packageId: 'PKG003',
+    packageName: 'PT Package 3 Months',
+    amount: 3500000,
+    paymentMethod: 'bank_transfer',
+    requestType: 'upgrade',
+    status: 'pending_staff_approval',
+    createdAt: new Date().toISOString(),
+    source: 'fallback',
+  },
+];
+
+const paymentMethods = [
+  { id: 'cash', label: 'Cash' },
+  { id: 'bank_transfer', label: 'Bank Transfer' },
+  { id: 'credit_card', label: 'Credit Card' },
+  { id: 'e_wallet', label: 'E-Wallet' },
+];
+
+function formatVnd(amount: number) {
+  return `${Number(amount || 0).toLocaleString('vi-VN')} VND`;
 }
 
-interface Member {
-  memberId: string;
-  fullName: string;
-  phoneNum: string;
-  currentPackage: {
-    name: string;
-    endDate: string;
-    daysRemaining: number;
+function formatDate(value?: string) {
+  if (!value) return '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString('en-GB');
+}
+
+function requestTypeLabel(type: string) {
+  const normalized = String(type || '').toLowerCase();
+  if (normalized === 'buy') return 'Buy';
+  if (normalized === 'upgrade') return 'Upgrade';
+  if (normalized === 'manual') return 'Manual';
+  return 'Renew';
+}
+
+function statusLabel(status: string) {
+  const normalized = String(status || '').toLowerCase();
+  if (normalized === 'pending_staff_approval' || normalized === 'pending') return 'Pending';
+  if (normalized === 'approved' || normalized === 'accepted') return 'Approved';
+  if (normalized === 'denied' || normalized === 'rejected') return 'Denied';
+  return normalized ? normalized.replaceAll('_', ' ') : 'Unknown';
+}
+
+function statusClass(status: string) {
+  const normalized = String(status || '').toLowerCase();
+  if (normalized === 'approved' || normalized === 'accepted') {
+    return 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40';
+  }
+  if (normalized === 'denied' || normalized === 'rejected') {
+    return 'bg-red-500/15 text-red-300 border-red-500/40';
+  }
+  return 'bg-amber-500/15 text-amber-300 border-amber-500/40';
+}
+
+function normalizeRequest(request: any): RenewalRequest {
+  return {
+    requestId: String(request.requestId || request.request_id || request.id || `REQ-${Date.now()}`),
+    memberId: request.memberId || request.member_id,
+    memberName: request.memberName || request.member_name || request.fullName || request.memberEmail || 'Member',
+    memberEmail: request.memberEmail || request.member_email || request.email,
+    currentPackageName: request.currentPackageName || request.current_package_name || 'Current package not linked',
+    packageId: request.packageId || request.package_id,
+    packageName: request.packageName || request.package_name || 'Requested package',
+    amount: Number(request.amount || request.price || 0),
+    paymentMethod: request.paymentMethod || request.payment_method || 'Not selected',
+    requestType: request.requestType || request.request_type || 'renewal',
+    status: request.status || 'pending_staff_approval',
+    createdAt: request.createdAt || request.created_at || new Date().toISOString(),
+    reviewedAt: request.reviewedAt || request.reviewed_at,
+    denyReason: request.denyReason || request.deny_reason,
+    source: request.source,
   };
+}
+
+function combineUserName(user: any, fallback = 'Member') {
+  const name = [user?.first_name, user?.last_name].filter(Boolean).join(' ').trim();
+  return name || fallback;
+}
+
+async function fetchMembersFromSupabase(): Promise<MemberOption[]> {
+  if (!supabase) return [];
+
+  const { data, error } = await supabase
+    .from('members')
+    .select(`
+      member_id,
+      member_code,
+      status,
+      users (
+        first_name,
+        last_name,
+        email,
+        phone_number
+      )
+    `)
+    .limit(100);
+
+  if (error || !Array.isArray(data)) {
+    if (error) console.error('[Gymster Supabase] Failed to load members for renewal requests:', error);
+    return [];
+  }
+
+  return data.map((row: any) => ({
+    id: row.member_id || row.member_code,
+    name: combineUserName(row.users, row.member_code || 'Member'),
+    email: row.users?.email || '',
+    phone: row.users?.phone_number || '',
+    currentPackageName: 'Current package not linked',
+  }));
 }
 
 export function RenewPackageUI() {
-  const { memberId } = useParams();
-  const navigate = useNavigate();
-
-  const [step, setStep] = useState(1); // 1: Select package, 2: Select member, 3: Payment
-  const [selectedPackage, setSelectedPackage] = useState<string | null>(null);
-  const [selectedMember, setSelectedMember] = useState<Member | null>(null);
+  const [requests, setRequests] = useState<RenewalRequest[]>(fallbackRequests);
+  const [packages, setPackages] = useState<PackageOption[]>(fallbackPackages);
+  const [members, setMembers] = useState<MemberOption[]>(fallbackMembers);
+  const [isLoading, setIsLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
-  const [showSuggestions, setShowSuggestions] = useState(false);
-  const [paymentMethod, setPaymentMethod] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [showReceipt, setShowReceipt] = useState(false);
-  const [error, setError] = useState('');
-
-  const [cardDetails, setCardDetails] = useState({
-    cardNumber: '',
-    cardHolder: '',
-    expiryDate: '',
-    cvv: ''
+  const [detailRequest, setDetailRequest] = useState<RenewalRequest | null>(null);
+  const [denyTarget, setDenyTarget] = useState<RenewalRequest | null>(null);
+  const [denyReason, setDenyReason] = useState('');
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [manualForm, setManualForm] = useState({
+    memberId: fallbackMembers[0]?.id || '',
+    packageId: fallbackPackages[0]?.id || '',
+    paymentMethod: 'cash',
+    requestType: 'renewal',
   });
 
-  // Mock members data
-  const allMembers: Member[] = [
-    {
-      memberId: 'M00123',
-      fullName: 'Nguyễn Hoàng Anh',
-      phoneNum: '0912345678',
-      currentPackage: { name: 'Gói Premium 6 tháng', endDate: '2026-07-20', daysRemaining: 45 }
-    },
-    {
-      memberId: 'M00124',
-      fullName: 'Trần Minh Đức',
-      phoneNum: '0987654321',
-      currentPackage: { name: 'Gói 3 tháng', endDate: '2026-06-15', daysRemaining: 10 }
-    },
-    {
-      memberId: 'M00125',
-      fullName: 'Lê Quốc Bảo',
-      phoneNum: '0901234567',
-      currentPackage: { name: 'Gói VIP 12 tháng', endDate: '2027-01-10', daysRemaining: 180 }
-    },
-    {
-      memberId: 'M00126',
-      fullName: 'Phạm Thị Mai',
-      phoneNum: '0909876543',
-      currentPackage: { name: 'Gói PT Elite', endDate: '2026-08-05', daysRemaining: 60 }
-    },
-    {
-      memberId: 'M00127',
-      fullName: 'Võ Văn Nam',
-      phoneNum: '0923456789',
-      currentPackage: { name: 'Gói 6 tháng', endDate: '2026-09-20', daysRemaining: 105 }
+  const loadRequests = async () => {
+    const { data, error } = await getPackageChangeRequests();
+    if (!error && data.length) {
+      setRequests(data.map(normalizeRequest));
+      return;
     }
-  ];
 
-  const filteredMembers = allMembers.filter(member =>
-    member.fullName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    member.memberId.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    member.phoneNum.includes(searchTerm)
-  );
-
-  const packages: TrainingPackage[] = [
-    {
-      packageId: 'PKG001',
-      packageName: 'Gói 3 tháng',
-      durationInMonths: 3,
-      price: 3200000,
-      isActive: true,
-      features: ['Tập không giới hạn', 'Wifi miễn phí', 'Tủ khóa cá nhân', 'Nước uống miễn phí', 'Mở cửa 6AM - 10PM'],
-      image: 'https://images.unsplash.com/photo-1754475118668-64ac3f3b2559?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxtdXNjdWxhciUyMGF0aGxldGUlMjBkYXJrJTIwZ3ltfGVufDF8fHx8MTc3ODA4NTA2NXww&ixlib=rb-4.1.0&q=80&w=1080',
-      icon: Target
-    },
-    {
-      packageId: 'PKG002',
-      packageName: 'Gói 6 tháng',
-      durationInMonths: 6,
-      price: 6500000,
-      isActive: true,
-      features: ['Tập không giới hạn', 'Lớp Group Class', 'Phòng xông hơi & sauna', 'Protein Shake miễn phí', 'Khăn tắm miễn phí', 'Mở cửa 24/7'],
-      image: 'https://images.unsplash.com/photo-1770616756218-f0abe20da404?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxmaXRuZXNzJTIwdHJhaW5pbmclMjBpbnRlbnNlJTIwZGFya3xlbnwxfHx8fDE3NzgyNTM3MTh8MA&ixlib=rb-4.1.0&q=80&w=1080',
-      badge: 'PHỔ BIẾN',
-      icon: Zap,
-      popular: true
-    },
-    {
-      packageId: 'PKG003',
-      packageName: 'Gói VIP 12 tháng',
-      durationInMonths: 12,
-      price: 12000000,
-      isActive: true,
-      features: ['Tất cả quyền lợi Premium', 'Tặng 12 buổi PT', 'Ưu tiên đặt lịch', 'Guest Pass (2/tháng)', 'Tư vấn dinh dưỡng', 'Tủ khóa VIP riêng biệt'],
-      image: 'https://images.unsplash.com/photo-1754475096386-b7a2a45a91fb?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwzfHxtdXNjdWxhciUyMGF0aGxldGUlMjBkYXJrJTIwZ3ltfGVufDF8fHx8MTc3ODA4NTA2NXww&ixlib=rb-4.1.0&q=80&w=1080',
-      badge: 'SANG TRỌNG',
-      icon: Crown
-    },
-    {
-      packageId: 'PKG004',
-      packageName: 'Gói PT Elite',
-      durationInMonths: 3,
-      price: 15000000,
-      isActive: true,
-      features: ['20 buổi PT 1-1', 'Kế hoạch tập riêng', 'Thực đơn cá nhân hóa', 'Theo dõi tiến độ', 'Quyền tập Gym', 'Hỗ trợ online 24/7'],
-      image: 'https://images.unsplash.com/photo-1676655079738-af54dfd6318e?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHw3fHxmaXRuZXNzJTIwdHJhaW5pbmclMjBpbnRlbnNlJTIwZGFya3xlbnwxfHx8fDE3NzgyNTM3MTh8MA&ixlib=rb-4.1.0&q=80&w=1080',
-      badge: 'ĐẶC BIỆT',
-      icon: Star
-    }
-  ];
-
-  const paymentMethods = [
-    { id: 'cash', name: 'Cash', icon: Wallet, description: 'Pay at the counter' },
-    { id: 'credit_card', name: 'Credit Card', icon: CreditCard, description: 'Visa, Mastercard, AMEX' },
-    { id: 'bank_transfer', name: 'Bank Transfer', icon: Building2, description: 'Bank account transfer' },
-    { id: 'ewallet', name: 'E-Wallet', icon: Smartphone, description: 'Momo, ZaloPay, VNPay' }
-  ];
-
-  const handleSelectMember = (member: Member) => {
-    setSelectedMember(member);
-    setSearchTerm('');
-    setShowSuggestions(false);
-    setStep(3);
+    const storedRequests = getRenewalRequests().map(normalizeRequest);
+    setRequests(storedRequests.length > 0 ? storedRequests : fallbackRequests);
   };
 
-  const calculateNewDates = () => {
-    const pkg = packages.find(p => p.packageId === selectedPackage);
-    if (!pkg || !selectedMember) return { start: '', end: '' };
+  useEffect(() => {
+    let mounted = true;
 
-    const currentEnd = new Date(selectedMember.currentPackage.endDate);
-    const newStart = currentEnd > new Date() ? currentEnd : new Date();
-    const newEnd = new Date(newStart);
-    newEnd.setMonth(newEnd.getMonth() + pkg.durationInMonths);
+    async function loadData() {
+      setIsLoading(true);
+      setErrorMessage('');
 
-    return {
-      start: newStart.toLocaleDateString('vi-VN'),
-      end: newEnd.toLocaleDateString('vi-VN')
-    };
-  };
+      try {
+        const [packageResult, memberResult] = await Promise.all([
+          fetchPackagesFromSupabase(),
+          fetchMembersFromSupabase(),
+        ]);
 
-  const handleConfirmRenewal = () => {
-    if (!selectedPackage) {
-      setError('Vui lòng chọn gói tập');
-      return;
-    }
+        if (!mounted) return;
 
-    if (!selectedMember) {
-      setError('Vui lòng chọn hội viên');
-      return;
-    }
+        setPackages(packageResult.data.length > 0 ? packageResult.data : fallbackPackages);
+        setMembers(memberResult.length > 0 ? memberResult : fallbackMembers);
+        await loadRequests();
 
-    if (!paymentMethod) {
-      setError('Vui lòng chọn phương thức thanh toán');
-      return;
-    }
-
-    if (paymentMethod === 'credit_card') {
-      if (!cardDetails.cardNumber || !cardDetails.cardHolder || !cardDetails.expiryDate || !cardDetails.cvv) {
-        setError('Vui lòng điền đầy đủ thông tin thẻ');
-        return;
+        if (packageResult.error) {
+          setErrorMessage('Supabase package loading failed. Showing fallback packages.');
+        } else if (memberResult.length === 0) {
+          setErrorMessage('Member records are using fallback data until member lookup is available.');
+        }
+      } finally {
+        if (mounted) setIsLoading(false);
       }
     }
 
-    setError('');
-    setLoading(true);
+    loadData();
 
-    setTimeout(() => {
-      setLoading(false);
-      setShowReceipt(true);
-    }, 2000);
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const filteredRequests = useMemo(() => {
+    const term = searchTerm.trim().toLowerCase();
+    if (!term) return requests;
+
+    return requests.filter((request) =>
+      [
+        request.requestId,
+        request.memberName,
+        request.memberEmail,
+        request.currentPackageName,
+        request.packageName,
+        requestTypeLabel(request.requestType),
+        statusLabel(request.status),
+      ]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(term))
+    );
+  }, [requests, searchTerm]);
+
+  const stats = useMemo(() => {
+    const pending = requests.filter((request) => ['pending_staff_approval', 'pending'].includes(request.status)).length;
+    const approved = requests.filter((request) => ['approved', 'accepted'].includes(request.status)).length;
+    const denied = requests.filter((request) => ['denied', 'rejected'].includes(request.status)).length;
+    return { total: requests.length, pending, approved, denied };
+  }, [requests]);
+
+  const handleAccept = async (request: RenewalRequest) => {
+    if (request.source === 'supabase') {
+      await updatePackageChangeRequestStatus(request.requestId, 'approved');
+    } else {
+      approveRenewalRequest(request.requestId);
+    }
+    await loadRequests();
   };
 
-  const dates = calculateNewDates();
+  const handleDeny = async () => {
+    if (!denyTarget) return;
+    if (denyTarget.source === 'supabase') {
+      await updatePackageChangeRequestStatus(denyTarget.requestId, 'denied', denyReason.trim() || 'Denied by staff.');
+    } else {
+      denyRenewalRequest(denyTarget.requestId, denyReason.trim() || 'Denied by staff.');
+    }
+    setDenyTarget(null);
+    setDenyReason('');
+    await loadRequests();
+  };
 
-  if (showReceipt) {
-    const pkg = packages.find(p => p.packageId === selectedPackage);
-    const receiptId = 'HD' + Date.now().toString().slice(-6);
+  const handleCreateManualRequest = async () => {
+    const selectedMember = members.find((member) => member.id === manualForm.memberId);
+    const selectedPackage = packages.find((pkg) => pkg.id === manualForm.packageId);
 
-    return (
-      <div className="p-6">
-        <div className="max-w-4xl mx-auto">
-          <div className="backdrop-blur-xl bg-card/95 border-2 border-primary rounded-3xl p-10 shadow-[0_0_80px_rgba(255,0,0,0.5)] relative overflow-hidden">
-            <div className="absolute top-0 right-0 w-96 h-96 bg-primary/20 rounded-full blur-3xl animate-pulse"></div>
-            <div className="absolute bottom-0 left-0 w-96 h-96 bg-destructive/20 rounded-full blur-3xl animate-pulse"></div>
+    if (!selectedMember || !selectedPackage) return;
 
-            <div className="relative z-10">
-              <div className="text-center mb-10">
-                <div className="w-24 h-24 bg-gradient-to-br from-primary to-destructive rounded-full flex items-center justify-center mx-auto mb-6 shadow-[0_0_50px_rgba(255,0,0,0.8)] animate-bounce">
-                  <CheckCircle className="w-12 h-12 text-white" />
-                </div>
-                <h2 className="text-4xl font-black mb-3 bg-gradient-to-r from-primary to-destructive bg-clip-text text-transparent">
-                  THANH TOÁN THÀNH CÔNG!
-                </h2>
-                <p className="text-muted-foreground text-lg">Gói tập đã được kích hoạt</p>
-              </div>
+    const payload = {
+      memberId: selectedMember.id,
+      memberName: selectedMember.name,
+      memberEmail: selectedMember.email,
+      currentPackageName: selectedMember.currentPackageName,
+      packageId: selectedPackage.id,
+      packageName: selectedPackage.name,
+      amount: selectedPackage.price,
+      paymentMethod: manualForm.paymentMethod,
+      requestType: manualForm.requestType,
+    };
 
-              <div className="bg-secondary/30 rounded-2xl p-8 border border-border/50 backdrop-blur-sm mb-8">
-                <div className="flex items-center justify-between mb-8 pb-6 border-b border-border">
-                  <div>
-                    <h3 className="text-3xl font-black mb-2">HÓA ĐƠN THANH TOÁN</h3>
-                    <p className="text-sm text-muted-foreground">Mã hóa đơn: <span className="text-primary font-mono font-bold text-lg">{receiptId}</span></p>
-                    <p className="text-xs text-muted-foreground mt-1">{new Date().toLocaleString('vi-VN')}</p>
-                  </div>
-                  <div className="w-20 h-20 bg-gradient-to-br from-primary to-destructive rounded-2xl flex items-center justify-center shadow-[0_0_30px_rgba(255,0,0,0.6)]">
-                    <FileText className="w-10 h-10 text-white" />
-                  </div>
-                </div>
+    const { error } = await createPackageChangeRequest(payload);
+    if (error) {
+      createManualRenewalRequest(payload);
+    }
 
-                <div className="space-y-6">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="bg-card/50 rounded-xl p-5 border border-primary/20">
-                      <p className="text-xs text-muted-foreground mb-1">MÃ HỘI VIÊN</p>
-                      <p className="font-black font-mono text-xl text-primary">{selectedMember?.memberId}</p>
-                    </div>
-                    <div className="bg-card/50 rounded-xl p-5 border border-primary/20">
-                      <p className="text-xs text-muted-foreground mb-1">TÊN HỘI VIÊN</p>
-                      <p className="font-black text-xl">{selectedMember?.fullName}</p>
-                    </div>
-                  </div>
-
-                  <div className="bg-gradient-to-r from-primary/20 to-destructive/20 rounded-2xl p-6 border-2 border-primary/50">
-                    <p className="text-sm text-muted-foreground mb-2">SELECTED PACKAGE</p>
-                    <p className="text-3xl font-black text-primary mb-6">{pkg?.packageName}</p>
-
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="bg-card/30 rounded-xl p-4">
-                        <div className="flex items-center gap-2 mb-2">
-                          <Calendar className="w-4 h-4 text-primary" />
-                          <p className="text-xs text-muted-foreground">NGÀY BẮT ĐẦU</p>
-                        </div>
-                        <p className="font-bold text-lg">{dates.start}</p>
-                      </div>
-                      <div className="bg-card/30 rounded-xl p-4">
-                        <div className="flex items-center gap-2 mb-2">
-                          <Calendar className="w-4 h-4 text-primary" />
-                          <p className="text-xs text-muted-foreground">NGÀY KẾT THÚC</p>
-                        </div>
-                        <p className="font-bold text-lg">{dates.end}</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="pt-6 border-t-2 border-border">
-                    <div className="flex items-center justify-between mb-6">
-                      <div>
-                        <p className="text-2xl font-black mb-1">TỔNG THANH TOÁN</p>
-                        <p className="text-sm text-muted-foreground">
-                          Phương thức: <span className="font-bold text-foreground">{paymentMethods.find(m => m.id === paymentMethod)?.name}</span>
-                        </p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-5xl font-black text-primary">{pkg?.price.toLocaleString('vi-VN')}</p>
-                        <p className="text-xl font-bold text-muted-foreground">VNĐ</p>
-                      </div>
-                    </div>
-
-                    <div className="bg-card/50 rounded-xl p-4 border border-border">
-                      <p className="text-xs text-muted-foreground mb-1">Nhân viên xử lý</p>
-                      <p className="font-bold">Nguyễn Staff</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                <button onClick={() => window.print()} className="flex items-center justify-center gap-2 px-6 py-4 bg-secondary hover:bg-secondary/80 rounded-2xl transition-all font-bold border border-border hover:border-primary/50">
-                  <Printer className="w-5 h-5" />
-                  Print Receipt
-                </button>
-                <button className="flex items-center justify-center gap-2 px-6 py-4 bg-secondary hover:bg-secondary/80 rounded-2xl transition-all font-bold border border-border hover:border-primary/50">
-                  <Download className="w-5 h-5" />
-                  Download PDF
-                </button>
-                <button className="flex items-center justify-center gap-2 px-6 py-4 bg-secondary hover:bg-secondary/80 rounded-2xl transition-all font-bold border border-border hover:border-primary/50">
-                  <FileText className="w-5 h-5" />
-                  Export Invoice
-                </button>
-                <button className="flex items-center justify-center gap-2 px-6 py-4 bg-secondary hover:bg-secondary/80 rounded-2xl transition-all font-bold border border-border hover:border-primary/50">
-                  <Mail className="w-5 h-5" />
-                  Send Email
-                </button>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3 mt-3">
-                <Link to={`/members/${selectedMember?.memberId}`} className="flex items-center justify-center gap-2 px-6 py-4 bg-gradient-to-r from-primary to-destructive text-white hover:shadow-[0_0_40px_rgba(255,0,0,0.6)] rounded-2xl transition-all font-black">
-                  View Member Profile
-                </Link>
-                <button onClick={() => { setShowReceipt(false); setStep(1); setSelectedPackage(null); setSelectedMember(null); setPaymentMethod(''); }} className="px-6 py-4 border-2 border-border hover:bg-secondary rounded-2xl transition-all font-bold">
-                  New Registration
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
+    setShowAddModal(false);
+    await loadRequests();
+  };
 
   return (
-    <div className="relative">
-      {/* Hero Section */}
-      <div className="relative h-[280px] overflow-hidden bg-black">
-        <img
-          src="https://images.unsplash.com/photo-1770616756218-f0abe20da404?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxmaXRuZXNzJTIwdHJhaW5pbmclMjBpbnRlbnNlJTIwZGFya3xlbnwxfHx8fDE3NzgyNTM3MTh8MA&ixlib=rb-4.1.0&q=80&w=1080"
-          alt="Fitness Training"
-          className="absolute right-0 top-0 h-full w-1/2 object-cover opacity-40"
-        />
-        <div className="absolute inset-0 bg-gradient-to-r from-black via-black to-black/60"></div>
-        <div className="relative h-full flex items-center px-6">
-          <div className="max-w-7xl mx-auto w-full">
-            <div>
-              <p className="text-primary text-sm font-bold tracking-widest mb-3 uppercase">QUẢN LÝ GÓI TẬP</p>
-              <h1 className="text-6xl font-black tracking-tight mb-4">
-                <span className="text-primary">GIA HẠN</span>
-                <br />
-                <span className="text-white">GÓI TẬP</span>
-              </h1>
-              <p className="text-white/70 text-base max-w-2xl leading-relaxed">
-                Gia hạn và nâng cấp gói tập cho hội viên, quản lý thanh toán và in hóa đơn, theo dõi lịch sử gia hạn trên hệ thống.
-              </p>
-            </div>
+    <div className="min-h-screen p-6">
+      <div className="max-w-7xl mx-auto space-y-6">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <p className="text-primary text-sm font-black tracking-[0.35em] uppercase mb-3">Staff Review</p>
+            <h1 className="text-5xl font-black tracking-tight mb-3">Renewal Requests</h1>
+            <p className="text-muted-foreground max-w-3xl">
+              Review member buy, renewal, and upgrade requests. Approved requests remain mock-safe until a dedicated
+              renewal request table is added.
+            </p>
           </div>
+          <button
+            type="button"
+            onClick={() => setShowAddModal(true)}
+            className="inline-flex items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-primary to-destructive px-6 py-4 font-black text-white shadow-[0_0_30px_rgba(255,0,0,0.35)] transition hover:scale-[1.02]"
+          >
+            <Plus className="w-5 h-5" />
+            Add New
+          </button>
         </div>
-      </div>
 
-      <div className="p-6">
-        <div className="max-w-7xl mx-auto">
-          {/* Progress Steps */}
-          <div className="flex items-center justify-center gap-4 mb-8 -mt-12 relative z-10">
-            <div className={`flex items-center gap-3 px-6 py-4 rounded-2xl backdrop-blur-xl ${step >= 1 ? 'bg-primary text-white shadow-[0_0_30px_rgba(255,0,0,0.5)]' : 'bg-card/80 border border-border'}`}>
-              <div className={`w-8 h-8 rounded-full flex items-center justify-center ${step >= 1 ? 'bg-white text-primary' : 'bg-secondary'} font-black`}>1</div>
-              <span className="font-black">SELECT PACKAGE</span>
-            </div>
-            <div className={`h-1 w-12 ${step >= 2 ? 'bg-primary' : 'bg-border'} rounded`}></div>
-            <div className={`flex items-center gap-3 px-6 py-4 rounded-2xl backdrop-blur-xl ${step >= 2 ? 'bg-primary text-white shadow-[0_0_30px_rgba(255,0,0,0.5)]' : 'bg-card/80 border border-border'}`}>
-              <div className={`w-8 h-8 rounded-full flex items-center justify-center ${step >= 2 ? 'bg-white text-primary' : 'bg-secondary'} font-black`}>2</div>
-              <span className="font-black">SELECT MEMBER</span>
-            </div>
-            <div className={`h-1 w-12 ${step >= 3 ? 'bg-primary' : 'bg-border'} rounded`}></div>
-            <div className={`flex items-center gap-3 px-6 py-4 rounded-2xl backdrop-blur-xl ${step >= 3 ? 'bg-primary text-white shadow-[0_0_30px_rgba(255,0,0,0.5)]' : 'bg-card/80 border border-border'}`}>
-              <div className={`w-8 h-8 rounded-full flex items-center justify-center ${step >= 3 ? 'bg-white text-primary' : 'bg-secondary'} font-black`}>3</div>
-              <span className="font-black">PAYMENT</span>
-            </div>
+        {errorMessage && (
+          <div className="flex items-center gap-3 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-amber-200">
+            <AlertCircle className="w-5 h-5 shrink-0" />
+            <p className="text-sm font-semibold">{errorMessage}</p>
           </div>
+        )}
 
-          {/* Step 1: Package Selection */}
-          {step === 1 && (
-            <div>
-              <h3 className="text-3xl font-black mb-6">SELECT YOUR PACKAGE</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                {packages.map(pkg => {
-                  const Icon = pkg.icon;
-                  const isSelected = selectedPackage === pkg.packageId;
-
-                  return (
-                    <div
-                      key={pkg.packageId}
-                      onClick={() => setSelectedPackage(pkg.packageId)}
-                      className={`group relative cursor-pointer rounded-3xl overflow-hidden transition-all duration-500 ${
-                        isSelected ? 'ring-4 ring-primary shadow-[0_0_60px_rgba(255,0,0,0.6)] scale-105' : 'hover:scale-105 hover:shadow-[0_0_40px_rgba(0,0,0,0.6)]'
-                      } ${pkg.popular ? 'md:scale-110' : ''}`}
-                    >
-                      <div className="relative h-56">
-                        <img src={pkg.image} alt={pkg.packageName} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" />
-                        <div className="absolute inset-0 bg-gradient-to-t from-black via-black/50 to-transparent"></div>
-                        <div className={`absolute inset-0 ${isSelected ? 'bg-primary/30' : 'bg-black/20'} mix-blend-multiply transition-all`}></div>
-
-                        {pkg.badge && (
-                          <div className={`absolute top-4 ${pkg.popular ? 'right-4 left-4 text-center' : 'right-4'} px-4 py-2 ${pkg.popular ? 'bg-gradient-to-r from-primary to-destructive' : 'bg-primary'} text-white text-xs font-black rounded-full shadow-[0_0_20px_rgba(255,0,0,0.8)] animate-pulse`}>
-                            ✨ {pkg.badge} ✨
-                          </div>
-                        )}
-
-                        {isSelected && (
-                          <div className="absolute top-4 left-4 w-10 h-10 bg-primary rounded-full flex items-center justify-center shadow-[0_0_30px_rgba(255,0,0,1)] animate-bounce">
-                            <CheckCircle className="w-6 h-6 text-white" />
-                          </div>
-                        )}
-                      </div>
-
-                      <div className={`p-6 transition-all ${isSelected ? 'bg-gradient-to-br from-primary/30 to-destructive/30 backdrop-blur-xl border-t-4 border-primary' : 'bg-card/95 backdrop-blur-sm'}`}>
-                        <div className="flex items-center gap-3 mb-4">
-                          <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${isSelected ? 'bg-primary shadow-[0_0_20px_rgba(255,0,0,0.6)]' : 'bg-secondary'}`}>
-                            <Icon className={`w-6 h-6 ${isSelected ? 'text-white' : 'text-primary'}`} />
-                          </div>
-                          <h4 className="text-xl font-black">{pkg.packageName}</h4>
-                        </div>
-
-                        <div className="mb-4">
-                          <p className="text-4xl font-black text-primary mb-1">{pkg.price.toLocaleString('vi-VN')}</p>
-                          <p className="text-sm text-muted-foreground font-bold">VNĐ • {pkg.durationInMonths} tháng</p>
-                        </div>
-
-                        <ul className="space-y-2 mb-4">
-                          {pkg.features.map((feature, idx) => (
-                            <li key={idx} className="text-sm flex items-start gap-2">
-                              <CheckCircle className={`w-4 h-4 flex-shrink-0 mt-0.5 ${isSelected ? 'text-primary' : 'text-muted-foreground'}`} />
-                              <span className={isSelected ? 'font-bold' : 'font-medium'}>{feature}</span>
-                            </li>
-                          ))}
-                        </ul>
-
-                        <button onClick={() => setSelectedPackage(pkg.packageId)} className={`w-full py-3 rounded-xl font-black transition-all ${isSelected ? 'bg-primary text-white shadow-[0_0_20px_rgba(255,0,0,0.5)]' : 'bg-secondary hover:bg-primary hover:text-white'}`}>
-                          {isSelected ? 'SELECTED' : 'SELECT THIS PACKAGE'}
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-
-              {selectedPackage && (
-                <div className="mt-8 flex justify-end">
-                  <button onClick={() => setStep(2)} className="px-12 py-5 bg-gradient-to-r from-primary to-destructive text-white rounded-3xl font-black text-xl hover:shadow-[0_0_60px_rgba(255,0,0,0.8)] transition-all">
-                    CONTINUE →
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Step 2: Member Selection */}
-          {step === 2 && (
-            <div>
-              <div className="backdrop-blur-xl bg-card/90 border-2 border-border/50 rounded-3xl p-8 mb-6 shadow-[0_8px_32px_rgba(0,0,0,0.3)]">
-                <h3 className="text-3xl font-black mb-6">TÌM KIẾM HỘI VIÊN</h3>
-
-                <div className="relative">
-                  <div className="relative">
-                    <Search className="w-6 h-6 text-muted-foreground absolute left-4 top-1/2 -translate-y-1/2" />
-                    <input
-                      type="text"
-                      value={searchTerm}
-                      onChange={(e) => {
-                        setSearchTerm(e.target.value);
-                        setShowSuggestions(true);
-                      }}
-                      onFocus={() => setShowSuggestions(true)}
-                      placeholder="Nhập tên, mã hội viên, hoặc số điện thoại..."
-                      className="w-full bg-input pl-14 pr-12 py-5 rounded-2xl border-2 border-border focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all text-lg font-medium"
-                    />
-                    {searchTerm && (
-                      <button onClick={() => { setSearchTerm(''); setShowSuggestions(false); }} className="absolute right-4 top-1/2 -translate-y-1/2 p-1 hover:bg-secondary rounded-lg transition-colors">
-                        <X className="w-5 h-5" />
-                      </button>
-                    )}
-                  </div>
-
-                  {/* Suggestions Dropdown */}
-                  {showSuggestions && searchTerm && filteredMembers.length > 0 && (
-                    <div className="absolute top-full left-0 right-0 mt-2 bg-card border-2 border-primary rounded-2xl shadow-[0_0_40px_rgba(255,0,0,0.4)] max-h-96 overflow-y-auto z-50">
-                      {filteredMembers.map((member) => (
-                        <button
-                          key={member.memberId}
-                          onClick={() => handleSelectMember(member)}
-                          className="w-full p-5 hover:bg-primary/10 transition-colors border-b border-border last:border-0 text-left"
-                        >
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <p className="font-black text-lg mb-1">{member.fullName}</p>
-                              <p className="text-sm text-muted-foreground">Mã: <span className="font-mono text-primary">{member.memberId}</span> • SĐT: {member.phoneNum}</p>
-                              <p className="text-xs text-muted-foreground mt-1">Gói hiện tại: {member.currentPackage.name}</p>
-                            </div>
-                            <div className="text-right">
-                              <span className={`px-3 py-1 rounded-full text-xs font-bold ${member.currentPackage.daysRemaining < 30 ? 'bg-destructive/20 text-destructive' : 'bg-primary/20 text-primary'}`}>
-                                Còn {member.currentPackage.daysRemaining} ngày
-                              </span>
-                            </div>
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-
-                  {showSuggestions && searchTerm && filteredMembers.length === 0 && (
-                    <div className="absolute top-full left-0 right-0 mt-2 bg-card border-2 border-border rounded-2xl shadow-lg p-8 text-center">
-                      <AlertCircle className="w-12 h-12 text-muted-foreground mx-auto mb-3" />
-                      <p className="text-lg font-bold mb-1">Không tìm thấy hội viên</p>
-                      <p className="text-sm text-muted-foreground">Vui lòng thử từ khóa khác</p>
-                    </div>
-                  )}
-                </div>
-
-                <div className="mt-6">
-                  <p className="text-sm text-muted-foreground mb-3">Hoặc chọn từ danh sách gần đây:</p>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    {allMembers.slice(0, 4).map((member) => (
-                      <button
-                        key={member.memberId}
-                        onClick={() => handleSelectMember(member)}
-                        className="p-4 bg-secondary/30 hover:bg-primary/10 border border-border hover:border-primary rounded-xl transition-all text-left"
-                      >
-                        <p className="font-bold mb-1">{member.fullName}</p>
-                        <p className="text-sm text-muted-foreground">Mã: <span className="font-mono text-primary">{member.memberId}</span></p>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex gap-4">
-                <button onClick={() => setStep(1)} className="px-12 py-5 border-4 border-border hover:bg-secondary rounded-3xl transition-all font-black text-xl">
-                  ← Back
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Step 3: Payment */}
-          {step === 3 && selectedMember && selectedPackage && (
-            <>
-              {/* Member Info Summary */}
-              <div className="backdrop-blur-xl bg-card/90 border-2 border-border/50 rounded-3xl p-6 mb-6 shadow-[0_8px_32px_rgba(0,0,0,0.3)]">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+          {[
+            { label: 'Total Requests', value: stats.total, icon: FileText },
+            { label: 'Pending', value: stats.pending, icon: AlertCircle },
+            { label: 'Approved', value: stats.approved, icon: CheckCircle },
+            { label: 'Denied', value: stats.denied, icon: X },
+          ].map((item) => {
+            const Icon = item.icon;
+            return (
+              <div key={item.label} className="rounded-2xl border border-border bg-card/90 p-5 shadow-[0_8px_32px_rgba(0,0,0,0.25)]">
                 <div className="flex items-center justify-between">
                   <div>
-                    <h3 className="text-xl font-black mb-4 flex items-center gap-2">
-                      <User className="w-6 h-6 text-primary" />
-                      SELECTED MEMBER
-                    </h3>
-                    <div className="flex items-center gap-6">
-                      <div>
-                        <p className="text-sm text-muted-foreground">Họ và tên</p>
-                        <p className="text-2xl font-black">{selectedMember.fullName}</p>
-                      </div>
-                      <div>
-                        <p className="text-sm text-muted-foreground">Mã hội viên</p>
-                        <p className="text-xl font-mono font-black text-primary">{selectedMember.memberId}</p>
-                      </div>
-                      <div>
-                        <p className="text-sm text-muted-foreground">Gói hiện tại</p>
-                        <p className="font-bold">{selectedMember.currentPackage.name}</p>
-                      </div>
-                    </div>
+                    <p className="text-sm font-bold text-muted-foreground">{item.label}</p>
+                    <p className="mt-2 text-3xl font-black">{item.value}</p>
                   </div>
-                  <button onClick={() => { setStep(2); setSelectedMember(null); }} className="px-6 py-3 border-2 border-border hover:bg-secondary rounded-xl transition-all font-bold">
-                    Change Member
-                  </button>
+                  <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/15 text-primary">
+                    <Icon className="h-6 w-6" />
+                  </div>
                 </div>
               </div>
+            );
+          })}
+        </div>
 
-              {/* Payment Method */}
-              <div className="backdrop-blur-xl bg-card/90 border-2 border-border/50 rounded-3xl p-8 mb-6 shadow-[0_8px_32px_rgba(0,0,0,0.3)]">
-                <h3 className="text-3xl font-black mb-6 flex items-center gap-3">
-                  <CreditCard className="w-8 h-8 text-primary" />
-                  PAYMENT METHOD
-                </h3>
+        <div className="rounded-3xl border border-border bg-card/95 shadow-[0_8px_32px_rgba(0,0,0,0.3)]">
+          <div className="flex flex-col gap-4 border-b border-border p-5 md:flex-row md:items-center md:justify-between">
+            <div>
+              <h2 className="text-2xl font-black">Request Queue</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Local MVP queue: <span className="font-semibold text-foreground">gymster_member_renewal_requests</span>
+              </p>
+            </div>
+            <div className="relative w-full md:w-96">
+              <Search className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
+              <input
+                value={searchTerm}
+                onChange={(event) => setSearchTerm(event.target.value)}
+                placeholder="Search requests..."
+                className="w-full rounded-2xl border border-border bg-input py-3 pl-12 pr-4 font-semibold outline-none transition focus:border-primary"
+              />
+            </div>
+          </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
-                  {paymentMethods.map(method => {
-                    const Icon = method.icon;
-                    const isSelected = paymentMethod === method.id;
-
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[1080px]">
+              <thead>
+                <tr className="border-b border-border text-left text-xs font-black uppercase tracking-wider text-muted-foreground">
+                  <th className="px-5 py-4">Request ID</th>
+                  <th className="px-5 py-4">Member name</th>
+                  <th className="px-5 py-4">Current package</th>
+                  <th className="px-5 py-4">Requested package</th>
+                  <th className="px-5 py-4">Type</th>
+                  <th className="px-5 py-4">Requested date</th>
+                  <th className="px-5 py-4">Amount</th>
+                  <th className="px-5 py-4">Status</th>
+                  <th className="px-5 py-4 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {isLoading ? (
+                  <tr>
+                    <td colSpan={9} className="px-5 py-12 text-center font-bold text-muted-foreground">
+                      Loading renewal requests...
+                    </td>
+                  </tr>
+                ) : filteredRequests.length === 0 ? (
+                  <tr>
+                    <td colSpan={9} className="px-5 py-12 text-center font-bold text-muted-foreground">
+                      No renewal requests found.
+                    </td>
+                  </tr>
+                ) : (
+                  filteredRequests.map((request) => {
+                    const canReview = ['pending_staff_approval', 'pending'].includes(request.status);
                     return (
-                      <button
-                        key={method.id}
-                        onClick={() => setPaymentMethod(method.id)}
-                        className={`p-6 rounded-2xl border-2 transition-all ${
-                          isSelected
-                            ? 'border-primary bg-gradient-to-br from-primary/20 to-destructive/20 shadow-[0_0_40px_rgba(255,0,0,0.4)] scale-105'
-                            : 'border-border hover:border-primary/50 hover:scale-105'
-                        }`}
-                      >
-                        <Icon className={`w-10 h-10 mx-auto mb-3 ${isSelected ? 'text-primary' : 'text-muted-foreground'}`} />
-                        <p className={`font-black mb-1 ${isSelected ? 'text-primary text-lg' : ''}`}>{method.name}</p>
-                        <p className="text-xs text-muted-foreground font-medium">{method.description}</p>
-                      </button>
+                      <tr key={request.requestId} className="border-b border-border/70 transition hover:bg-primary/5">
+                        <td className="px-5 py-4 font-mono text-sm font-black text-primary">{request.requestId}</td>
+                        <td className="px-5 py-4">
+                          <p className="font-black">{request.memberName}</p>
+                          <p className="text-xs text-muted-foreground">{request.memberEmail || request.memberId || '-'}</p>
+                        </td>
+                        <td className="px-5 py-4 text-sm font-semibold text-muted-foreground">{request.currentPackageName}</td>
+                        <td className="px-5 py-4 font-bold">{request.packageName}</td>
+                        <td className="px-5 py-4">
+                          <span className="rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-black text-primary">
+                            {requestTypeLabel(request.requestType)}
+                          </span>
+                        </td>
+                        <td className="px-5 py-4 text-sm font-semibold">{formatDate(request.createdAt)}</td>
+                        <td className="px-5 py-4 font-black">{formatVnd(request.amount)}</td>
+                        <td className="px-5 py-4">
+                          <span className={`rounded-full border px-3 py-1 text-xs font-black ${statusClass(request.status)}`}>
+                            {statusLabel(request.status)}
+                          </span>
+                        </td>
+                        <td className="px-5 py-4">
+                          <div className="flex justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setDetailRequest(request)}
+                              className="rounded-xl border border-border px-3 py-2 text-sm font-bold transition hover:border-primary hover:bg-primary/10"
+                            >
+                              View Detail
+                            </button>
+                            {canReview && (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => handleAccept(request)}
+                                  className="rounded-xl bg-emerald-500/15 px-3 py-2 text-sm font-black text-emerald-300 transition hover:bg-emerald-500/25"
+                                >
+                                  Accept
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setDenyTarget(request)}
+                                  className="rounded-xl bg-red-500/15 px-3 py-2 text-sm font-black text-red-300 transition hover:bg-red-500/25"
+                                >
+                                  Deny
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
                     );
-                  })}
-                </div>
-
-                {paymentMethod === 'credit_card' && (
-                  <div className="bg-gradient-to-br from-secondary/50 to-secondary/30 rounded-2xl p-6 border-2 border-primary/30 animate-in fade-in slide-in-from-top-4 duration-500">
-                    <h4 className="font-black mb-6 flex items-center gap-2 text-xl">
-                      <CreditCard className="w-6 h-6 text-primary" />
-                      CREDIT CARD INFORMATION
-                    </h4>
-                    <div className="space-y-4">
-                      <div>
-                        <label className="block text-sm font-bold mb-2 text-muted-foreground">Số thẻ</label>
-                        <input
-                          type="text"
-                          value={cardDetails.cardNumber}
-                          onChange={(e) => setCardDetails({ ...cardDetails, cardNumber: e.target.value })}
-                          placeholder="1234 5678 9012 3456"
-                          className="w-full bg-input px-4 py-4 rounded-xl border-2 border-border focus:border-primary focus:outline-none font-mono font-bold text-lg"
-                          maxLength={19}
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-bold mb-2 text-muted-foreground">Tên chủ thẻ</label>
-                        <input
-                          type="text"
-                          value={cardDetails.cardHolder}
-                          onChange={(e) => setCardDetails({ ...cardDetails, cardHolder: e.target.value })}
-                          placeholder="NGUYEN VAN A"
-                          className="w-full bg-input px-4 py-4 rounded-xl border-2 border-border focus:border-primary focus:outline-none font-bold text-lg uppercase"
-                        />
-                      </div>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-sm font-bold mb-2 text-muted-foreground">Ngày hết hạn</label>
-                          <input
-                            type="text"
-                            value={cardDetails.expiryDate}
-                            onChange={(e) => setCardDetails({ ...cardDetails, expiryDate: e.target.value })}
-                            placeholder="MM/YY"
-                            className="w-full bg-input px-4 py-4 rounded-xl border-2 border-border focus:border-primary focus:outline-none font-mono font-bold text-lg"
-                            maxLength={5}
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-bold mb-2 text-muted-foreground">CVV</label>
-                          <input
-                            type="text"
-                            value={cardDetails.cvv}
-                            onChange={(e) => setCardDetails({ ...cardDetails, cvv: e.target.value })}
-                            placeholder="123"
-                            className="w-full bg-input px-4 py-4 rounded-xl border-2 border-border focus:border-primary focus:outline-none font-mono font-bold text-lg"
-                            maxLength={3}
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  </div>
+                  })
                 )}
-
-                {paymentMethod === 'bank_transfer' && (
-                  <div className="bg-gradient-to-br from-secondary/50 to-secondary/30 rounded-2xl p-6 border-2 border-primary/30 animate-in fade-in slide-in-from-top-4 duration-500">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                      <div>
-                        <h4 className="font-black mb-6 text-xl">BANK ACCOUNT INFORMATION</h4>
-                        <div className="space-y-4">
-                          <div className="bg-card/50 rounded-xl p-4 border border-border">
-                            <p className="text-xs text-muted-foreground font-bold mb-1">TÊN NGÂN HÀNG</p>
-                            <p className="font-black text-lg">Vietcombank</p>
-                          </div>
-                          <div className="bg-card/50 rounded-xl p-4 border border-border">
-                            <p className="text-xs text-muted-foreground font-bold mb-1">SỐ TÀI KHOẢN</p>
-                            <p className="font-black font-mono text-lg">0123456789</p>
-                          </div>
-                          <div className="bg-card/50 rounded-xl p-4 border border-border">
-                            <p className="text-xs text-muted-foreground font-bold mb-1">CHỦ TÀI KHOẢN</p>
-                            <p className="font-black text-lg">GYM MANAGER CO., LTD</p>
-                          </div>
-                          <div className="bg-card/50 rounded-xl p-4 border border-primary/50">
-                            <p className="text-xs text-muted-foreground font-bold mb-1">NỘI DUNG CHUYỂN KHOẢN</p>
-                            <p className="font-black text-primary text-lg">{selectedMember.memberId} GIAHAN</p>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="flex items-center justify-center">
-                        <div className="bg-white p-8 rounded-3xl shadow-[0_0_40px_rgba(0,0,0,0.3)]">
-                          <QrCode className="w-56 h-56 text-black" />
-                          <p className="text-center text-black text-sm font-black mt-4">QUÉT MÃ QR ĐỂ THANH TOÁN</p>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {paymentMethod === 'ewallet' && (
-                  <div className="bg-gradient-to-br from-secondary/50 to-secondary/30 rounded-2xl p-6 border-2 border-primary/30 animate-in fade-in slide-in-from-top-4 duration-500">
-                    <h4 className="font-black mb-6 text-xl">SELECT E-WALLET</h4>
-                    <div className="grid grid-cols-3 gap-4">
-                      {['Momo', 'ZaloPay', 'VNPay'].map(wallet => (
-                        <button
-                          key={wallet}
-                          className="p-8 bg-card/50 rounded-2xl border-2 border-border hover:border-primary hover:scale-105 transition-all"
-                        >
-                          <Smartphone className="w-12 h-12 text-primary mx-auto mb-3" />
-                          <p className="font-black text-lg">{wallet}</p>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {paymentMethod === 'cash' && (
-                  <div className="bg-gradient-to-br from-secondary/50 to-secondary/30 rounded-2xl p-6 border-2 border-primary/30 animate-in fade-in slide-in-from-top-4 duration-500">
-                    <div className="text-center py-12">
-                      <Wallet className="w-20 h-20 text-primary mx-auto mb-6" />
-                      <h4 className="font-black text-2xl mb-3">CASH PAYMENT</h4>
-                      <p className="text-muted-foreground text-lg">Vui lòng đến quầy để hoàn tất thanh toán</p>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Payment Summary */}
-              {paymentMethod && (
-                <div className="backdrop-blur-xl bg-gradient-to-br from-card/95 to-secondary/60 border-4 border-primary/50 rounded-3xl p-8 mb-6 shadow-[0_0_60px_rgba(255,0,0,0.4)] relative overflow-hidden">
-                  <div className="absolute top-0 right-0 w-64 h-64 bg-primary/20 rounded-full blur-3xl"></div>
-                  <div className="absolute bottom-0 left-0 w-64 h-64 bg-destructive/20 rounded-full blur-3xl"></div>
-
-                  <div className="relative z-10">
-                    <h3 className="text-3xl font-black mb-6 flex items-center gap-3">
-                      <DollarSign className="w-8 h-8 text-primary" />
-                      TỔNG QUAN THANH TOÁN
-                    </h3>
-                    <div className="space-y-4">
-                      <div className="flex items-center justify-between py-4 border-b-2 border-border/50">
-                        <p className="text-muted-foreground font-bold">Gói tập</p>
-                        <p className="font-black text-xl">{packages.find(p => p.packageId === selectedPackage)?.packageName}</p>
-                      </div>
-                      <div className="flex items-center justify-between py-4 border-b-2 border-border/50">
-                        <p className="text-muted-foreground font-bold">Thời hạn</p>
-                        <p className="font-black text-xl">{packages.find(p => p.packageId === selectedPackage)?.durationInMonths} tháng</p>
-                      </div>
-                      <div className="flex items-center justify-between py-4 border-b-2 border-border/50">
-                        <p className="text-muted-foreground font-bold">Ngày bắt đầu</p>
-                        <p className="font-black text-xl">{dates.start}</p>
-                      </div>
-                      <div className="flex items-center justify-between py-4 border-b-2 border-border/50">
-                        <p className="text-muted-foreground font-bold">Ngày kết thúc</p>
-                        <p className="font-black text-xl">{dates.end}</p>
-                      </div>
-                      <div className="flex items-center justify-between py-4 border-b-2 border-border/50">
-                        <p className="text-muted-foreground font-bold">Phương thức</p>
-                        <p className="font-black text-xl">{paymentMethods.find(m => m.id === paymentMethod)?.name}</p>
-                      </div>
-                      <div className="flex items-center justify-between pt-6">
-                        <p className="text-3xl font-black">TỔNG CỘNG</p>
-                        <div className="text-right">
-                          <p className="text-5xl font-black text-primary">
-                            {packages.find(p => p.packageId === selectedPackage)?.price.toLocaleString('vi-VN')}
-                          </p>
-                          <p className="text-xl font-bold text-muted-foreground">VNĐ</p>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {error && (
-                <div className="bg-destructive/20 border-2 border-destructive rounded-2xl p-6 mb-6 flex items-center gap-3 animate-in fade-in slide-in-from-top-2">
-                  <AlertCircle className="w-6 h-6 text-destructive" />
-                  <p className="text-destructive font-bold text-lg">{error}</p>
-                </div>
-              )}
-
-              <div className="flex gap-4">
-                <button onClick={() => setStep(2)} className="px-12 py-5 border-4 border-border hover:bg-secondary rounded-3xl transition-all font-black text-xl">
-                  ← Back
-                </button>
-                <button
-                  onClick={handleConfirmRenewal}
-                  disabled={loading || !paymentMethod}
-                  className="flex-1 bg-gradient-to-r from-primary to-destructive text-white px-10 py-6 rounded-3xl font-black text-xl hover:shadow-[0_0_60px_rgba(255,0,0,0.8)] transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-none"
-                >
-                  {loading ? (
-                    <span className="flex items-center justify-center gap-3">
-                      <div className="w-7 h-7 border-4 border-white border-t-transparent rounded-full animate-spin"></div>
-                      PROCESSING...
-                    </span>
-                  ) : (
-                    'CONFIRM PAYMENT'
-                  )}
-                </button>
-              </div>
-            </>
-          )}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
+
+      {showAddModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-2xl rounded-3xl border border-border bg-card p-6 shadow-[0_0_70px_rgba(255,0,0,0.25)]">
+            <div className="mb-6 flex items-center justify-between">
+              <div>
+                <h3 className="text-2xl font-black">Add New Renewal Action</h3>
+                <p className="mt-1 text-sm text-muted-foreground">Create a staff-approved manual renewal record.</p>
+              </div>
+              <button type="button" onClick={() => setShowAddModal(false)} className="rounded-xl p-2 hover:bg-secondary">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <label className="space-y-2">
+                <span className="text-sm font-black uppercase text-muted-foreground">Member</span>
+                <select
+                  value={manualForm.memberId}
+                  onChange={(event) => setManualForm({ ...manualForm, memberId: event.target.value })}
+                  className="w-full rounded-2xl border border-border bg-input px-4 py-3 font-bold outline-none focus:border-primary"
+                >
+                  {members.map((member) => (
+                    <option key={member.id} value={member.id}>
+                      {member.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="space-y-2">
+                <span className="text-sm font-black uppercase text-muted-foreground">Requested package</span>
+                <select
+                  value={manualForm.packageId}
+                  onChange={(event) => setManualForm({ ...manualForm, packageId: event.target.value })}
+                  className="w-full rounded-2xl border border-border bg-input px-4 py-3 font-bold outline-none focus:border-primary"
+                >
+                  {packages.map((pkg) => (
+                    <option key={pkg.id} value={pkg.id}>
+                      {pkg.name} - {formatVnd(pkg.price)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="space-y-2">
+                <span className="text-sm font-black uppercase text-muted-foreground">Request type</span>
+                <select
+                  value={manualForm.requestType}
+                  onChange={(event) => setManualForm({ ...manualForm, requestType: event.target.value })}
+                  className="w-full rounded-2xl border border-border bg-input px-4 py-3 font-bold outline-none focus:border-primary"
+                >
+                  <option value="buy">Buy</option>
+                  <option value="renewal">Renew</option>
+                  <option value="upgrade">Upgrade</option>
+                </select>
+              </label>
+
+              <label className="space-y-2">
+                <span className="text-sm font-black uppercase text-muted-foreground">Payment method</span>
+                <select
+                  value={manualForm.paymentMethod}
+                  onChange={(event) => setManualForm({ ...manualForm, paymentMethod: event.target.value })}
+                  className="w-full rounded-2xl border border-border bg-input px-4 py-3 font-bold outline-none focus:border-primary"
+                >
+                  {paymentMethods.map((method) => (
+                    <option key={method.id} value={method.id}>
+                      {method.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            <div className="mt-6 rounded-2xl border border-primary/25 bg-primary/10 p-4">
+              <div className="flex items-start gap-3">
+                <CreditCard className="mt-1 h-5 w-5 text-primary" />
+                <p className="text-sm font-semibold text-muted-foreground">
+                  This action records a staff-approved renewal in the local MVP request queue. It does not charge a real
+                  payment provider.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setShowAddModal(false)}
+                className="rounded-2xl border border-border px-5 py-3 font-black transition hover:bg-secondary"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleCreateManualRequest}
+                className="rounded-2xl bg-gradient-to-r from-primary to-destructive px-5 py-3 font-black text-white transition hover:scale-[1.02]"
+              >
+                Confirm
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {denyTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-xl rounded-3xl border border-border bg-card p-6 shadow-[0_0_70px_rgba(255,0,0,0.25)]">
+            <div className="mb-5 flex items-center justify-between">
+              <h3 className="text-2xl font-black">Deny Request</h3>
+              <button type="button" onClick={() => setDenyTarget(null)} className="rounded-xl p-2 hover:bg-secondary">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <p className="mb-4 text-sm text-muted-foreground">
+              Add a reason for denying <span className="font-bold text-foreground">{denyTarget.requestId}</span>.
+            </p>
+            <textarea
+              value={denyReason}
+              onChange={(event) => setDenyReason(event.target.value)}
+              rows={4}
+              placeholder="Reason for denial..."
+              className="w-full resize-none rounded-2xl border border-border bg-input p-4 font-semibold outline-none focus:border-primary"
+            />
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setDenyTarget(null)}
+                className="rounded-2xl border border-border px-5 py-3 font-black transition hover:bg-secondary"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleDeny}
+                className="rounded-2xl bg-red-500/20 px-5 py-3 font-black text-red-300 transition hover:bg-red-500/30"
+              >
+                Deny
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {detailRequest && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-2xl rounded-3xl border border-border bg-card p-6 shadow-[0_0_70px_rgba(255,0,0,0.25)]">
+            <div className="mb-6 flex items-center justify-between">
+              <div>
+                <h3 className="text-2xl font-black">Request Detail</h3>
+                <p className="mt-1 font-mono text-sm text-primary">{detailRequest.requestId}</p>
+              </div>
+              <button type="button" onClick={() => setDetailRequest(null)} className="rounded-xl p-2 hover:bg-secondary">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              {[
+                ['Member', detailRequest.memberName],
+                ['Member email', detailRequest.memberEmail || '-'],
+                ['Current package', detailRequest.currentPackageName],
+                ['Requested package', detailRequest.packageName],
+                ['Request type', requestTypeLabel(detailRequest.requestType)],
+                ['Payment method', detailRequest.paymentMethod || '-'],
+                ['Amount', formatVnd(detailRequest.amount)],
+                ['Status', statusLabel(detailRequest.status)],
+                ['Requested date', formatDate(detailRequest.createdAt)],
+                ['Reviewed date', formatDate(detailRequest.reviewedAt)],
+              ].map(([label, value]) => (
+                <div key={label} className="rounded-2xl border border-border bg-secondary/30 p-4">
+                  <p className="text-xs font-black uppercase text-muted-foreground">{label}</p>
+                  <p className="mt-2 font-bold">{value}</p>
+                </div>
+              ))}
+            </div>
+
+            {detailRequest.denyReason && (
+              <div className="mt-4 rounded-2xl border border-red-500/30 bg-red-500/10 p-4">
+                <p className="text-xs font-black uppercase text-red-300">Deny reason</p>
+                <p className="mt-2 font-semibold">{detailRequest.denyReason}</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

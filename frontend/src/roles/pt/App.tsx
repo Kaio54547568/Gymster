@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   LayoutDashboard, Users, CalendarDays, Dumbbell, BarChart2,
   Bell, Settings, LogOut, Search, Plus, Edit2, Trash2, Eye,
@@ -13,7 +13,21 @@ import {
   PieChart, Pie, Cell
 } from "recharts";
 import RoleShell, { type RoleShellItem } from "../shared/RoleShell";
+import AccountSettings from "../shared/AccountSettings";
 import { useLanguage, type AppLanguage } from "../shared/LanguageContext";
+import { useSupabaseUserProfile } from "../shared/useSupabaseUserProfile";
+import { getTrainingRequests, updateTrainingRequest } from "../../services/trainerService";
+import { getCurrentUser } from "../../services/authService";
+import {
+  getTrainingRequestsForTrainer,
+  updateTrainingRequestStatus,
+} from "../../services/trainingRequestApi";
+import {
+  getWorkoutSessionStatusLabel,
+  getWorkoutSessionsForTrainer,
+  updateWorkoutSessionStatus,
+} from "../../services/workoutSessionApi";
+import { updateCurrentUserProfile } from "../../services/userProfileApi";
 
 // ─────────────────────────────────────────────
 // TYPES
@@ -25,12 +39,14 @@ type Screen =
   | "schedule"
   | "workout"
   | "evaluation"
+  | "meal-plan"
   | "settings"
   | "profile";
 
 type AssignmentStatus = "Active" | "Paused" | "Completed";
-type ScheduleStatus = "Scheduled" | "Done" | "Cancelled";
+type ScheduleStatus = "Scheduled" | "Done" | "Cancelled" | "No Show" | "Pending Reschedule";
 type GoalStatus = "In Progress" | "Completed" | "Overdue";
+type MealPlanStatus = "Draft" | "Assigned" | "Completed";
 
 interface Member {
   id: string; name: string; phone: string; email: string;
@@ -43,6 +59,7 @@ interface TrainerAssignment {
 interface TrainingSchedule {
   scheduleId: string; memberId: string; trainingDate: string;
   trainingTime: string; exerciseType: string; status: ScheduleStatus; duration: number;
+  memberName?: string; packageName?: string; roomName?: string; notes?: string; source?: string;
 }
 interface ProgressRecord {
   progressId: string; memberId: string; scheduleId: string;
@@ -59,9 +76,22 @@ interface TrainingGoal {
 interface BodyMetric {
   metricId: string; memberId: string; weight: number; bodyFatRate: number; measuredDate: string;
 }
+interface MedicalHistory {
+  memberId: string; conditions: string; injuries: string; allergies: string;
+  medicationNotes: string; trainingRestrictions: string; emergencyContact: string; lastUpdated: string;
+}
+interface BodyMetricDetail {
+  memberId: string; height: string; weight: string; bmi: string; bodyFatPercentage: string;
+  bloodPressure: string; restingHeartRate: string; fitnessGoal: string; latestMeasurementDate: string;
+}
 interface ProgressEvaluation {
   evaluationId: string; memberId: string; evaluationDate: string; overallComment: string;
   strengths: string; improvements: string; recommendation: string; rating: number;
+}
+interface MealPlan {
+  id: string; name: string; goal: string; caloriesPerDay: number;
+  breakfast: string; lunch: string; dinner: string; snacks: string; notes: string;
+  assignedMemberId: string; startDate: string; endDate: string; status: MealPlanStatus;
 }
 interface AppNotification {
   id: string; type: "info" | "warning" | "success" | "error";
@@ -76,6 +106,7 @@ const TRAINER = {
   phone: "0909 123 456", email: "minh.nguyen@gymfit.vn",
   experience: "5 năm", avatar: "NVM",
 };
+const LOCAL_TRAINER_ID = "PT001";
 
 const SPECIALTY_OPTIONS = [
   "PT Strength & Conditioning",
@@ -136,6 +167,21 @@ const BODY_METRICS: BodyMetric[] = [
   { metricId: "BM003", memberId: "MEM001", weight: 74.0, bodyFatRate: 20.5, measuredDate: "01/04" },
   { metricId: "BM004", memberId: "MEM001", weight: 73.1, bodyFatRate: 19.5, measuredDate: "15/04" },
   { metricId: "BM005", memberId: "MEM001", weight: 72.4, bodyFatRate: 18.8, measuredDate: "01/05" },
+];
+
+const MEDICAL_HISTORIES: MedicalHistory[] = [
+  { memberId: "MEM001", conditions: "Mild hypertension, monitored by physician", injuries: "Old right knee sprain, no acute pain", allergies: "No known food allergies", medicationNotes: "Takes blood pressure medication in the morning", trainingRestrictions: "Avoid maximal knee-loaded jumps and monitor blood pressure during HIIT", emergencyContact: "Nguyen Thi B - 0908 111 222", lastUpdated: "2026-05-10" },
+  { memberId: "MEM002", conditions: "None reported", injuries: "Lower back tightness after long sitting", allergies: "Lactose intolerance", medicationNotes: "No regular medication", trainingRestrictions: "Warm up lower back and avoid heavy deadlift until form improves", emergencyContact: "Tran Van C - 0911 333 444", lastUpdated: "2026-05-08" },
+];
+
+const BODY_METRIC_DETAILS: BodyMetricDetail[] = [
+  { memberId: "MEM001", height: "172 cm", weight: "72.4 kg", bmi: "24.5", bodyFatPercentage: "18.8%", bloodPressure: "128/82 mmHg", restingHeartRate: "64 bpm", fitnessGoal: "Build lean muscle and reduce body fat", latestMeasurementDate: "2026-05-01" },
+  { memberId: "MEM002", height: "178 cm", weight: "84.0 kg", bmi: "26.5", bodyFatPercentage: "23.0%", bloodPressure: "122/78 mmHg", restingHeartRate: "70 bpm", fitnessGoal: "Weight loss and cardio endurance", latestMeasurementDate: "2026-05-03" },
+];
+
+const INITIAL_MEAL_PLANS: MealPlan[] = [
+  { id: "MP001", name: "Lean Strength Plan", goal: "Muscle Gain", caloriesPerDay: 2600, breakfast: "Oats, eggs, banana, black coffee", lunch: "Chicken breast, brown rice, vegetables", dinner: "Salmon, sweet potato, mixed salad", snacks: "Greek yogurt, whey protein, almonds", notes: "Increase protein on heavy lifting days.", assignedMemberId: "MEM001", startDate: "2026-05-18", endDate: "2026-06-18", status: "Assigned" },
+  { id: "MP002", name: "Recovery Balance Template", goal: "Recovery", caloriesPerDay: 2200, breakfast: "Smoothie bowl with berries and protein", lunch: "Lean beef, quinoa, steamed greens", dinner: "Turkey, rice noodles, vegetables", snacks: "Fruit, nuts, electrolyte drink", notes: "Use as a template for recovery-focused members.", assignedMemberId: "", startDate: "", endDate: "", status: "Draft" },
 ];
 
 const EVALUATIONS: ProgressEvaluation[] = [
@@ -329,6 +375,7 @@ const NAV_ITEMS = [
   { id: "schedule", label: "Schedule & Progress", icon: CalendarDays },
   { id: "workout", label: "Workout Guidance", icon: Dumbbell },
   { id: "evaluation", label: "Progress Evaluation", icon: BarChart2 },
+  { id: "meal-plan", label: "Meal Plans", icon: Target },
   { id: "settings", label: "Settings", icon: Settings },
 ] as const;
 
@@ -464,7 +511,7 @@ function DashboardScreen({ onNavigate, onViewMember }: { onNavigate: (s: Screen)
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="lg:col-span-2 bg-[#181818] border border-white/5 rounded-xl p-5">
           <div className="flex items-center justify-between mb-5">
-            <h3 className="text-white font-semibold text-sm">Buổi tập trong tuần</h3>
+            <h3 className="text-white font-semibold text-sm">Weekly Sessions</h3>
             <span className="text-[#555] text-xs">Tuần 05–11/05/2025</span>
           </div>
           <ResponsiveContainer width="100%" height={190}>
@@ -549,7 +596,7 @@ function DashboardScreen({ onNavigate, onViewMember }: { onNavigate: (s: Screen)
       {/* Today's Schedule */}
       <div className="bg-[#181818] border border-white/5 rounded-xl overflow-hidden">
         <div className="flex items-center justify-between px-5 py-4 border-b border-white/5">
-          <h3 className="text-white font-semibold text-sm">Lịch tập hôm nay — 06/05/2025</h3>
+          <h3 className="text-white font-semibold text-sm">Today&apos;s Schedule</h3>
           <button onClick={() => onNavigate("schedule")} className="text-[#FF3B3B] text-xs font-medium hover:underline">View All</button>
         </div>
         <div className="divide-y divide-white/5">
@@ -578,6 +625,131 @@ function DashboardScreen({ onNavigate, onViewMember }: { onNavigate: (s: Screen)
         </div>
       </div>
     </div>
+  );
+}
+
+function TrainingRequestsPanel({ showToast }: { showToast: (msg: string) => void }) {
+  const [requests, setRequests] = useState(getTrainingRequests());
+  const [declineTarget, setDeclineTarget] = useState<any>(null);
+  const [declineReason, setDeclineReason] = useState("");
+  const [isLoadingRequests, setIsLoadingRequests] = useState(true);
+  const [requestLoadMessage, setRequestLoadMessage] = useState("");
+  const ptRequests = requests.filter((request: any) => request.source === "supabase" || request.trainerName === TRAINER.name || request.trainerId === LOCAL_TRAINER_ID);
+
+  const loadRequests = async () => {
+    setIsLoadingRequests(true);
+    const currentUser = getCurrentUser();
+    const trainerLookup = currentUser?.trainerId || currentUser?.email || TRAINER.email;
+    const { data, error } = await getTrainingRequestsForTrainer(trainerLookup);
+
+    if (error || !data.length) {
+      setRequests(getTrainingRequests());
+      setRequestLoadMessage(error ? "Supabase requests could not be loaded. Showing demo requests." : "No Supabase training requests were returned. Showing demo requests.");
+    } else {
+      setRequests(data);
+      setRequestLoadMessage("");
+    }
+
+    setIsLoadingRequests(false);
+  };
+
+  useEffect(() => {
+    loadRequests();
+  }, []);
+
+  const refreshLocalRequests = () => setRequests(getTrainingRequests());
+
+  const isPendingRequest = (request: any) => {
+    return ["Pending PT Approval", "Pending", "Pending Approval", "pending_pt_approval"].includes(request.status) || request.rawStatus === "pending_pt_approval";
+  };
+
+  const getRequestStatus = (request: any) => request.statusLabel || request.status;
+
+  const acceptRequest = async (request: any) => {
+    if (request.source === "supabase") {
+      const { error } = await updateTrainingRequestStatus(request.requestId || request.id, "accepted", "");
+      if (error) {
+        updateTrainingRequest(request.id, { status: "Accepted", declineReason: "" });
+        refreshLocalRequests();
+        showToast("Supabase update failed. Demo request was accepted locally.");
+        return;
+      }
+
+      await loadRequests();
+    } else {
+      updateTrainingRequest(request.id, { status: "Accepted", declineReason: "" });
+      refreshLocalRequests();
+    }
+
+    showToast(`${request.type === "reschedule" ? "Reschedule" : "Assignment"} request accepted.`);
+  };
+
+  const submitDecline = async () => {
+    if (!declineTarget) return;
+    const nextDeclineReason = declineReason.trim() || "PT declined this request.";
+
+    if (declineTarget.source === "supabase") {
+      const { error } = await updateTrainingRequestStatus(declineTarget.requestId || declineTarget.id, "declined", nextDeclineReason);
+      if (error) {
+        updateTrainingRequest(declineTarget.id, { status: "Declined", declineReason: nextDeclineReason });
+        refreshLocalRequests();
+        showToast("Supabase update failed. Demo request was declined locally.");
+      } else {
+        await loadRequests();
+        showToast("Request declined and member notified.");
+      }
+    } else {
+      updateTrainingRequest(declineTarget.id, { status: "Declined", declineReason: nextDeclineReason });
+      refreshLocalRequests();
+      showToast("Request declined and member notified.");
+    }
+
+    setDeclineTarget(null);
+    setDeclineReason("");
+  };
+
+  return (
+    <SectionCard title="PT Approval Requests">
+      <div className="space-y-3">
+        {isLoadingRequests && <p className="text-sm text-[#777]">Loading training requests...</p>}
+        {requestLoadMessage && !isLoadingRequests && <p className="rounded-lg border border-amber-400/20 bg-amber-400/10 p-3 text-xs font-bold text-amber-300">{requestLoadMessage}</p>}
+        {ptRequests.map((request: any) => (
+          <div key={request.id} className="rounded-xl border border-white/8 bg-[#111] p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <div className="text-sm font-bold text-white">{request.memberName}</div>
+                <div className="mt-1 text-xs text-[#777]">{request.type === "reschedule" ? "Reschedule request" : "New member assignment"}</div>
+                <div className="mt-2 text-xs text-[#BDBDBD]">Preferred: {request.preferredSchedule}</div>
+                {request.currentSchedule && <div className="mt-1 text-xs text-[#777]">Current: {request.currentSchedule}</div>}
+                {request.declineReason && <div className="mt-2 text-xs text-amber-300">Reason: {request.declineReason}</div>}
+              </div>
+              <Badge status={getRequestStatus(request)} />
+            </div>
+            {isPendingRequest(request) && (
+              <div className="mt-4 flex gap-2">
+                <button onClick={() => acceptRequest(request)} className="rounded-lg bg-emerald-500/15 px-3 py-2 text-xs font-bold text-emerald-300 hover:bg-emerald-500/25">Accept</button>
+                <button onClick={() => setDeclineTarget(request)} className="rounded-lg bg-red-500/15 px-3 py-2 text-xs font-bold text-red-300 hover:bg-red-500/25">Decline</button>
+              </div>
+            )}
+          </div>
+        ))}
+        {ptRequests.length === 0 && <p className="text-sm text-[#777]">No pending trainer requests.</p>}
+      </div>
+
+      {declineTarget && (
+        <ModalOverlay onClose={() => setDeclineTarget(null)}>
+          <div className="bg-[#181818] border border-red-400/30 rounded-xl p-5 w-full max-w-lg">
+            <h3 className="text-white font-bold text-lg mb-2">Decline Request</h3>
+            <p className="text-[#888] text-sm mb-4">Add a reason so the member can choose another PT or another schedule.</p>
+            <textarea value={declineReason} onChange={(event) => setDeclineReason(event.target.value)} className="min-h-28 w-full rounded-lg border border-white/10 bg-[#111] px-3 py-2 text-sm text-white outline-none focus:border-[#FF3B3B]" placeholder="Reason for declining..." />
+            <div className="mt-4 flex gap-2">
+              <button onClick={submitDecline} className="flex-1 rounded-lg bg-[#FF3B3B] px-4 py-2 text-sm font-bold text-white">Confirm Decline</button>
+              <button onClick={() => setDeclineTarget(null)} className="rounded-lg border border-white/10 px-4 py-2 text-sm font-bold text-white">Cancel</button>
+            </div>
+          </div>
+        </ModalOverlay>
+      )}
+    </SectionCard>
   );
 }
 
@@ -741,12 +913,16 @@ function MemberDetailScreen({
   const memberRecords = PROGRESS_RECORDS.filter(r => r.memberId === memberId);
   const memberMetrics = BODY_METRICS.filter(bm => bm.memberId === memberId);
   const memberEvals = EVALUATIONS.filter(e => e.memberId === memberId);
+  const medicalHistory = MEDICAL_HISTORIES.find(item => item.memberId === memberId);
+  const bodyMetricDetail = BODY_METRIC_DETAILS.find(item => item.memberId === memberId);
+  const assignedMealPlan = INITIAL_MEAL_PLANS.find(plan => plan.assignedMemberId === memberId && plan.status === "Assigned");
 
   const tabs = [
     { id: "overview", label: "Tổng quan" },
     { id: "schedule", label: "Lịch tập" },
     { id: "progress", label: "Tiến độ" },
     { id: "evaluation", label: "Đánh giá" },
+    { id: "medical", label: "Medical History" },
   ];
 
   return (
@@ -933,6 +1109,68 @@ function MemberDetailScreen({
           </div>
         </SectionCard>
       )}
+
+      {tab === "medical" && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <SectionCard title="Medical History">
+            {medicalHistory ? (
+              <div className="space-y-3">
+                {[
+                  ["Existing conditions", medicalHistory.conditions],
+                  ["Injuries", medicalHistory.injuries],
+                  ["Allergies", medicalHistory.allergies],
+                  ["Medication notes", medicalHistory.medicationNotes],
+                  ["Training restrictions", medicalHistory.trainingRestrictions],
+                  ["Emergency contact", medicalHistory.emergencyContact],
+                  ["Last updated", medicalHistory.lastUpdated],
+                ].map(([label, value]) => (
+                  <div key={label} className="rounded-lg bg-[#222] p-3">
+                    <div className="text-[#777] text-xs uppercase tracking-widest">{label}</div>
+                    <div className="text-white text-sm mt-1">{value}</div>
+                  </div>
+                ))}
+              </div>
+            ) : <p className="text-[#555] text-xs">No medical history available for this member.</p>}
+          </SectionCard>
+
+          <SectionCard title="Body Metrics">
+            {bodyMetricDetail ? (
+              <div className="grid grid-cols-2 gap-3">
+                {[
+                  ["Height", bodyMetricDetail.height],
+                  ["Weight", bodyMetricDetail.weight],
+                  ["BMI", bodyMetricDetail.bmi],
+                  ["Body fat", bodyMetricDetail.bodyFatPercentage],
+                  ["Blood pressure", bodyMetricDetail.bloodPressure],
+                  ["Resting heart rate", bodyMetricDetail.restingHeartRate],
+                  ["Fitness goal", bodyMetricDetail.fitnessGoal],
+                  ["Latest measurement", bodyMetricDetail.latestMeasurementDate],
+                ].map(([label, value]) => (
+                  <div key={label} className="rounded-lg bg-[#222] p-3">
+                    <div className="text-[#777] text-xs uppercase tracking-widest">{label}</div>
+                    <div className="text-white text-sm font-semibold mt-1">{value}</div>
+                  </div>
+                ))}
+              </div>
+            ) : <p className="text-[#555] text-xs">No body metrics available for this member.</p>}
+          </SectionCard>
+
+          <SectionCard title="Assigned Meal Plan">
+            {assignedMealPlan ? (
+              <div className="space-y-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-white text-sm font-semibold">{assignedMealPlan.name}</div>
+                    <div className="text-[#777] text-xs mt-1">{assignedMealPlan.goal} - {assignedMealPlan.caloriesPerDay} kcal/day</div>
+                  </div>
+                  <Badge status={assignedMealPlan.status} />
+                </div>
+                <p className="text-[#BDBDBD] text-xs">{assignedMealPlan.notes}</p>
+              </div>
+            ) : <p className="text-[#555] text-xs">No meal plan assigned yet.</p>}
+          </SectionCard>
+        </div>
+      )}
     </div>
   );
 }
@@ -941,24 +1179,135 @@ function MemberDetailScreen({
 // SCREEN 4: SCHEDULE & PROGRESS
 // ─────────────────────────────────────────────
 function ScheduleProgressScreen({
-  onAddSchedule, onUpdateProgress,
+  onAddSchedule, onUpdateProgress, onViewMember, showToast,
 }: {
   onAddSchedule: () => void;
   onUpdateProgress: () => void;
+  onViewMember: (id: string) => void;
+  showToast: (msg: string) => void;
 }) {
-  const days = ["04/05", "05/05", "06/05", "07/05", "08/05", "09/05", "10/05"];
-  const dayLabels = ["T7", "CN", "T2", "T3", "T4", "T5", "T6"];
-  const [selectedDay, setSelectedDay] = useState("06/05");
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
+  type CalendarView = "Day" | "Week" | "Month" | "Agenda";
+  const [view, setView] = useState<CalendarView>("Week");
+  const [selectedSession, setSelectedSession] = useState<TrainingSchedule | null>(null);
+  const [sessions, setSessions] = useState<TrainingSchedule[]>([]);
+  const [isLoadingSessions, setIsLoadingSessions] = useState(true);
+  const [sessionLoadMessage, setSessionLoadMessage] = useState("");
+  const days = [
+    { key: "04/05", label: "Sun", date: "4" },
+    { key: "05/05", label: "Mon", date: "5" },
+    { key: "06/05", label: "Tue", date: "6" },
+    { key: "07/05", label: "Wed", date: "7" },
+    { key: "08/05", label: "Thu", date: "8" },
+    { key: "09/05", label: "Fri", date: "9" },
+    { key: "10/05", label: "Sat", date: "10" },
+  ];
+  const timeSlots = ["06:00", "07:00", "08:00", "09:00", "10:00", "11:00", "14:00", "15:00", "16:00", "17:00", "18:00", "19:00"];
+  const weekLabel = "May 4 - 10, 2025";
+  const sessionDay = (date: string) => date.slice(0, 5);
+  const sessionHour = (time: string) => Number(time.split(":")[0]);
+  const selectedMember = selectedSession
+    ? getMember(selectedSession.memberId) || {
+      id: selectedSession.memberId,
+      name: selectedSession.memberName || "Member",
+      phone: "",
+      email: "",
+      package: selectedSession.packageName || "Membership package",
+      avatar: "MB",
+      joinDate: "",
+      age: 0,
+      gender: "",
+    }
+    : null;
+  const visibleDays = view === "Day" ? days.filter(day => day.key === "06/05") : days;
+  const upcomingSessions = sessions.filter(item => item.status === "Scheduled" || item.status === "Pending Reschedule").slice(0, 5);
 
-  const todaySch = SCHEDULES.filter(s => s.trainingDate.startsWith(selectedDay));
+  const mapWorkoutSessionToTrainingSchedule = (session: any): TrainingSchedule => {
+    const startTime = String(session.startTime || "").slice(0, 5);
+    const endTime = String(session.endTime || "").slice(0, 5);
+    const sessionDate = session.sessionDate || "";
+    const parsedDate = sessionDate ? new Date(`${sessionDate}T00:00:00`) : null;
+
+    return {
+      scheduleId: session.sessionId,
+      memberId: session.memberId,
+      memberName: session.memberName || "Member",
+      packageName: session.packageName || "Membership package",
+      roomName: session.roomName || "PT Room",
+      trainingDate: parsedDate && !Number.isNaN(parsedDate.getTime())
+        ? parsedDate.toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", year: "numeric" })
+        : sessionDate || "-",
+      trainingTime: endTime ? `${startTime} - ${endTime}` : startTime,
+      exerciseType: session.sessionTitle || session.exerciseType || "Workout Session",
+      status: (getWorkoutSessionStatusLabel(session.status) === "Completed" ? "Done" : getWorkoutSessionStatusLabel(session.status)) as ScheduleStatus,
+      duration: 60,
+      notes: session.note || "",
+      source: "supabase",
+    };
+  };
+
+  useEffect(() => {
+    let isMounted = true;
+    setIsLoadingSessions(true);
+
+    getWorkoutSessionsForTrainer(getCurrentUser())
+      .then(({ data, error }) => {
+        if (!isMounted) return;
+
+        if (error) {
+          setSessions(SCHEDULES);
+          setSessionLoadMessage("Some trainer workout sessions could not be loaded. Demo schedule is shown temporarily.");
+        } else if (data.length) {
+          setSessions(data.map(mapWorkoutSessionToTrainingSchedule));
+          setSessionLoadMessage("");
+        } else {
+          setSessions([]);
+          setSessionLoadMessage("");
+        }
+
+        setIsLoadingSessions(false);
+      })
+      .catch(() => {
+        if (!isMounted) return;
+        setSessions(SCHEDULES);
+        setSessionLoadMessage("Some trainer workout sessions could not be loaded. Demo schedule is shown temporarily.");
+        setIsLoadingSessions(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const updateSessionStatus = async (id: string, status: ScheduleStatus) => {
+    const targetSession = sessions.find(item => item.scheduleId === id);
+
+    if (targetSession?.source === "supabase") {
+      const dbStatus = status === "Done" ? "completed" : status === "No Show" ? "no_show" : status === "Pending Reschedule" ? "pending_reschedule" : status.toLowerCase();
+      const { data, error } = await updateWorkoutSessionStatus(id, dbStatus);
+
+      if (error) {
+        showToast("Could not update session status in Supabase.");
+        return;
+      }
+
+      const mapped = mapWorkoutSessionToTrainingSchedule(data);
+      setSessions(prev => prev.map(item => item.scheduleId === id ? mapped : item));
+      setSelectedSession(prev => prev && prev.scheduleId === id ? mapped : prev);
+      showToast(`Session marked as ${status}.`);
+      return;
+    }
+
+    setSessions(prev => prev.map(item => item.scheduleId === id ? { ...item, status } : item));
+    setSelectedSession(prev => prev && prev.scheduleId === id ? { ...prev, status } : prev);
+    showToast(`Session marked as ${status}.`);
+  };
 
   return (
     <div className="space-y-5 pb-6">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-4xl text-white tracking-[0.08em]" style={{ fontFamily: "'Bebas Neue', sans-serif" }}>SCHEDULE & PROGRESS</h1>
-          <p className="text-[#555] text-xs mt-1">ScheduleProgressScreen · ScheduleProgressController</p>
+          <h1 className="text-4xl text-white tracking-[0.08em]" style={{ fontFamily: "'Bebas Neue', sans-serif" }}>PT CALENDAR</h1>
+          <p className="text-[#555] text-xs mt-1">Google Calendar-inspired schedule for member training sessions.</p>
         </div>
         <div className="flex gap-2">
           <GhostBtn icon={Activity} label="Update Progress" small onClick={onUpdateProgress} />
@@ -966,142 +1315,150 @@ function ScheduleProgressScreen({
         </div>
       </div>
 
-      {/* Day selector */}
       <div className="bg-[#181818] border border-white/5 rounded-xl p-4">
-        <div className="text-[#555] text-xs font-semibold mb-3 uppercase tracking-widest">Tuần 04 – 10/05/2025</div>
-        <div className="grid grid-cols-7 gap-2">
-          {days.map((d, i) => {
-            const count = SCHEDULES.filter(s => s.trainingDate.startsWith(d)).length;
-            const isSelected = selectedDay === d;
-            const isToday = d === "06/05";
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex flex-wrap items-center gap-2">
+            <button onClick={() => showToast("Calendar moved to today.")} className="rounded-full border border-white/10 px-4 py-2 text-sm font-semibold text-white hover:border-[#FF3B3B]">Today</button>
+            <button onClick={() => showToast("Previous week selected.")} className="size-9 rounded-full border border-white/10 text-[#999] hover:text-white">Prev</button>
+            <button onClick={() => showToast("Next week selected.")} className="size-9 rounded-full border border-white/10 text-[#999] hover:text-white">Next</button>
+            <div className="ml-2 text-white text-lg font-semibold">{weekLabel}</div>
+          </div>
+          <div className="flex rounded-full border border-white/10 bg-[#111] p-1">
+            {(["Day", "Week", "Month", "Agenda"] as CalendarView[]).map(item => (
+              <button key={item} onClick={() => setView(item)} className={`rounded-full px-4 py-1.5 text-xs font-semibold transition-all ${view === item ? "bg-[#FF3B3B] text-white shadow-[0_0_18px_rgba(255,59,59,0.35)]" : "text-[#777] hover:text-white"}`}>{item}</button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {isLoadingSessions && (
+        <div className="rounded-xl border border-white/5 bg-[#181818] p-4 text-sm font-semibold text-[#777]">
+          Loading workout sessions from Supabase...
+        </div>
+      )}
+      {sessionLoadMessage && !isLoadingSessions && (
+        <div className="rounded-xl border border-amber-400/20 bg-amber-400/10 p-4 text-sm font-semibold text-amber-300">
+          {sessionLoadMessage}
+        </div>
+      )}
+      {!isLoadingSessions && !sessionLoadMessage && sessions.length === 0 && (
+        <div className="rounded-xl border border-white/5 bg-[#181818] p-8 text-center text-sm font-semibold text-[#777]">
+          No assigned workout sessions found.
+        </div>
+      )}
+
+      {view === "Agenda" ? (
+        <div className="bg-[#181818] border border-white/5 rounded-xl p-4 space-y-3">
+          {sessions.map(session => {
+            const member = getMember(session.memberId);
             return (
-              <button
-                key={d}
-                onClick={() => setSelectedDay(d)}
-                className={`flex flex-col items-center py-3 rounded-xl transition-all ${isSelected ? "bg-[#FF3B3B] text-white" : "bg-[#222] text-[#666] hover:bg-[#2a2a2a] hover:text-white"}`}
-              >
-                <span className="text-xs font-semibold">{dayLabels[i]}</span>
-                <span className={`text-lg font-bold mt-0.5 ${isToday && !isSelected ? "text-[#FF3B3B]" : ""}`}>{d.split("/")[0]}</span>
-                {count > 0 && (
-                  <div className={`mt-1 flex gap-0.5 ${isSelected ? "opacity-80" : ""}`}>
-                    {Array.from({ length: Math.min(count, 4) }).map((_, j) => (
-                      <div key={j} className={`size-1 rounded-full ${isSelected ? "bg-white" : "bg-[#FF3B3B]"}`} />
-                    ))}
+              <button key={session.scheduleId} onClick={() => setSelectedSession(session)} className="w-full rounded-xl border border-white/5 bg-[#111] p-4 text-left hover:border-[#FF3B3B]/50">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-white text-sm font-semibold">{session.exerciseType}</div>
+                    <div className="text-[#777] text-xs mt-1">{member?.name || session.memberName || "Member"} - {session.trainingDate} - {session.trainingTime} - {session.roomName || "Room A2"}</div>
                   </div>
-                )}
+                  <Badge status={session.status} />
+                </div>
               </button>
             );
           })}
         </div>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
-        {/* Schedule list */}
-        <div className="lg:col-span-3 space-y-3">
-          <div className="flex items-center justify-between">
-            <h3 className="text-white font-semibold text-sm">{selectedDay}/2025 — {todaySch.length} buổi tập</h3>
-          </div>
-          {todaySch.length === 0 && (
-            <div className="bg-[#181818] border border-white/5 rounded-xl py-12 text-center">
-              <CalendarDays className="size-10 mx-auto mb-3 text-[#333]" />
-              <p className="text-[#555] text-sm">Không có buổi tập nào</p>
-            </div>
-          )}
-          {todaySch.map(sch => {
-            const m = getMember(sch.memberId);
-            if (!m) return null;
-            return (
-              <div key={sch.scheduleId} className="bg-[#181818] border border-white/5 rounded-xl p-4">
-                <div className="flex items-start gap-4">
-                  <div className="bg-[#FF3B3B]/10 border border-[#FF3B3B]/20 rounded-lg px-3 py-2 text-center shrink-0">
-                    <div className="text-[#FF3B3B] text-lg font-bold leading-none">{sch.trainingTime}</div>
-                    <div className="text-[#FF3B3B]/60 text-xs mt-0.5">{sch.duration}ph</div>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <div className="text-white font-semibold text-sm">{m.name}</div>
-                        <div className="text-[#BDBDBD] text-xs mt-0.5">{sch.exerciseType}</div>
-                        <div className="text-[#555] text-xs mt-0.5">{sch.scheduleId} · {m.id}</div>
-                      </div>
-                      <Badge status={sch.status} />
-                    </div>
-                    <div className="flex gap-2 mt-3">
-                      <button className="flex items-center gap-1.5 text-xs text-[#666] hover:text-white bg-[#222] hover:bg-[#2a2a2a] px-2.5 py-1.5 rounded-lg transition-all">
-                        <Edit2 className="size-3" /> Edit Schedule
-                      </button>
-                      {sch.status === "Done" && (
-                        <button onClick={onUpdateProgress} className="flex items-center gap-1.5 text-xs text-[#FF3B3B] hover:text-white bg-[#FF3B3B]/10 hover:bg-[#FF3B3B]/20 px-2.5 py-1.5 rounded-lg transition-all">
-                          <Activity className="size-3" /> Update Progress
-                        </button>
-                      )}
-                      <button onClick={() => setShowDeleteConfirm(sch.scheduleId)} className="flex items-center gap-1.5 text-xs text-[#555] hover:text-red-400 bg-[#222] hover:bg-red-400/10 px-2.5 py-1.5 rounded-lg transition-all">
-                        <Trash2 className="size-3" /> Delete
-                      </button>
-                    </div>
-                  </div>
-                </div>
+      ) : (
+        <div className="overflow-x-auto rounded-xl border border-white/5 bg-[#181818]">
+          <div className="min-w-[920px] grid" style={{ gridTemplateColumns: `72px repeat(${visibleDays.length}, minmax(120px, 1fr))` }}>
+            <div className="border-b border-white/5 bg-[#111]" />
+            {visibleDays.map(day => (
+              <div key={day.key} className="border-b border-l border-white/5 bg-[#111] p-3 text-center">
+                <div className="text-[#777] text-xs font-semibold uppercase tracking-widest">{day.label}</div>
+                <div className={`mx-auto mt-1 flex size-9 items-center justify-center rounded-full text-lg font-semibold ${day.key === "06/05" ? "bg-[#FF3B3B] text-white" : "text-white"}`}>{day.date}</div>
               </div>
-            );
-          })}
-        </div>
-
-        {/* Progress panel */}
-        <div className="lg:col-span-2 space-y-4">
-          <SectionCard title="Tiến độ gần đây (ProgressRecord)">
-            <div className="space-y-3">
-              {PROGRESS_RECORDS.slice(0, 4).map(r => {
-                const m = getMember(r.memberId);
-                return (
-                  <div key={r.progressId} className="flex items-start gap-3">
-                    {m && <Avatar initials={m.avatar} size="sm" />}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="text-white text-xs font-medium truncate">{m?.name}</div>
-                        <span className={`text-xs font-bold ${r.completionLevel >= 90 ? "text-emerald-400" : r.completionLevel >= 70 ? "text-amber-400" : "text-red-400"}`}>
-                          {r.completionLevel}%
-                        </span>
-                      </div>
-                      <div className="mt-1"><Bar2 value={r.completionLevel} /></div>
-                      <p className="text-[#555] text-xs mt-1 truncate">{r.note}</p>
+            ))}
+            {timeSlots.map(slot => (
+              <div key={slot} className="contents">
+                <div className="border-b border-white/5 bg-[#111] px-3 py-4 text-right text-xs text-[#777]">{slot}</div>
+                {visibleDays.map(day => {
+                  const hour = Number(slot.split(":")[0]);
+                  const events = sessions.filter(item => sessionDay(item.trainingDate) === day.key && sessionHour(item.trainingTime) === hour);
+                  return (
+                    <div key={`${day.key}-${slot}`} className="min-h-[76px] border-b border-l border-white/5 p-1.5">
+                      {events.map(event => {
+                        const member = getMember(event.memberId);
+                        return (
+                          <button key={event.scheduleId} onClick={() => setSelectedSession(event)} className="mb-1 w-full rounded-lg border border-[#FF3B3B]/30 bg-[#FF3B3B]/15 p-2 text-left shadow-[0_8px_22px_rgba(255,59,59,0.12)] hover:bg-[#FF3B3B]/25">
+                            <div className="truncate text-xs font-bold text-white">{event.exerciseType}</div>
+                            <div className="truncate text-[11px] text-[#F5B5B5]">{member?.name || event.memberName || "Member"}</div>
+                            <div className="mt-1 truncate text-[10px] text-[#999]">{event.trainingTime} - {event.roomName || "Room A2"}</div>
+                            <div className="mt-1 text-[10px] text-[#FF7B7B]">{event.status}</div>
+                          </button>
+                        );
+                      })}
                     </div>
-                  </div>
-                );
-              })}
-            </div>
-          </SectionCard>
-
-          <SectionCard title="Tổng kết tuần">
-            <div className="space-y-2">
-              {[
-                { label: "Đã hoàn thành", value: SCHEDULES.filter(s => s.status === "Done").length, color: "text-emerald-400" },
-                { label: "Đã lên lịch", value: SCHEDULES.filter(s => s.status === "Scheduled").length, color: "text-amber-400" },
-                { label: "Đã hủy", value: SCHEDULES.filter(s => s.status === "Cancelled").length, color: "text-red-400" },
-              ].map(({ label, value, color }) => (
-                <div key={label} className="flex items-center justify-between">
-                  <span className="text-[#666] text-xs">{label}</span>
-                  <span className={`text-sm font-bold ${color}`}>{value}</span>
-                </div>
-              ))}
-            </div>
-          </SectionCard>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
         </div>
+      )}
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <SectionCard title="Upcoming Sessions">
+          <div className="space-y-3">
+            {upcomingSessions.length > 0 ? upcomingSessions.map(session => {
+              const member = getMember(session.memberId);
+              return (
+                <button key={session.scheduleId} onClick={() => setSelectedSession(session)} className="w-full rounded-lg bg-[#222] p-3 text-left hover:bg-[#292929]">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-white text-sm font-semibold">{session.exerciseType}</div>
+                      <div className="text-[#777] text-xs mt-1">{session.trainingDate} - {session.trainingTime} - {member?.name || session.memberName || "Member"}</div>
+                      <div className="text-[#777] text-xs">{session.roomName || "Room A2"} - {member?.package || session.packageName || "Membership package"}</div>
+                    </div>
+                    <Badge status={session.status} />
+                  </div>
+                </button>
+              );
+            }) : (
+              <div className="py-10 text-center">
+                <CalendarDays className="size-10 mx-auto mb-3 text-[#333]" />
+                <p className="text-[#555] text-sm">No upcoming sessions.</p>
+              </div>
+            )}
+          </div>
+        </SectionCard>
+        <TrainingRequestsPanel showToast={showToast} />
       </div>
 
-      {showDeleteConfirm && (
-        <ConfirmModal
-          title="Delete Schedule"
-          message="Are you sure you want to delete this schedule?"
-          onClose={() => setShowDeleteConfirm(null)}
-          onConfirm={() => setShowDeleteConfirm(null)}
-          danger
-        />
+      {selectedSession && selectedMember && (
+        <ModalOverlay onClose={() => setSelectedSession(null)}>
+          <div className="w-full max-w-md rounded-2xl border border-white/10 bg-[#181818] p-5 shadow-2xl">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[#FF3B3B] text-xs font-bold uppercase tracking-widest">Session Detail</p>
+                <h3 className="mt-1 text-2xl text-white tracking-[0.06em]" style={{ fontFamily: "'Bebas Neue', sans-serif" }}>{selectedSession.exerciseType}</h3>
+                <p className="text-[#777] text-sm">{selectedMember.name} - {selectedSession.trainingDate} - {selectedSession.trainingTime}</p>
+              </div>
+              <button onClick={() => setSelectedSession(null)} className="text-[#777] hover:text-white"><X className="size-5" /></button>
+            </div>
+            <div className="mt-4 space-y-2 text-sm">
+              <div className="flex justify-between rounded-lg bg-[#222] p-3"><span className="text-[#777]">Room/location</span><span className="text-white">{selectedSession.roomName || "Room A2"}</span></div>
+              <div className="flex justify-between rounded-lg bg-[#222] p-3"><span className="text-[#777]">Package</span><span className="text-white">{selectedMember.package || selectedSession.packageName || "Membership package"}</span></div>
+              <div className="flex justify-between rounded-lg bg-[#222] p-3"><span className="text-[#777]">Status</span><Badge status={selectedSession.status} /></div>
+            </div>
+            <div className="mt-5 grid grid-cols-1 gap-2">
+              <PrimaryBtn label="View Member" icon={User} onClick={() => { setSelectedSession(null); onViewMember(selectedMember.id); }} />
+              <GhostBtn label="Mark Completed" icon={CheckCircle} onClick={() => updateSessionStatus(selectedSession.scheduleId, "Done")} />
+              <GhostBtn label="Mark No Show" icon={AlertTriangle} onClick={() => updateSessionStatus(selectedSession.scheduleId, "No Show")} />
+              <GhostBtn label="Request Reschedule" icon={CalendarDays} onClick={() => updateSessionStatus(selectedSession.scheduleId, "Pending Reschedule")} />
+              {selectedSession.status !== "Done" && <GhostBtn label="Cancel Session" icon={X} onClick={() => updateSessionStatus(selectedSession.scheduleId, "Cancelled")} />}
+            </div>
+          </div>
+        </ModalOverlay>
       )}
     </div>
   );
 }
-
-// ─────────────────────────────────────────────
 // SCREEN 5: WORKOUT GUIDANCE
 // ─────────────────────────────────────────────
 function WorkoutGuidanceScreen({ showToast }: { showToast: (msg: string) => void }) {
@@ -1203,7 +1560,7 @@ function WorkoutGuidanceScreen({ showToast }: { showToast: (msg: string) => void
         {/* Right: Exercise builder */}
         <div className="lg:col-span-3 space-y-3">
           <div className="flex items-center justify-between">
-            <h3 className="text-white font-semibold text-sm">Danh sách bài tập (Exercise)</h3>
+            <h3 className="text-white font-semibold text-sm">Exercise Builder</h3>
             <PrimaryBtn icon={Plus} label="Add Exercise" small onClick={addExercise} />
           </div>
           {exercises.map((ex, idx) => (
@@ -1416,7 +1773,7 @@ function ProgressEvaluationScreen({ showToast }: { showToast: (msg: string) => v
         <div className="space-y-4">
           <div className="bg-[#181818] border border-white/5 rounded-xl overflow-hidden">
             <div className="px-5 py-4 border-b border-white/5">
-              <h3 className="text-white font-semibold text-sm">Biểu mẫu đánh giá (ProgressEvaluation)</h3>
+              <h3 className="text-white font-semibold text-sm">Evaluation Form</h3>
             </div>
             <div className="p-5 space-y-4">
               <Input label="Evaluation Date" value={evalDate} onChange={setEvalDate} placeholder="dd/mm/yyyy" />
@@ -1532,14 +1889,94 @@ function NotificationsScreen() {
 // ─────────────────────────────────────────────
 // SCREEN 8: SETTINGS
 // ─────────────────────────────────────────────
+function MealPlanScreen({ showToast }: { showToast: (msg: string) => void }) {
+  const emptyForm: MealPlan = { id: "", name: "", goal: "Muscle Gain", caloriesPerDay: 2200, breakfast: "", lunch: "", dinner: "", snacks: "", notes: "", assignedMemberId: "", startDate: "", endDate: "", status: "Draft" };
+  const [mealPlans, setMealPlans] = useState<MealPlan[]>(INITIAL_MEAL_PLANS);
+  const [form, setForm] = useState<MealPlan>(emptyForm);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const updateForm = (field: keyof MealPlan, value: string | number) => setForm(prev => ({ ...prev, [field]: value }));
+
+  const savePlan = () => {
+    if (!form.name.trim()) {
+      showToast("Meal plan name is required.");
+      return;
+    }
+    if (editingId) {
+      setMealPlans(prev => prev.map(plan => plan.id === editingId ? { ...form, id: editingId } : plan));
+      showToast("Meal plan updated.");
+    } else {
+      setMealPlans(prev => [{ ...form, id: `MP${Date.now()}` }, ...prev]);
+      showToast(form.status === "Assigned" ? "Meal plan assigned." : "Meal plan template created.");
+    }
+    setEditingId(null);
+    setForm(emptyForm);
+  };
+
+  return (
+    <div className="space-y-5 pb-6">
+      <div>
+        <h1 className="text-4xl text-white tracking-[0.08em]" style={{ fontFamily: "'Bebas Neue', sans-serif" }}>MEAL PLANS</h1>
+        <p className="text-[#555] text-xs mt-1">Create templates, assign meal plans, and review member nutrition support.</p>
+      </div>
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+        <div>
+          <SectionCard title={editingId ? "Edit Meal Plan" : "Create Meal Plan"}>
+            <div className="space-y-3">
+              <Input label="Meal plan name" value={form.name} onChange={(value) => updateForm("name", value)} placeholder="Lean Strength Plan" />
+              <label className="block"><span className="block text-[#666] text-xs mb-1.5 font-medium uppercase tracking-wider">Goal</span><select value={form.goal} onChange={(event) => updateForm("goal", event.target.value)} className="w-full bg-[#222] border border-white/5 rounded-lg px-3 py-2 text-white text-sm outline-none focus:border-[#FF3B3B]/50">{["Weight Loss", "Muscle Gain", "Maintenance", "Recovery"].map(goal => <option key={goal}>{goal}</option>)}</select></label>
+              <Input label="Calories per day" type="number" value={String(form.caloriesPerDay)} onChange={(value) => updateForm("caloriesPerDay", Number(value))} />
+              <Input label="Breakfast" value={form.breakfast} onChange={(value) => updateForm("breakfast", value)} />
+              <Input label="Lunch" value={form.lunch} onChange={(value) => updateForm("lunch", value)} />
+              <Input label="Dinner" value={form.dinner} onChange={(value) => updateForm("dinner", value)} />
+              <Input label="Snacks" value={form.snacks} onChange={(value) => updateForm("snacks", value)} />
+              <label className="block"><span className="block text-[#666] text-xs mb-1.5 font-medium uppercase tracking-wider">Notes</span><textarea value={form.notes} onChange={(event) => updateForm("notes", event.target.value)} rows={3} className="w-full bg-[#222] border border-white/5 rounded-lg px-3 py-2 text-white text-sm outline-none focus:border-[#FF3B3B]/50 resize-none" /></label>
+              <label className="block"><span className="block text-[#666] text-xs mb-1.5 font-medium uppercase tracking-wider">Assigned member</span><select value={form.assignedMemberId} onChange={(event) => updateForm("assignedMemberId", event.target.value)} className="w-full bg-[#222] border border-white/5 rounded-lg px-3 py-2 text-white text-sm outline-none focus:border-[#FF3B3B]/50"><option value="">Template only</option>{MEMBERS.map(member => <option key={member.id} value={member.id}>{member.name}</option>)}</select></label>
+              <div className="grid grid-cols-2 gap-3"><Input label="Start date" type="date" value={form.startDate} onChange={(value) => updateForm("startDate", value)} /><Input label="End date" type="date" value={form.endDate} onChange={(value) => updateForm("endDate", value)} /></div>
+              <label className="block"><span className="block text-[#666] text-xs mb-1.5 font-medium uppercase tracking-wider">Status</span><select value={form.status} onChange={(event) => updateForm("status", event.target.value as MealPlanStatus)} className="w-full bg-[#222] border border-white/5 rounded-lg px-3 py-2 text-white text-sm outline-none focus:border-[#FF3B3B]/50">{["Draft", "Assigned", "Completed"].map(status => <option key={status}>{status}</option>)}</select></label>
+              <PrimaryBtn label={editingId ? "Save Changes" : "Create Plan"} icon={CheckCircle} onClick={savePlan} />
+              {editingId && <GhostBtn label="Cancel Edit" icon={X} onClick={() => { setEditingId(null); setForm(emptyForm); }} />}
+            </div>
+          </SectionCard>
+        </div>
+        <div className="xl:col-span-2">
+          <SectionCard title="Meal Plan Templates and Assignments">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {mealPlans.map(plan => {
+                const member = getMember(plan.assignedMemberId);
+                return (
+                  <div key={plan.id} className="rounded-xl border border-white/5 bg-[#111] p-4">
+                    <div className="flex items-start justify-between gap-3"><div><div className="text-white text-sm font-semibold">{plan.name}</div><div className="text-[#777] text-xs mt-1">{plan.goal} - {plan.caloriesPerDay} kcal/day</div></div><Badge status={plan.status} /></div>
+                    <div className="mt-3 space-y-1 text-xs text-[#BDBDBD]"><p><span className="text-[#777]">Assigned to:</span> {member?.name || "Template only"}</p><p><span className="text-[#777]">Duration:</span> {plan.startDate || "Not set"} - {plan.endDate || "Not set"}</p><p><span className="text-[#777]">Notes:</span> {plan.notes || "No notes"}</p></div>
+                    <button onClick={() => { setForm(plan); setEditingId(plan.id); }} className="mt-4 inline-flex items-center gap-2 rounded-lg bg-[#222] px-3 py-2 text-xs font-semibold text-[#BDBDBD] hover:text-white"><Edit2 className="size-3" /> Edit Plan</button>
+                  </div>
+                );
+              })}
+            </div>
+          </SectionCard>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ProfileScreen({ showToast }: { showToast: (msg: string) => void }) {
+  const { profile, isLoading, errorMessage } = useSupabaseUserProfile('trainer');
   const [editing, setEditing] = useState(false);
-  const [firstName, setFirstName] = useState("Văn Minh");
-  const [lastName, setLastName] = useState("Nguyễn");
-  const [dob, setDob] = useState("1992-04-18");
-  const [headline, setHeadline] = useState("Helping members build strength, confidence, and sustainable habits.");
-  const [specialty, setSpecialty] = useState(TRAINER.specialty);
-  const [experience, setExperience] = useState(TRAINER.experience);
+  const [firstName, setFirstName] = useState(profile.firstName);
+  const [lastName, setLastName] = useState(profile.lastName);
+  const [dob, setDob] = useState(profile.dob || "");
+  const [headline, setHeadline] = useState(profile.headline);
+  const [specialty, setSpecialty] = useState(profile.specialty || profile.roleLabel);
+  const [experience, setExperience] = useState("");
+  const [statusMessage, setStatusMessage] = useState("");
+
+  useEffect(() => {
+    setFirstName(profile.firstName);
+    setLastName(profile.lastName);
+    setDob(profile.dob || "");
+    setHeadline(profile.headline);
+    setSpecialty(profile.specialty || profile.roleLabel);
+  }, [profile.firstName, profile.lastName, profile.dob, profile.headline, profile.specialty, profile.roleLabel]);
   const workHours = [
     { day: "Thứ 2", from: "07:00", to: "17:00", active: true },
     { day: "Thứ 3", from: "07:00", to: "17:00", active: true },
@@ -1554,23 +1991,42 @@ function ProfileScreen({ showToast }: { showToast: (msg: string) => void }) {
     editing ? "focus:outline-none focus:border-[#FF3B3B]/60" : "opacity-80 cursor-not-allowed"
   }`;
 
-  const saveProfile = () => {
-    setEditing(false);
-    showToast("PT profile updated successfully!");
+  const saveProfile = async () => {
+    setStatusMessage("");
+    const result = await updateCurrentUserProfile(getCurrentUser(), {
+      firstName,
+      lastName,
+      dob,
+      headline,
+      specialty,
+    });
+
+    setStatusMessage(result.message);
+    showToast(result.message);
+
+    if (result.ok) {
+      setEditing(false);
+    }
   };
 
   return (
     <div className="space-y-5 pb-6 max-w-4xl">
       <div>
         <h1 className="text-4xl text-white tracking-[0.08em]" style={{ fontFamily: "'Bebas Neue', sans-serif" }}>PT PROFILE</h1>
-        <p className="text-[#555] text-xs mt-1">Trang cá nhân huấn luyện viên</p>
+        <p className="text-[#555] text-xs mt-1">Personal trainer account from Supabase</p>
       </div>
+
+      {(isLoading || errorMessage) && (
+        <div className="rounded-xl border border-white/10 bg-[#181818] p-4 text-sm font-bold text-[#BDBDBD]">
+          {isLoading ? "Loading profile from Supabase..." : errorMessage}
+        </div>
+      )}
 
       <div className="bg-[#181818] border border-white/5 rounded-xl overflow-hidden">
         <div className="px-5 py-4 border-b border-white/5 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <User className="size-4 text-[#FF3B3B]" />
-            <h3 className="text-white font-semibold text-sm">Thông tin cá nhân</h3>
+            <h3 className="text-white font-semibold text-sm">Personal Information</h3>
           </div>
           {editing ? (
             <div className="flex gap-2">
@@ -1581,18 +2037,19 @@ function ProfileScreen({ showToast }: { showToast: (msg: string) => void }) {
             <GhostBtn label="Edit" icon={Edit2} small onClick={() => setEditing(true)} />
           )}
         </div>
+        {statusMessage && <div className="px-5 pt-4 text-xs font-semibold text-[#BDBDBD]">{statusMessage}</div>}
         <div className="p-5">
           <div className="flex items-center gap-5 mb-6">
             <div className="relative">
               <div className="size-20 bg-[#FF3B3B]/15 border border-[#FF3B3B]/25 rounded-2xl flex items-center justify-center text-[#FF3B3B] text-2xl font-bold">
-                {TRAINER.avatar}
+                {profile.initials}
               </div>
               <button className="absolute -bottom-1 -right-1 size-7 bg-[#FF3B3B] rounded-lg flex items-center justify-center shadow-lg shadow-red-500/30 hover:bg-[#cc2e2e] transition-colors">
                 <Camera className="size-3.5 text-white" />
               </button>
             </div>
             <div>
-              <div className="text-white font-bold text-lg">{lastName} {firstName}</div>
+              <div className="text-white font-bold text-lg">{profile.fullName || `${firstName} ${lastName}`.trim()}</div>
               <div className="text-[#FF3B3B] text-sm font-semibold">{specialty}</div>
               <div className="text-[#555] text-xs mt-1">{headline}</div>
             </div>
@@ -1609,7 +2066,7 @@ function ProfileScreen({ showToast }: { showToast: (msg: string) => void }) {
             </div>
             <div>
               <label className="block text-xs font-semibold text-[#BDBDBD] mb-1.5 uppercase tracking-wide">Role</label>
-              <input className="w-full bg-[#222] border border-white/10 text-white text-sm px-3 py-2.5 rounded-lg opacity-70 cursor-not-allowed" value="Personal Trainer" disabled />
+              <input className="w-full bg-[#222] border border-white/10 text-white text-sm px-3 py-2.5 rounded-lg opacity-70 cursor-not-allowed" value={profile.roleLabel} disabled />
             </div>
             <div>
               <label className="block text-xs font-semibold text-[#BDBDBD] mb-1.5 uppercase tracking-wide">Dob</label>
@@ -1634,10 +2091,10 @@ function ProfileScreen({ showToast }: { showToast: (msg: string) => void }) {
           <div className="mt-5 rounded-xl border border-white/8 bg-[#222] p-4">
             <div className="text-white text-sm font-semibold mb-2">Contact info</div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-              <div className="flex items-center gap-2 text-[#BDBDBD]"><Mail className="size-4 text-[#FF3B3B]" />{TRAINER.email}</div>
-              <div className="flex items-center gap-2 text-[#BDBDBD]"><Phone className="size-4 text-[#FF3B3B]" />{TRAINER.phone}</div>
+              <div className="flex items-center gap-2 text-[#BDBDBD]"><Mail className="size-4 text-[#FF3B3B]" />{profile.email}</div>
+              <div className="flex items-center gap-2 text-[#BDBDBD]"><Phone className="size-4 text-[#FF3B3B]" />{profile.phone}</div>
             </div>
-            <p className="text-[#555] text-xs mt-3">Email và số điện thoại được chỉnh sửa trong trang Cài đặt.</p>
+            <p className="text-[#555] text-xs mt-3">Email and phone number come from the Supabase users table.</p>
           </div>
         </div>
       </div>
@@ -1699,6 +2156,20 @@ function ProfileScreen({ showToast }: { showToast: (msg: string) => void }) {
 }
 
 function SettingsScreen({ showToast, darkMode, setDarkMode }: { showToast: (msg: string) => void; darkMode: boolean; setDarkMode: (value: boolean) => void }) {
+  const { profile } = useSupabaseUserProfile('trainer');
+
+  return (
+    <AccountSettings
+      eyebrow="Trainer Account"
+      title="Settings"
+      description="Manage notification preferences, password, display mode, language, and contact information for the trainer account."
+      accountName={profile.fullName || 'Trainer'}
+      roleLabel={profile.specialty || profile.roleLabel || 'Personal Trainer'}
+      primaryEmail={profile.email || ''}
+      phoneNumber={profile.phone || ''}
+    />
+  );
+
   const [currentPw, setCurrentPw] = useState("");
   const [newPw, setNewPw] = useState("");
   const [confirmPw, setConfirmPw] = useState("");
@@ -2120,6 +2591,7 @@ export default function App() {
   const [showProgressModal, setShowProgressModal] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [darkMode, setDarkMode] = useState(true);
+  const { profile } = useSupabaseUserProfile('trainer');
 
   const showToast = (msg: string) => {
     setToast(msg);
@@ -2146,9 +2618,9 @@ export default function App() {
       menuItems={menuItems}
       portalLabel="PT Portal"
       searchPlaceholder="Search trainees, schedules..."
-      userName={TRAINER.name}
-      userRole={TRAINER.specialty}
-      userInitials={TRAINER.avatar}
+      userName={profile.fullName || 'Trainer'}
+      userRole={profile.specialty || profile.roleLabel}
+      userInitials={profile.initials}
       onAvatarClick={() => navigate("profile")}
       darkMode={darkMode}
     >
@@ -2175,10 +2647,13 @@ export default function App() {
             <ScheduleProgressScreen
               onAddSchedule={() => setShowAddSchedule(true)}
               onUpdateProgress={() => setShowProgressModal(true)}
+              onViewMember={viewMember}
+              showToast={showToast}
             />
           )}
           {screen === "workout" && <WorkoutGuidanceScreen showToast={showToast} />}
           {screen === "evaluation" && <ProgressEvaluationScreen showToast={showToast} />}
+          {screen === "meal-plan" && <MealPlanScreen showToast={showToast} />}
           {screen === "profile" && <ProfileScreen showToast={showToast} />}
           {screen === "settings" && <SettingsScreen showToast={showToast} darkMode={darkMode} setDarkMode={setDarkMode} />}
         </div>
@@ -2212,3 +2687,5 @@ export default function App() {
     </RoleShell>
   );
 }
+
+

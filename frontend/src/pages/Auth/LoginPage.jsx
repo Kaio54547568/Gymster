@@ -1,7 +1,7 @@
 import { Link, useNavigate } from "react-router";
 import { useState } from "react";
 import AuthHero from "../../components/auth/AuthHero";
-import { getRoleHome, loginUser } from "../../services/authService";
+import { getUserHome, loginUser } from "../../services/authService";
 import "./Auth.css";
 
 function LoginPage() {
@@ -15,7 +15,7 @@ function LoginPage() {
     setStatus({ type: "", message: "" });
   };
 
-  const handleSubmit = (event) => {
+  const handleSubmit = async (event) => {
     event.preventDefault();
 
     if (!form.identifier.trim() || !form.password) {
@@ -23,14 +23,14 @@ function LoginPage() {
       return;
     }
 
-    const result = loginUser(form.identifier, form.password);
+    const result = await loginUser(form.identifier, form.password);
     if (!result.ok) {
       setStatus({ type: "error", message: result.message });
       return;
     }
 
     setStatus({ type: "success", message: `Đăng nhập thành công với tài khoản ${result.user.username}.` });
-    navigate(getRoleHome(result.user.role), { replace: true });
+    navigate(getUserHome(result.user), { replace: true });
   };
 
   return (

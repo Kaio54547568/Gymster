@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { UserPlus, AlertCircle, CheckCircle } from 'lucide-react';
+import { getTrainers, isTrainerFull } from '../../../services/trainerService';
 
 interface MemberDTO {
   fullName: string;
@@ -10,6 +11,7 @@ interface MemberDTO {
   gender: string;
   address: string;
   note: string;
+  trainerId?: string;
 }
 
 export function AddMemberUI() {
@@ -21,13 +23,17 @@ export function AddMemberUI() {
     dateOfBirth: '',
     gender: 'male',
     address: '',
-    note: ''
+    note: '',
+    trainerId: ''
   });
 
   const [errors, setErrors] = useState<Partial<MemberDTO>>({});
   const [duplicateWarning, setDuplicateWarning] = useState('');
   const [loading, setLoading] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
+  const trainers = getTrainers();
+  const availableTrainers = trainers.filter((trainer: any) => trainer.currentActiveMembers < trainer.maxActiveMembers);
+  const selectedTrainerIsFull = Boolean(formData.trainerId && isTrainerFull(formData.trainerId));
 
   const existingMembers = [
     { phoneNumber: '0912345678', idCard: '001234567890' },
@@ -103,6 +109,11 @@ export function AddMemberUI() {
       return;
     }
 
+    if (selectedTrainerIsFull) {
+      setDuplicateWarning('This trainer is currently full.');
+      return;
+    }
+
     setLoading(true);
 
     setTimeout(() => {
@@ -133,14 +144,14 @@ export function AddMemberUI() {
         <div className="relative h-full flex items-center px-6">
           <div className="max-w-7xl mx-auto w-full">
             <div>
-              <p className="text-primary text-sm font-bold tracking-widest mb-3 uppercase">QUẢN LÝ HỘI VIÊN</p>
+              <p className="text-primary text-sm font-bold tracking-widest mb-3 uppercase">MEMBER OPERATIONS</p>
               <h1 className="text-6xl font-black tracking-tight mb-4">
-                <span className="text-primary">ĐĂNG KÝ</span>
+                <span className="text-primary">ADD</span>
                 <br />
-                <span className="text-white">HỘI VIÊN</span>
+                <span className="text-white">MEMBER</span>
               </h1>
               <p className="text-white/70 text-base max-w-2xl leading-relaxed">
-                Lưu trữ hồ sơ cá nhân, theo dõi đăng ký và gia hạn, quản lý lịch sử và dụng dịch vụ và kiểm soát tài khoản hội viên trên một nền tảng thống nhất.
+                Create a member profile, track registration details, and keep member access ready for package workflows.
               </p>
             </div>
           </div>
@@ -177,7 +188,7 @@ export function AddMemberUI() {
                   value={formData.fullName}
                   onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
                   className={`w-full bg-input px-6 py-4 rounded-xl border-2 ${errors.fullName ? 'border-destructive' : 'border-border'} focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all font-medium text-lg`}
-                  placeholder="Nguyễn Văn A"
+                  placeholder="Nguyen Van A"
                 />
                 {errors.fullName && (
                   <p className="text-sm text-destructive mt-2 font-medium">{errors.fullName}</p>
@@ -264,7 +275,7 @@ export function AddMemberUI() {
                   value={formData.address}
                   onChange={(e) => setFormData({ ...formData, address: e.target.value })}
                   className={`w-full bg-input px-6 py-4 rounded-xl border-2 ${errors.address ? 'border-destructive' : 'border-border'} focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all font-medium text-lg`}
-                  placeholder="123 Đường ABC, Quận 1, TP.HCM"
+                  placeholder="123 Main Street"
                 />
                 {errors.address && (
                   <p className="text-sm text-destructive mt-2 font-medium">{errors.address}</p>
@@ -272,6 +283,39 @@ export function AddMemberUI() {
               </div>
 
               {/* Medical Note */}
+              <div>
+                <label className="block text-sm font-bold mb-2 text-muted-foreground">
+                  Trainer Assignment
+                </label>
+                <select
+                  value={formData.trainerId}
+                  onChange={(e) => setFormData({ ...formData, trainerId: e.target.value })}
+                  className="w-full bg-input px-6 py-4 rounded-xl border-2 border-border focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all font-medium text-lg"
+                >
+                  <option value="">Select available trainer...</option>
+                  {availableTrainers.map((trainer: any) => (
+                    <option key={trainer.id} value={trainer.id}>
+                      {trainer.name} - {trainer.currentActiveMembers}/{trainer.maxActiveMembers} active members
+                    </option>
+                  ))}
+                </select>
+                <div className="mt-3 grid gap-2 md:grid-cols-3">
+                  {trainers.map((trainer: any) => {
+                    const full = trainer.currentActiveMembers >= trainer.maxActiveMembers;
+                    return (
+                      <div key={trainer.id} className="rounded-xl border border-border bg-input/60 p-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-sm font-bold">{trainer.name}</span>
+                          <span className={`text-xs font-bold ${full ? 'text-destructive' : 'text-primary'}`}>{full ? 'Full' : 'Available'}</span>
+                        </div>
+                        <p className="mt-1 text-xs text-muted-foreground">{trainer.currentActiveMembers}/{trainer.maxActiveMembers} active members</p>
+                        {full && <p className="mt-2 text-xs font-bold text-destructive">This trainer is currently full.</p>}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
               <div>
                 <label className="block text-sm font-bold mb-2 text-muted-foreground">
                   Medical Note

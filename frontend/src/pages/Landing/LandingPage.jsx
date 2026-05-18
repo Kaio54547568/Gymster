@@ -1,4 +1,6 @@
+import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router";
+import { fetchLandingPageData } from "../../services/landingApi";
 import "./LandingPage.css";
 
 const navItems = [
@@ -19,37 +21,44 @@ const features = [
   ["Báo cáo vận hành", "Theo dõi doanh thu, hội viên mới và hiệu suất nhân sự theo thời gian thực."],
 ];
 
-const packages = [
+const fallbackStats = [
+  ["5,000+", "Hội viên"],
+  ["50+", "Huấn luyện viên"],
+  ["10+", "Gói tập"],
+  ["24/7", "Hỗ trợ"],
+];
+
+const fallbackPackages = [
   {
-    name: "CƠ BẢN",
-    price: "299.000",
-    unit: "đ/tháng",
+    name: "Basic Gym 3 Months",
+    price: "850.000",
+    unit: "VND",
     duration: "Gói 3 tháng",
-    features: ["Truy cập phòng gym 24/7", "Sử dụng thiết bị cơ bản", "Tủ đồ cá nhân", "1 buổi tư vấn dinh dưỡng", "App theo dõi cơ bản"],
+    features: ["Access to gym facilities", "Locker access", "Basic workout support", "Gymster package tracking"],
   },
   {
-    name: "NÂNG CAO",
-    price: "599.000",
-    unit: "đ/tháng",
+    name: "Basic Gym 6 Months",
+    price: "1.600.000",
+    unit: "VND",
     duration: "Gói 6 tháng",
     badge: "PHỔ BIẾN",
     featured: true,
-    features: ["Tất cả quyền lợi Cơ bản", "Lớp học nhóm không giới hạn", "2 buổi PT miễn phí/tháng", "Đánh giá thể trạng định kỳ", "Ưu tiên đặt lịch"],
+    features: ["Access to gym facilities", "Priority schedule support", "Monthly body check", "Gymster package tracking"],
   },
   {
-    name: "VIP",
-    price: "999.000",
-    unit: "đ/tháng",
-    duration: "Gói 12 tháng",
-    badge: "CAO CẤP",
-    features: ["Tất cả quyền lợi Nâng cao", "PT cá nhân không giới hạn", "Kế hoạch dinh dưỡng riêng", "Phòng thay đồ VIP", "Hỗ trợ ưu tiên 24/7"],
+    name: "VIP PT Package 6 Months",
+    price: "7.800.000",
+    unit: "VND",
+    duration: "Gói 6 tháng",
+    badge: "VIP PT",
+    features: ["60 PT sessions", "Personal workout plan", "Weekly progress tracking", "Priority trainer support"],
   },
 ];
 
-const trainers = [
-  ["Nguyễn Minh Đức", "Sức mạnh và thể hình", "8 năm", "4.9", "https://images.unsplash.com/photo-1750698545009-679820502908?w=500&h=620&fit=crop&auto=format"],
-  ["Trần Thị Phương", "HIIT và Yoga", "6 năm", "4.8", "https://images.unsplash.com/photo-1683889842937-bfd75dbc4a81?w=500&h=620&fit=crop&auto=format"],
-  ["Lê Thanh Bình", "Cardio và sức bền", "10 năm", "4.9", "https://images.unsplash.com/photo-1652400744403-8f29705bd6a5?w=500&h=620&fit=crop&auto=format"],
+const fallbackTrainers = [
+  ["Alex Carter", "Strength and Conditioning", "12/20 hội viên", "4.9", "https://images.unsplash.com/photo-1750698545009-679820502908?w=500&h=620&fit=crop&auto=format"],
+  ["Mia Tran", "HIIT and Yoga", "10/18 hội viên", "4.8", "https://images.unsplash.com/photo-1683889842937-bfd75dbc4a81?w=500&h=620&fit=crop&auto=format"],
+  ["David Nguyen", "Cardio and Endurance", "16/24 hội viên", "4.9", "https://images.unsplash.com/photo-1652400744403-8f29705bd6a5?w=500&h=620&fit=crop&auto=format"],
 ];
 
 const testimonials = [
@@ -104,7 +113,7 @@ function Navbar() {
   );
 }
 
-function HeroSection() {
+function HeroSection({ stats }) {
   const navigate = useNavigate();
 
   return (
@@ -129,16 +138,15 @@ function HeroSection() {
             </button>
           </div>
           <div className="hero-metrics">
-            <div><strong>5,000+</strong><span>Hội viên</span></div>
-            <div><strong>50+</strong><span>Huấn luyện viên</span></div>
-            <div><strong>24/7</strong><span>Hỗ trợ</span></div>
-            <div><strong>10+</strong><span>Chương trình</span></div>
+            {stats.map(([value, label]) => (
+              <div key={label}><strong>{value}</strong><span>{label}</span></div>
+            ))}
           </div>
         </div>
         <div className="hero-visual">
           <img
             src="https://images.unsplash.com/photo-1599058917212-d750089bc07e?w=760&h=920&fit=crop&auto=format"
-            alt="Hoi vien Gymster tap luyen"
+            alt="Hội viên Gymster tập luyện"
           />
           <div className="float-card top">Hôm nay<strong>1,240 kcal</strong></div>
           <div className="float-card mid">Buổi tập<strong>45 phút</strong></div>
@@ -168,14 +176,14 @@ function FeaturesSection() {
   );
 }
 
-function PackagesSection() {
+function PackagesSection({ packages }) {
   return (
     <section className="landing-section dark-band" id="membership">
       <div className="landing-container">
         <SectionTitle kicker="Membership" title="Chọn gói tập" accent="phù hợp" />
         <div className="package-list">
           {packages.map((pkg) => (
-            <article className={`membership-card ${pkg.featured ? "featured" : ""}`} key={pkg.name}>
+            <article className={`membership-card ${pkg.featured ? "featured" : ""}`} key={pkg.id || pkg.name}>
               {pkg.badge && <span className="membership-badge">{pkg.badge}</span>}
               <h3>{pkg.name}</h3>
               <div className="membership-price">{pkg.price}<span>{pkg.unit}</span></div>
@@ -194,19 +202,19 @@ function PackagesSection() {
   );
 }
 
-function TrainersSection() {
+function TrainersSection({ trainers }) {
   return (
     <section className="landing-section" id="trainers">
       <div className="landing-container">
         <SectionTitle kicker="Huấn luyện viên" title="Đội ngũ PT" accent="chuyên nghiệp" />
         <div className="trainer-list">
-          {trainers.map(([name, specialty, exp, rating, img]) => (
+          {trainers.map(([name, specialty, detail, rating, img]) => (
             <article className="trainer-card-landing" key={name}>
               <img src={img} alt={name} />
               <div>
                 <h3>{name}</h3>
                 <p>{specialty}</p>
-                <span>{exp} kinh nghiệm · {rating}/5</span>
+                <span>{detail} · {rating}/5</span>
               </div>
             </article>
           ))}
@@ -244,7 +252,7 @@ function TestimonialsSection() {
         <div className="testimonial-list">
           {testimonials.map(([name, quote]) => (
             <article className="testimonial-card" key={name}>
-              <p>“{quote}”</p>
+              <p>"{quote}"</p>
               <strong>{name}</strong>
             </article>
           ))}
@@ -302,13 +310,40 @@ function Footer() {
 }
 
 function LandingPage() {
+  const [landingData, setLandingData] = useState({
+    stats: fallbackStats,
+    packages: fallbackPackages,
+    trainers: fallbackTrainers,
+  });
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadLandingData() {
+      const { data } = await fetchLandingPageData();
+      if (!isMounted || !data) return;
+
+      setLandingData({
+        stats: data.stats?.length ? data.stats : fallbackStats,
+        packages: data.packages?.length ? data.packages : fallbackPackages,
+        trainers: data.trainers?.length ? data.trainers : fallbackTrainers,
+      });
+    }
+
+    loadLandingData();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
   return (
     <div className="landing-page">
       <Navbar />
-      <HeroSection />
+      <HeroSection stats={landingData.stats} />
       <FeaturesSection />
-      <PackagesSection />
-      <TrainersSection />
+      <PackagesSection packages={landingData.packages} />
+      <TrainersSection trainers={landingData.trainers} />
       <AboutSection />
       <TestimonialsSection />
       <AppPreviewSection />

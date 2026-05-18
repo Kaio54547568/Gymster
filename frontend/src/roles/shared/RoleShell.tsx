@@ -215,7 +215,12 @@ export default function RoleShell({
           {menuItems.map((item) => {
             const isActive =
               item.active ??
-              Boolean(item.path && (location.pathname === item.path || location.pathname.startsWith(`${item.path}/`)));
+              Boolean(
+                item.path &&
+                  (item.path === '/member'
+                    ? location.pathname === item.path
+                    : location.pathname === item.path || location.pathname.startsWith(`${item.path}/`)),
+              );
 
             const className = `w-full flex items-center gap-4 px-5 py-4 rounded-2xl mb-3 transition-all duration-300 group relative overflow-hidden text-left ${
               isActive

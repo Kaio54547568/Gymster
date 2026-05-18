@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { UserCheck, Plus, Search, Edit, Eye, Award, Calendar, DollarSign } from 'lucide-react';
 import { motion } from 'motion/react';
+import { getTrainers } from '../../../services/trainerService';
 
 const staffData = [
   {
@@ -63,6 +64,7 @@ const staffData = [
 export default function StaffManagement() {
   const [selectedEmployee, setSelectedEmployee] = useState<any>(null);
   const [showModal, setShowModal] = useState(false);
+  const trainers = getTrainers();
 
   const handleViewDetail = (employee: any) => {
     setSelectedEmployee(employee);
@@ -99,6 +101,34 @@ export default function StaffManagement() {
           <option>Sales Manager</option>
           <option>Receptionist</option>
         </select>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {trainers.map((trainer: any) => {
+          const isFull = trainer.currentActiveMembers >= trainer.maxActiveMembers;
+
+          return (
+            <div key={trainer.id} className="rounded-2xl border border-[#EF233C]/20 bg-[#0c1014] p-5">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="font-bold text-white">{trainer.name}</h3>
+                  <p className="mt-1 text-sm text-[#A1A1AA]">{trainer.specialty}</p>
+                </div>
+                <span className={`rounded-full px-3 py-1 text-xs font-bold ${isFull ? 'bg-red-500/15 text-red-300' : 'bg-[#22C55E]/15 text-[#22C55E]'}`}>
+                  {isFull ? 'Full' : 'Available'}
+                </span>
+              </div>
+              <div className="mt-4 flex items-center justify-between text-sm">
+                <span className="text-[#A1A1AA]">Active members</span>
+                <span className="font-bold text-white">{trainer.currentActiveMembers}/{trainer.maxActiveMembers}</span>
+              </div>
+              <div className="mt-3 h-2 overflow-hidden rounded-full bg-[#050607]">
+                <div className={`h-full rounded-full ${isFull ? 'bg-red-400' : 'bg-[#EF233C]'}`} style={{ width: `${Math.round((trainer.currentActiveMembers / trainer.maxActiveMembers) * 100)}%` }} />
+              </div>
+              {isFull && <p className="mt-3 text-xs font-bold text-red-300">This trainer is currently full.</p>}
+            </div>
+          );
+        })}
       </div>
 
       {/* Staff Cards */}
@@ -150,6 +180,25 @@ export default function StaffManagement() {
                 <span className="text-[#A1A1AA]">Chuyên môn:</span>
                 <span className="text-white">{employee.chuyenMon}</span>
               </div>
+              {employee.chucVu === 'Personal Trainer' && (
+                <div className="rounded-xl border border-[#EF233C]/20 bg-[#050607] p-3">
+                  {(() => {
+                    const trainer = trainers.find((item: any) => item.name === employee.hoTen || employee.hoTen.includes(item.name.split(' ')[0]));
+                    const capacityText = trainer ? `${trainer.currentActiveMembers}/${trainer.maxActiveMembers}` : 'Not configured';
+                    const isFull = trainer && trainer.currentActiveMembers >= trainer.maxActiveMembers;
+
+                    return (
+                      <>
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-[#A1A1AA]">Active member capacity</span>
+                          <span className={`font-bold ${isFull ? 'text-red-300' : 'text-[#22C55E]'}`}>{capacityText}</span>
+                        </div>
+                        {isFull && <p className="mt-2 text-xs font-bold text-red-300">This trainer is currently full.</p>}
+                      </>
+                    );
+                  })()}
+                </div>
+              )}
             </div>
 
             {/* Actions */}
