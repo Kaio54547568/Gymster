@@ -1,77 +1,70 @@
-import { useState } from 'react';
-import { UserCheck, Plus, Search, Edit, Eye, Award, Calendar, DollarSign } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { UserCheck, Plus, Search, Eye, Award, Calendar, DollarSign } from 'lucide-react';
 import { motion } from 'motion/react';
+import { fetchAdminStaffData } from '../../../services/adminDataApi';
 
-const staffData = [
-  {
-    maNV: 'NV001',
-    hoTen: 'Nguyễn Minh PT',
-    chucVu: 'Personal Trainer',
-    luongCoBan: '15,000,000',
-    sdt: '0901234567',
-    chuyenMon: 'Bodybuilding, Fitness',
-    chungChi: 'ACE-CPT, NASM-CPT',
-    performance: 95,
-    avatar: 'https://i.pravatar.cc/150?img=12'
-  },
-  {
-    maNV: 'NV002',
-    hoTen: 'Trần Hoàng',
-    chucVu: 'Sales Manager',
-    luongCoBan: '18,000,000',
-    sdt: '0907654321',
-    chuyenMon: 'Sales, Marketing',
-    chungChi: 'MBA',
-    performance: 92,
-    avatar: 'https://i.pravatar.cc/150?img=33'
-  },
-  {
-    maNV: 'NV003',
-    hoTen: 'Lê Thị Hằng',
-    chucVu: 'Personal Trainer',
-    luongCoBan: '14,000,000',
-    sdt: '0912345678',
-    chuyenMon: 'Yoga, Pilates',
-    chungChi: 'RYT-200, STOTT Pilates',
-    performance: 89,
-    avatar: 'https://i.pravatar.cc/150?img=47'
-  },
-  {
-    maNV: 'NV004',
-    hoTen: 'Phạm Văn Dũng',
-    chucVu: 'Personal Trainer',
-    luongCoBan: '16,000,000',
-    sdt: '0923456789',
-    chuyenMon: 'CrossFit, HIIT',
-    chungChi: 'CF-L2, NASM-CPT',
-    performance: 94,
-    avatar: 'https://i.pravatar.cc/150?img=51'
-  },
-  {
-    maNV: 'NV005',
-    hoTen: 'Hoàng Văn Nam',
-    chucVu: 'Receptionist',
-    luongCoBan: '10,000,000',
-    sdt: '0934567890',
-    chuyenMon: 'Customer Service',
-    chungChi: 'CS Cert',
-    performance: 87,
-    avatar: 'https://i.pravatar.cc/150?img=15'
-  }
-];
+type StaffRow = {
+  maNV: string;
+  hoTen: string;
+  chucVu: string;
+  luongCoBan: string;
+  sdt: string;
+  chuyenMon: string;
+  chungChi: string;
+  performance: number;
+  avatar: string;
+};
+
+type TrainerRow = {
+  id: string;
+  name: string;
+  specialty: string;
+  currentActiveMembers: number;
+  maxActiveMembers: number;
+};
 
 export default function StaffManagement() {
-  const [selectedEmployee, setSelectedEmployee] = useState<any>(null);
+  const [selectedEmployee, setSelectedEmployee] = useState<StaffRow | null>(null);
   const [showModal, setShowModal] = useState(false);
+  const [staffData, setStaffData] = useState<StaffRow[]>([]);
+  const [trainers, setTrainers] = useState<TrainerRow[]>([]);
+  const [query, setQuery] = useState('');
+  const [roleFilter, setRoleFilter] = useState('all');
+  const [loading, setLoading] = useState(true);
+  const [loadMessage, setLoadMessage] = useState('');
 
-  const handleViewDetail = (employee: any) => {
+  useEffect(() => {
+    let isMounted = true;
+    fetchAdminStaffData().then(({ data, trainers: trainerRows, error }) => {
+      if (!isMounted) return;
+      setStaffData(data);
+      setTrainers(trainerRows);
+      setLoadMessage(error ? 'Staff and trainer data could not be loaded.' : '');
+      setLoading(false);
+    });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const filteredStaff = useMemo(() => {
+    const search = query.trim().toLowerCase();
+    return staffData.filter((employee) => {
+      const matchesSearch = !search || employee.hoTen.toLowerCase().includes(search) || employee.maNV.toLowerCase().includes(search);
+      const matchesRole = roleFilter === 'all' || employee.chucVu === roleFilter;
+      return matchesSearch && matchesRole;
+    });
+  }, [query, roleFilter, staffData]);
+
+  const roles = Array.from(new Set(staffData.map((employee) => employee.chucVu).filter(Boolean)));
+
+  const handleViewDetail = (employee: StaffRow) => {
     setSelectedEmployee(employee);
     setShowModal(true);
   };
 
   return (
     <div className="p-8 space-y-8">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="bebas text-5xl text-white tracking-wider mb-2">STAFF & TRAINER MANAGEMENT</h1>
@@ -83,158 +76,144 @@ export default function StaffManagement() {
         </button>
       </div>
 
-      {/* Search & Filter */}
+      {loading && <div className="rounded-2xl border border-[#EF233C]/20 bg-[#0c1014] p-5 text-sm font-bold text-[#A1A1AA]">Loading staff records...</div>}
+      {loadMessage && !loading && <div className="rounded-2xl border border-[#EF233C]/20 bg-[#EF233C]/10 p-5 text-sm font-bold text-white">{loadMessage}</div>}
+
       <div className="flex gap-4">
         <div className="flex-1 relative">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-[#A1A1AA]" />
           <input
             type="text"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
             placeholder="Search staff..."
             className="w-full bg-[#0c1014] border border-[#EF233C]/20 rounded-xl pl-12 pr-4 py-3 text-white placeholder-[#A1A1AA] focus:outline-none focus:border-[#EF233C]"
           />
         </div>
-        <select className="bg-[#0c1014] border border-[#EF233C]/30 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-[#EF233C] cursor-pointer">
-          <option>Tất cả chức vụ</option>
-          <option>Personal Trainer</option>
-          <option>Sales Manager</option>
-          <option>Receptionist</option>
+        <select
+          value={roleFilter}
+          onChange={(event) => setRoleFilter(event.target.value)}
+          className="bg-[#0c1014] border border-[#EF233C]/30 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-[#EF233C] cursor-pointer"
+        >
+          <option value="all">All roles</option>
+          {roles.map((role) => <option key={role} value={role}>{role}</option>)}
         </select>
       </div>
 
-      {/* Staff Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {trainers.map((trainer) => {
+          const isFull = trainer.currentActiveMembers >= trainer.maxActiveMembers && trainer.maxActiveMembers > 0;
+          const percent = trainer.maxActiveMembers ? Math.round((trainer.currentActiveMembers / trainer.maxActiveMembers) * 100) : 0;
+
+          return (
+            <div key={trainer.id} className="rounded-2xl border border-[#EF233C]/20 bg-[#0c1014] p-5">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="font-bold text-white">{trainer.name}</h3>
+                  <p className="mt-1 text-sm text-[#A1A1AA]">{trainer.specialty}</p>
+                </div>
+                <span className={`rounded-full px-3 py-1 text-xs font-bold ${isFull ? 'bg-red-500/15 text-red-300' : 'bg-[#22C55E]/15 text-[#22C55E]'}`}>
+                  {isFull ? 'Full' : 'Available'}
+                </span>
+              </div>
+              <div className="mt-4 flex items-center justify-between text-sm">
+                <span className="text-[#A1A1AA]">Active members</span>
+                <span className="font-bold text-white">{trainer.currentActiveMembers}/{trainer.maxActiveMembers}</span>
+              </div>
+              <div className="mt-3 h-2 overflow-hidden rounded-full bg-[#050607]">
+                <div className={`h-full rounded-full ${isFull ? 'bg-red-400' : 'bg-[#EF233C]'}`} style={{ width: `${Math.min(100, percent)}%` }} />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
-        {staffData.map((employee) => (
+        {filteredStaff.map((employee) => (
           <motion.div
             key={employee.maNV}
             whileHover={{ scale: 1.02, y: -4 }}
             className="bg-[#0c1014] border border-[#EF233C]/20 rounded-2xl p-6 hover:border-[#EF233C]/50 transition-all cursor-pointer"
             onClick={() => handleViewDetail(employee)}
           >
-            {/* Avatar & Basic Info */}
             <div className="flex items-start gap-4 mb-4">
-              <img
-                src={employee.avatar}
-                alt={employee.hoTen}
-                className="w-20 h-20 rounded-xl object-cover border-2 border-[#EF233C]"
-              />
-              <div className="flex-1">
-                <h3 className="text-xl font-bold text-white mb-1">{employee.hoTen}</h3>
-                <p className="text-[#EF233C] text-sm font-semibold mb-1">{employee.chucVu}</p>
-                <p className="text-[#A1A1AA] text-sm">Mã NV: {employee.maNV}</p>
+              <div className="w-16 h-16 rounded-xl bg-[#EF233C]/15 border border-[#EF233C]/30 flex items-center justify-center">
+                <UserCheck className="h-8 w-8 text-[#EF233C]" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h3 className="text-xl font-bold text-white truncate">{employee.hoTen}</h3>
+                <p className="text-[#EF233C] font-semibold">{employee.chucVu}</p>
+                <p className="text-[#A1A1AA] text-sm">{employee.maNV}</p>
               </div>
             </div>
 
-            {/* Performance Bar */}
-            <div className="mb-4">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-sm text-[#A1A1AA]">Hiệu suất</span>
-                <span className="text-sm font-bold text-[#22C55E]">{employee.performance}%</span>
-              </div>
-              <div className="h-2 bg-[#050607] rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-gradient-to-r from-[#EF233C] to-[#22C55E] rounded-full"
-                  style={{ width: `${employee.performance}%` }}
-                />
-              </div>
-            </div>
-
-            {/* Details */}
-            <div className="space-y-2 mb-4">
-              <div className="flex items-center gap-2 text-sm">
+            <div className="space-y-3">
+              <div className="flex items-center gap-3 text-sm">
                 <DollarSign className="w-4 h-4 text-[#22C55E]" />
-                <span className="text-[#A1A1AA]">Lương:</span>
-                <span className="text-white font-semibold">{employee.luongCoBan} VNĐ</span>
+                <span className="text-[#A1A1AA]">Salary:</span>
+                <span className="text-white font-semibold">{employee.luongCoBan} VND</span>
               </div>
-              <div className="flex items-center gap-2 text-sm">
+              <div className="flex items-center gap-3 text-sm">
                 <Award className="w-4 h-4 text-[#F97316]" />
-                <span className="text-[#A1A1AA]">Chuyên môn:</span>
-                <span className="text-white">{employee.chuyenMon}</span>
+                <span className="text-[#A1A1AA]">Department:</span>
+                <span className="text-white">{employee.chuyenMon || '-'}</span>
+              </div>
+              <div className="flex items-center gap-3 text-sm">
+                <Calendar className="w-4 h-4 text-[#EF233C]" />
+                <span className="text-[#A1A1AA]">Status:</span>
+                <span className="text-white">{employee.chungChi || '-'}</span>
               </div>
             </div>
 
-            {/* Actions */}
-            <div className="flex gap-2">
-              <button className="flex-1 px-4 py-2 bg-[#EF233C] text-white rounded-lg hover:bg-[#990000] transition-colors text-sm font-semibold flex items-center justify-center gap-2">
-                <Eye className="w-4 h-4" />
-                Chi tiết
-              </button>
-              <button className="px-4 py-2 bg-[#0c1014] border border-[#EF233C]/30 text-white rounded-lg hover:bg-[#EF233C]/10 transition-colors">
-                <Edit className="w-4 h-4" />
-              </button>
-              <button className="px-4 py-2 bg-[#0c1014] border border-[#EF233C]/30 text-white rounded-lg hover:bg-[#EF233C]/10 transition-colors">
-                <Calendar className="w-4 h-4" />
-              </button>
-            </div>
+            <button className="mt-5 w-full py-2 bg-[#EF233C]/10 border border-[#EF233C]/30 text-[#EF233C] rounded-lg hover:bg-[#EF233C] hover:text-white transition-all font-semibold flex items-center justify-center gap-2">
+              <Eye className="w-4 h-4" />
+              View Details
+            </button>
           </motion.div>
         ))}
       </div>
 
-      {/* Employee Detail Modal */}
+      {!loading && !filteredStaff.length && (
+        <div className="rounded-2xl border border-[#EF233C]/20 bg-[#0c1014] p-8 text-center text-[#A1A1AA]">
+          No staff records found.
+        </div>
+      )}
+
       {showModal && selectedEmployee && (
-        <div
-          className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-8"
-          onClick={() => setShowModal(false)}
-        >
-          <motion.div
-            initial={{ scale: 0.9, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            className="bg-[#0c1014] border border-[#EF233C]/30 rounded-3xl p-8 max-w-2xl w-full"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-start gap-6 mb-6">
-              <img
-                src={selectedEmployee.avatar}
-                alt={selectedEmployee.hoTen}
-                className="w-32 h-32 rounded-2xl object-cover border-2 border-[#EF233C]"
-              />
-              <div className="flex-1">
-                <h2 className="bebas text-4xl text-white tracking-wider mb-2">
-                  {selectedEmployee.hoTen}
-                </h2>
-                <p className="text-[#EF233C] text-lg font-semibold mb-2">{selectedEmployee.chucVu}</p>
-                <div className="flex items-center gap-4">
-                  <span className="px-3 py-1 bg-[#22C55E]/10 border border-[#22C55E]/30 rounded-lg text-[#22C55E] text-sm font-semibold">
-                    Performance: {selectedEmployee.performance}%
-                  </span>
-                  <span className="text-[#A1A1AA] text-sm">{selectedEmployee.sdt}</span>
-                </div>
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setShowModal(false)}>
+          <div className="bg-[#0c1014] border border-[#EF233C]/30 rounded-2xl p-8 max-w-2xl w-full" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center gap-4 mb-6">
+              <div className="w-20 h-20 rounded-xl bg-[#EF233C]/15 border border-[#EF233C]/30 flex items-center justify-center">
+                <UserCheck className="h-10 w-10 text-[#EF233C]" />
+              </div>
+              <div>
+                <h2 className="text-3xl font-bold text-white">{selectedEmployee.hoTen}</h2>
+                <p className="text-[#EF233C] text-lg">{selectedEmployee.chucVu}</p>
+                <p className="text-[#A1A1AA]">{selectedEmployee.maNV}</p>
               </div>
             </div>
-
-            <div className="grid grid-cols-2 gap-6 mb-6">
-              <div>
-                <p className="text-[#A1A1AA] text-sm mb-1">Mã nhân viên</p>
-                <p className="text-white font-semibold">{selectedEmployee.maNV}</p>
+            <div className="grid grid-cols-2 gap-4 mb-6">
+              <div className="bg-black/30 rounded-xl p-4">
+                <p className="text-[#A1A1AA] text-sm">Phone</p>
+                <p className="text-white font-semibold">{selectedEmployee.sdt || '-'}</p>
               </div>
-              <div>
-                <p className="text-[#A1A1AA] text-sm mb-1">Lương cơ bản</p>
-                <p className="text-[#22C55E] font-bold">{selectedEmployee.luongCoBan} VNĐ</p>
+              <div className="bg-black/30 rounded-xl p-4">
+                <p className="text-[#A1A1AA] text-sm">Base salary</p>
+                <p className="text-white font-semibold">{selectedEmployee.luongCoBan} VND</p>
               </div>
-              <div>
-                <p className="text-[#A1A1AA] text-sm mb-1">Chuyên môn</p>
-                <p className="text-white font-semibold">{selectedEmployee.chuyenMon}</p>
+              <div className="bg-black/30 rounded-xl p-4">
+                <p className="text-[#A1A1AA] text-sm">Department</p>
+                <p className="text-white font-semibold">{selectedEmployee.chuyenMon || '-'}</p>
               </div>
-              <div>
-                <p className="text-[#A1A1AA] text-sm mb-1">Chứng chỉ</p>
-                <p className="text-white font-semibold">{selectedEmployee.chungChi}</p>
+              <div className="bg-black/30 rounded-xl p-4">
+                <p className="text-[#A1A1AA] text-sm">Status</p>
+                <p className="text-white font-semibold">{selectedEmployee.chungChi || '-'}</p>
               </div>
             </div>
-
-            <div className="flex gap-3">
-              <button className="flex-1 px-6 py-3 bg-[#EF233C] text-white rounded-xl hover:bg-[#990000] transition-colors font-semibold">
-                View Schedule
-              </button>
-              <button className="flex-1 px-6 py-3 bg-[#0c1014] border border-[#EF233C]/30 text-white rounded-xl hover:bg-[#EF233C]/10 transition-colors font-semibold">
-                View Evaluation
-              </button>
-              <button
-                onClick={() => setShowModal(false)}
-                className="px-6 py-3 bg-[#050607] text-white rounded-xl hover:bg-[#0c1014] transition-colors font-semibold"
-              >
-                Đóng
-              </button>
-            </div>
-          </motion.div>
+            <button onClick={() => setShowModal(false)} className="w-full py-3 bg-[#EF233C] text-white rounded-xl hover:bg-[#990000] transition-colors font-semibold">
+              Close
+            </button>
+          </div>
         </div>
       )}
     </div>

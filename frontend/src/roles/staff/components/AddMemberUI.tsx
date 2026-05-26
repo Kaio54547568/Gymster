@@ -1,6 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { UserPlus, AlertCircle, CheckCircle } from 'lucide-react';
+import { fetchTrainersFromSupabase } from '../../../services/trainerApi';
+import { createStaffMember } from '../../../services/staffOperationsApi';
 
 interface MemberDTO {
   fullName: string;
@@ -10,6 +12,7 @@ interface MemberDTO {
   gender: string;
   address: string;
   note: string;
+  trainerId?: string;
 }
 
 export function AddMemberUI() {
@@ -21,18 +24,31 @@ export function AddMemberUI() {
     dateOfBirth: '',
     gender: 'male',
     address: '',
-    note: ''
+    note: '',
+    trainerId: ''
   });
 
   const [errors, setErrors] = useState<Partial<MemberDTO>>({});
   const [duplicateWarning, setDuplicateWarning] = useState('');
   const [loading, setLoading] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
+  const [trainers, setTrainers] = useState<any[]>([]);
+  const [loadMessage, setLoadMessage] = useState('');
+  const availableTrainers = trainers.filter((trainer: any) => trainer.currentActiveMembers < trainer.maxActiveMembers);
+  const selectedTrainer = trainers.find((trainer: any) => trainer.id === formData.trainerId);
+  const selectedTrainerIsFull = Boolean(selectedTrainer && selectedTrainer.currentActiveMembers >= selectedTrainer.maxActiveMembers);
 
-  const existingMembers = [
-    { phoneNumber: '0912345678', idCard: '001234567890' },
-    { phoneNumber: '0987654321', idCard: '098765432100' }
-  ];
+  useEffect(() => {
+    let isMounted = true;
+    fetchTrainersFromSupabase().then(({ data, error }) => {
+      if (!isMounted) return;
+      setTrainers(data);
+      setLoadMessage(error ? 'Trainer data could not be loaded.' : '');
+    });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const validateForm = (): boolean => {
     const newErrors: Partial<MemberDTO> = {};
@@ -72,25 +88,6 @@ export function AddMemberUI() {
     return Object.keys(newErrors).length === 0;
   };
 
-  const checkDuplicate = (): boolean => {
-    const phoneExists = existingMembers.some(m => m.phoneNumber === formData.phoneNumber);
-    const idExists = existingMembers.some(m => m.idCard === formData.idCard);
-
-    if (phoneExists && idExists) {
-      setDuplicateWarning('Phone number and Citizen ID already exist in system');
-      return false;
-    } else if (phoneExists) {
-      setDuplicateWarning('Phone number already exists in system');
-      return false;
-    } else if (idExists) {
-      setDuplicateWarning('Citizen ID already exists in system');
-      return false;
-    }
-
-    setDuplicateWarning('');
-    return true;
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setDuplicateWarning('');
@@ -99,21 +96,24 @@ export function AddMemberUI() {
       return;
     }
 
-    if (!checkDuplicate()) {
+    if (selectedTrainerIsFull) {
+      setDuplicateWarning('This trainer is currently full.');
       return;
     }
 
     setLoading(true);
-
-    setTimeout(() => {
-      setLoading(false);
+    const result = await createStaffMember(formData);
+    setLoading(false);
+    if (!result.ok) {
+      setDuplicateWarning(result.message);
+      return;
+    }
       setShowSuccess(true);
 
       setTimeout(() => {
         setShowSuccess(false);
         navigate('/staff/members');
       }, 2000);
-    }, 1500);
   };
 
   const handleCancel = () => {
@@ -133,14 +133,14 @@ export function AddMemberUI() {
         <div className="relative h-full flex items-center px-6">
           <div className="max-w-7xl mx-auto w-full">
             <div>
-              <p className="text-primary text-sm font-bold tracking-widest mb-3 uppercase">QUẢN LÝ HỘI VIÊN</p>
+              <p className="text-primary text-sm font-bold tracking-widest mb-3 uppercase">MEMBER OPERATIONS</p>
               <h1 className="text-6xl font-black tracking-tight mb-4">
-                <span className="text-primary">ĐĂNG KÝ</span>
+                <span className="text-primary">ADD</span>
                 <br />
-                <span className="text-white">HỘI VIÊN</span>
+                <span className="text-white">MEMBER</span>
               </h1>
               <p className="text-white/70 text-base max-w-2xl leading-relaxed">
-                Lưu trữ hồ sơ cá nhân, theo dõi đăng ký và gia hạn, quản lý lịch sử và dụng dịch vụ và kiểm soát tài khoản hội viên trên một nền tảng thống nhất.
+                Create a member profile, track registration details, and keep member access ready for package workflows.
               </p>
             </div>
           </div>
@@ -156,6 +156,11 @@ export function AddMemberUI() {
             <div className="absolute bottom-0 left-0 w-96 h-96 bg-destructive/10 rounded-full blur-3xl"></div>
 
             <form onSubmit={handleSubmit} className="relative z-10 space-y-6">
+              {loadMessage && (
+                <div className="rounded-2xl border border-destructive/40 bg-destructive/10 p-4 text-sm font-bold text-destructive">
+                  {loadMessage}
+                </div>
+              )}
               {/* Duplicate Warning */}
               {duplicateWarning && (
                 <div className="bg-destructive/10 border-2 border-destructive rounded-2xl p-6 flex items-start gap-4 animate-in slide-in-from-top-4 fade-in">
@@ -177,7 +182,7 @@ export function AddMemberUI() {
                   value={formData.fullName}
                   onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
                   className={`w-full bg-input px-6 py-4 rounded-xl border-2 ${errors.fullName ? 'border-destructive' : 'border-border'} focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all font-medium text-lg`}
-                  placeholder="Nguyễn Văn A"
+                  placeholder="Nguyen Van A"
                 />
                 {errors.fullName && (
                   <p className="text-sm text-destructive mt-2 font-medium">{errors.fullName}</p>
@@ -264,7 +269,7 @@ export function AddMemberUI() {
                   value={formData.address}
                   onChange={(e) => setFormData({ ...formData, address: e.target.value })}
                   className={`w-full bg-input px-6 py-4 rounded-xl border-2 ${errors.address ? 'border-destructive' : 'border-border'} focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all font-medium text-lg`}
-                  placeholder="123 Đường ABC, Quận 1, TP.HCM"
+                  placeholder="123 Main Street"
                 />
                 {errors.address && (
                   <p className="text-sm text-destructive mt-2 font-medium">{errors.address}</p>
@@ -272,6 +277,39 @@ export function AddMemberUI() {
               </div>
 
               {/* Medical Note */}
+              <div>
+                <label className="block text-sm font-bold mb-2 text-muted-foreground">
+                  Trainer Assignment
+                </label>
+                <select
+                  value={formData.trainerId}
+                  onChange={(e) => setFormData({ ...formData, trainerId: e.target.value })}
+                  className="w-full bg-input px-6 py-4 rounded-xl border-2 border-border focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all font-medium text-lg"
+                >
+                  <option value="">Select available trainer...</option>
+                  {availableTrainers.map((trainer: any) => (
+                    <option key={trainer.id} value={trainer.id}>
+                      {trainer.name} - {trainer.currentActiveMembers}/{trainer.maxActiveMembers} active members
+                    </option>
+                  ))}
+                </select>
+                <div className="mt-3 grid gap-2 md:grid-cols-3">
+                  {trainers.map((trainer: any) => {
+                    const full = trainer.currentActiveMembers >= trainer.maxActiveMembers;
+                    return (
+                      <div key={trainer.id} className="rounded-xl border border-border bg-input/60 p-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-sm font-bold">{trainer.name}</span>
+                          <span className={`text-xs font-bold ${full ? 'text-destructive' : 'text-primary'}`}>{full ? 'Full' : 'Available'}</span>
+                        </div>
+                        <p className="mt-1 text-xs text-muted-foreground">{trainer.currentActiveMembers}/{trainer.maxActiveMembers} active members</p>
+                        {full && <p className="mt-2 text-xs font-bold text-destructive">This trainer is currently full.</p>}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
               <div>
                 <label className="block text-sm font-bold mb-2 text-muted-foreground">
                   Medical Note

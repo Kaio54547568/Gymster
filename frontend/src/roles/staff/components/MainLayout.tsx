@@ -10,6 +10,7 @@ import {
   Users,
 } from 'lucide-react';
 import RoleShell, { type RoleShellItem } from '../../shared/RoleShell';
+import { useSupabaseUserProfile } from '../../shared/useSupabaseUserProfile';
 
 const menuItems: RoleShellItem[] = [
   { id: 'dashboard', path: '/staff/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
@@ -24,15 +25,17 @@ const menuItems: RoleShellItem[] = [
 
 export function MainLayout() {
   const navigate = useNavigate();
+  const { profile } = useSupabaseUserProfile('staff');
 
   return (
     <RoleShell
       menuItems={menuItems}
       portalLabel="Staff Portal"
       searchPlaceholder="Search members, packages, invoices..."
-      userName="Nguyễn Staff"
-      userRole="Management Staff"
-      userInitials="NS"
+      userName={profile.fullName || 'Staff'}
+      userRole={profile.roleLabel}
+      userInitials={profile.initials}
+      userAvatarUrl={profile.avatarUrl}
       onAvatarClick={() => navigate('/staff/profile')}
     >
       <Outlet />

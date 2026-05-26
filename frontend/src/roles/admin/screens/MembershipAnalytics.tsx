@@ -1,32 +1,36 @@
+import { useEffect, useState } from 'react';
 import KPICard from '../components/KPICard';
 import ChartCard from '../components/ChartCard';
-import { Users, UserPlus, UserX, Crown, TrendingUp, RefreshCw } from 'lucide-react';
+import { Users, UserPlus, UserX, Crown } from 'lucide-react';
 import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-
-const membershipGrowth = [
-  { month: 'T1', members: 520 },
-  { month: 'T2', members: 580 },
-  { month: 'T3', members: 610 },
-  { month: 'T4', members: 640 },
-  { month: 'T5', members: 650 },
-  { month: 'T6', members: 680 }
-];
-
-const packageDistribution = [
-  { name: 'Gói 3 tháng', value: 250, color: '#EF233C' },
-  { name: 'Gói 6 tháng', value: 220, color: '#FF2D2D' },
-  { name: 'Gói VIP 12 tháng', value: 150, color: '#990000' },
-  { name: 'Gói PT Elite', value: 60, color: '#F97316' }
-];
-
-const ageDemo = [
-  { age: '18-25', count: 180 },
-  { age: '26-35', count: 280 },
-  { age: '36-45', count: 150 },
-  { age: '46+', count: 40 }
-];
+import { fetchMembershipAnalyticsData } from '../../../services/adminDataApi';
 
 export default function MembershipAnalytics() {
+  const [analytics, setAnalytics] = useState({
+    totalMembers: 0,
+    activeMembers: 0,
+    expiredMembers: 0,
+    vipMembers: 0,
+    membershipGrowth: [] as Array<{ month: string; members: number }>,
+    packageDistribution: [] as Array<{ name: string; value: number; color: string }>,
+    ageGroups: [] as Array<{ age: string; count: number }>,
+  });
+  const [loading, setLoading] = useState(true);
+  const [loadMessage, setLoadMessage] = useState('');
+
+  useEffect(() => {
+    let isMounted = true;
+    fetchMembershipAnalyticsData().then(({ data, error }) => {
+      if (!isMounted) return;
+      if (data) setAnalytics(data);
+      setLoadMessage(error ? 'Membership analytics could not be loaded.' : '');
+      setLoading(false);
+    });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
   return (
     <div className="p-8 space-y-8">
       <div>
@@ -34,17 +38,28 @@ export default function MembershipAnalytics() {
         <p className="text-[#A1A1AA]">Phân tích hội viên và gói tập</p>
       </div>
 
+      {loading && (
+        <div className="rounded-2xl border border-[#EF233C]/20 bg-[#0c1014] p-5 text-sm font-bold text-[#A1A1AA]">
+          Loading membership analytics...
+        </div>
+      )}
+      {loadMessage && !loading && (
+        <div className="rounded-2xl border border-[#EF233C]/20 bg-[#EF233C]/10 p-5 text-sm font-bold text-white">
+          {loadMessage}
+        </div>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <KPICard title="Tổng Hội Viên" value="680" change="+30 tháng này" changeType="positive" icon={Users} iconColor="#EF233C" />
-        <KPICard title="Hội Viên Hoạt Động" value="650" change="+5%" changeType="positive" icon={UserPlus} iconColor="#22C55E" />
-        <KPICard title="Hết Hạn" value="30" icon={UserX} iconColor="#F97316" />
-        <KPICard title="VIP Members" value="60" icon={Crown} iconColor="#F97316" />
+        <KPICard title="Total Members" value={analytics.totalMembers} change="Cập nhật" changeType="positive" icon={Users} iconColor="#EF233C" />
+        <KPICard title="Active Members" value={analytics.activeMembers} change="Cập nhật" changeType="positive" icon={UserPlus} iconColor="#22C55E" />
+        <KPICard title="Expired Packages" value={analytics.expiredMembers} icon={UserX} iconColor="#F97316" />
+        <KPICard title="VIP Members" value={analytics.vipMembers} icon={Crown} iconColor="#F97316" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <ChartCard title="Tăng Trưởng Hội Viên" subtitle="6 tháng gần nhất">
+        <ChartCard title="Membership Growth" subtitle="Grouped by join date">
           <ResponsiveContainer width="100%" height={300}>
-            <LineChart data={membershipGrowth} id="membership-growth-chart">
+            <LineChart data={analytics.membershipGrowth} id="membership-growth-chart">
               <CartesianGrid strokeDasharray="3 3" stroke="#333" />
               <XAxis dataKey="month" stroke="#A1A1AA" />
               <YAxis stroke="#A1A1AA" />
@@ -54,11 +69,11 @@ export default function MembershipAnalytics() {
           </ResponsiveContainer>
         </ChartCard>
 
-        <ChartCard title="Phân Bố Theo Gói" subtitle="Theo loại gói thành viên">
+        <ChartCard title="Package Distribution" subtitle="Current member packages">
           <ResponsiveContainer width="100%" height={300}>
             <PieChart id="membership-package-dist-chart">
-              <Pie data={packageDistribution} cx="50%" cy="50%" labelLine={false} label={({ name, value }) => `${name}: ${value}`} outerRadius={100} dataKey="value">
-                {packageDistribution.map((entry, index) => (
+              <Pie data={analytics.packageDistribution} cx="50%" cy="50%" labelLine={false} label={({ name, value }) => `${name}: ${value}`} outerRadius={100} dataKey="value">
+                {analytics.packageDistribution.map((entry, index) => (
                   <Cell key={`membership-package-${index}`} fill={entry.color} />
                 ))}
               </Pie>
@@ -67,9 +82,9 @@ export default function MembershipAnalytics() {
           </ResponsiveContainer>
         </ChartCard>
 
-        <ChartCard title="Độ Tuổi Hội Viên" subtitle="Phân tích theo nhóm tuổi">
+        <ChartCard title="Member Age Groups" subtitle="Calculated from user birth dates">
           <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={ageDemo} id="membership-age-demo-chart">
+            <BarChart data={analytics.ageGroups} id="membership-age-chart">
               <CartesianGrid strokeDasharray="3 3" stroke="#333" />
               <XAxis dataKey="age" stroke="#A1A1AA" />
               <YAxis stroke="#A1A1AA" />

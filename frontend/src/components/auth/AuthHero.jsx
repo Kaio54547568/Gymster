@@ -1,6 +1,27 @@
+import { useEffect, useState } from "react";
 import { Link } from "react-router";
+import { fetchLandingPageData } from "../../services/landingApi";
 
 function AuthHero() {
+  const [stats, setStats] = useState([]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadStats() {
+      const { data } = await fetchLandingPageData();
+      if (!isMounted || !data?.stats) return;
+
+      setStats(data.stats.slice(0, 3));
+    }
+
+    loadStats();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
   return (
     <aside className="auth-hero">
       <div className="auth-hero-bg">
@@ -34,20 +55,16 @@ function AuthHero() {
             <span>Limits</span>
           </h1>
           <p className="hero-subtitle">Quản lý hội viên, gói tập và vận hành trong một hệ thống.</p>
-          <div className="hero-stats">
-            <div>
-              <strong>2,400+</strong>
-              <span>Hội viên</span>
+          {stats.length > 0 && (
+            <div className="hero-stats">
+              {stats.map(([value, label]) => (
+                <div key={label}>
+                  <strong>{value}</strong>
+                  <span>{label}</span>
+                </div>
+              ))}
             </div>
-            <div>
-              <strong>50+</strong>
-              <span>HLV</span>
-            </div>
-            <div>
-              <strong>99%</strong>
-              <span>Hài lòng</span>
-            </div>
-          </div>
+          )}
         </div>
 
         <div className="hero-guarantee">An toàn dữ liệu và dễ mở rộng theo quy mô phòng tập</div>

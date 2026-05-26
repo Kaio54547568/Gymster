@@ -1,273 +1,365 @@
-import { useState } from 'react';
-import { Link } from 'react-router';
-import { Search, Filter, Eye, Edit, RefreshCw, UserX, ChevronDown } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Eye, Edit, RefreshCw, Search, UserX, X } from 'lucide-react';
+import { disableStaffMember, getStaffMembers, updateStaffMember } from '../../../services/staffOperationsApi';
+import { useLanguage } from '../../shared/LanguageContext';
+
+type MemberStatus = 'Active' | 'Expired' | 'Disabled';
 
 interface Member {
+  memberUuid: string;
   memberId: string;
+  userId: string;
   fullName: string;
+  firstName: string;
+  lastName: string;
+  email: string;
   phoneNum: string;
   citizenId: string;
-  status: 'Active' | 'Expired' | 'Disabled';
+  status: MemberStatus;
   currentPackage: string;
   expirationDate: string;
+  dateOfBirth: string;
+  gender: string;
+}
+
+const COPY = {
+  en: {
+    eyebrow: 'Member Operations',
+    titleA: 'MEMBER',
+    titleB: 'LIST',
+    subtitle: 'Qu?n l? h? s? h?i vi?n, tr?ng th?i g?i t?p v? quy?n truy c?p.',
+    search: 'Search by name, ID, or phone...',
+    all: 'All',
+    active: 'Active',
+    expired: 'Expired',
+    disabled: 'Disabled',
+    loading: 'Loading members...',
+    warning: 'Some member data could not be loaded.',
+    noMembers: 'No members found',
+    adjust: 'Try adjusting your search or filters',
+    showing: 'Showing',
+    of: 'of',
+    view: 'View Member',
+    edit: 'Edit Member',
+    renew: 'Renew Package',
+    disable: 'Disable Member',
+    password: 'Staff password',
+    disablePrompt: 'Enter your staff password to disable this member account.',
+    wrongPassword: 'Staff password is incorrect.',
+    save: 'Save',
+    cancel: 'Cancel',
+    confirmDisable: 'Disable',
+  },
+  vi: {
+    eyebrow: 'Quản lý hội viên',
+    titleA: 'DANH SÁCH',
+    titleB: 'HỘI VIÊN',
+    subtitle: 'Quản lý hồ sơ hội viên, trạng thái gói tập và quyền truy cập từ dữ liệu h\u1ec7 th\u1ed1ng.',
+    search: 'Tìm theo tên, mã hoặc số điện thoại...',
+    all: 'Tất cả',
+    active: 'Hoạt động',
+    expired: 'Hết hạn',
+    disabled: 'Vô hiệu hóa',
+    loading: 'Đang tải hội viên...',
+    warning: 'Một số dữ liệu hội viên không tải được từ h\u1ec7 th\u1ed1ng.',
+    noMembers: 'Không tìm thấy hội viên',
+    adjust: 'Hãy thử đổi từ khóa hoặc bộ lọc',
+    showing: 'Đang hiển thị',
+    of: 'trên',
+    view: 'Xem hội viên',
+    edit: 'Sửa hội viên',
+    renew: 'Gia hạn gói',
+    disable: 'Vô hiệu hóa hội viên',
+    password: 'Mật khẩu staff',
+    disablePrompt: 'Nhập mật khẩu staff để vô hiệu hóa tài khoản hội viên này.',
+    wrongPassword: 'Mật khẩu staff không đúng.',
+    save: 'Lưu',
+    cancel: 'Hủy',
+    confirmDisable: 'Vô hiệu hóa',
+  },
+};
+
+function formatDate(value: string) {
+  if (!value) return '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '-';
+  return date.toLocaleDateString('en-GB');
 }
 
 export function MemberList() {
+  const { language } = useLanguage();
+  const copy = COPY[language];
+  const [members, setMembers] = useState<Member[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [loading, setLoading] = useState(true);
+  const [warning, setWarning] = useState('');
+  const [selectedMember, setSelectedMember] = useState<Member | null>(null);
+  const [modalMode, setModalMode] = useState<'view' | 'edit' | 'disable' | null>(null);
+  const [editForm, setEditForm] = useState<Partial<Member>>({});
+  const [staffPassword, setStaffPassword] = useState('');
+  const [modalError, setModalError] = useState('');
 
-  const members: Member[] = [
-    {
-      memberId: 'M00123',
-      fullName: 'Nguyễn Hoàng Anh',
-      phoneNum: '0912345678',
-      citizenId: '001234567890',
-      status: 'Active',
-      currentPackage: 'VIP Elite',
-      expirationDate: '2026-08-15'
-    },
-    {
-      memberId: 'M00124',
-      fullName: 'Trần Minh Đức',
-      phoneNum: '0987654321',
-      citizenId: '098765432100',
-      status: 'Active',
-      currentPackage: 'Premium 6 tháng',
-      expirationDate: '2026-07-20'
-    },
-    {
-      memberId: 'M00125',
-      fullName: 'Lê Quốc Bảo',
-      phoneNum: '0901234567',
-      citizenId: '012345678901',
-      status: 'Expired',
-      currentPackage: 'Gym 3 tháng',
-      expirationDate: '2026-04-30'
-    },
-    {
-      memberId: 'M00126',
-      fullName: 'Phạm Thị Mai',
-      phoneNum: '0909876543',
-      citizenId: '098765123456',
-      status: 'Active',
-      currentPackage: 'PT Personal',
-      expirationDate: '2026-06-10'
-    },
-    {
-      memberId: 'M00127',
-      fullName: 'Võ Văn Nam',
-      phoneNum: '0923456789',
-      citizenId: '023456789012',
-      status: 'Active',
-      currentPackage: 'Premium 6 tháng',
-      expirationDate: '2026-09-01'
-    },
-    {
-      memberId: 'M00128',
-      fullName: 'Hoàng Thị Lan',
-      phoneNum: '0934567890',
-      citizenId: '034567890123',
-      status: 'Expired',
-      currentPackage: 'Gym 3 tháng',
-      expirationDate: '2026-03-15'
+  const loadMembers = async () => {
+    setLoading(true);
+    const result = await getStaffMembers();
+    if (result.error) {
+      setWarning(copy.warning);
+      setMembers([]);
+    } else {
+      setWarning('');
+      setMembers(result.data);
     }
-  ];
+    setLoading(false);
+  };
 
-  const filteredMembers = members.filter(member => {
-    const matchesSearch =
-      member.fullName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      member.memberId.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      member.phoneNum.includes(searchTerm);
+  useEffect(() => {
+    void loadMembers();
+  }, []);
 
-    const matchesFilter = statusFilter === 'all' || member.status === statusFilter;
+  const filteredMembers = useMemo(() => {
+    const query = searchTerm.toLowerCase();
+    return members.filter((member) => {
+      const matchesSearch =
+        member.fullName.toLowerCase().includes(query) ||
+        member.memberId.toLowerCase().includes(query) ||
+        member.phoneNum.includes(searchTerm);
+      const matchesFilter = statusFilter === 'all' || member.status === statusFilter;
+      return matchesSearch && matchesFilter;
+    });
+  }, [members, searchTerm, statusFilter]);
 
-    return matchesSearch && matchesFilter;
-  });
+  const openModal = (member: Member, mode: 'view' | 'edit' | 'disable') => {
+    setSelectedMember(member);
+    setModalMode(mode);
+    setModalError('');
+    setStaffPassword('');
+    setEditForm({ ...member });
+  };
 
-  const getStatusBadge = (status: string) => {
+  const closeModal = () => {
+    setSelectedMember(null);
+    setModalMode(null);
+    setModalError('');
+    setStaffPassword('');
+  };
+
+  const handleSaveMember = async () => {
+    if (!selectedMember) return;
+    const result = await updateStaffMember(selectedMember.memberUuid, editForm);
+    if (!result.ok) {
+      setModalError(result.message);
+      return;
+    }
+    closeModal();
+    await loadMembers();
+  };
+
+  const handleDisableMember = async () => {
+    if (!selectedMember) return;
+    const result = await disableStaffMember(selectedMember.memberUuid, staffPassword);
+    if (!result.ok) {
+      setModalError(result.message || copy.wrongPassword);
+      return;
+    }
+    closeModal();
+    await loadMembers();
+  };
+
+  const getStatusBadge = (status: MemberStatus) => {
     const styles = {
       Active: 'bg-primary/20 text-primary border-primary/30',
       Expired: 'bg-destructive/20 text-destructive border-destructive/30',
-      Disabled: 'bg-muted text-muted-foreground border-muted'
+      Disabled: 'bg-muted text-muted-foreground border-muted',
     };
-
-    return (
-      <span className={`px-3 py-1 rounded-full text-xs font-medium border ${styles[status as keyof typeof styles]}`}>
-        {status}
-      </span>
-    );
+    const label = status === 'Active' ? copy.active : status === 'Expired' ? copy.expired : copy.disabled;
+    return <span className={`rounded-full border px-3 py-1 text-xs font-medium ${styles[status]}`}>{label}</span>;
   };
 
   return (
     <div className="relative">
-      {/* Hero Banner */}
       <div className="relative h-[280px] overflow-hidden bg-black">
         <img
           src="https://images.unsplash.com/photo-1762744829792-55562e8b873a?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHw3fHxhdGhsZXRpYyUyMGZpdG5lc3MlMjB0cmFpbmluZ3xlbnwxfHx8fDE3NzgwODM0MTV8MA&ixlib=rb-4.1.0&q=80&w=1080"
           alt="Boxing Training"
           className="absolute right-0 top-0 h-full w-1/2 object-cover opacity-40"
         />
-        <div className="absolute inset-0 bg-gradient-to-r from-black via-black to-black/60"></div>
-        <div className="relative h-full flex items-center px-6">
-          <div className="max-w-7xl mx-auto w-full">
-            <div>
-              <p className="text-primary text-sm font-bold tracking-widest mb-3 uppercase">QUẢN LÝ HỘI VIÊN</p>
-              <h1 className="text-6xl font-black tracking-tight mb-4">
-                <span className="text-primary">DANH SÁCH</span>
-                <br />
-                <span className="text-white">HỘI VIÊN</span>
-              </h1>
-              <p className="text-white/70 text-base max-w-2xl leading-relaxed">
-                Quản lý toàn bộ thông tin hội viên, tra cứu lịch sử hoạt động, theo dõi trạng thái gói tập và kiểm soát quyền truy cập hệ thống.
-              </p>
-            </div>
+        <div className="absolute inset-0 bg-gradient-to-r from-black via-black to-black/60" />
+        <div className="relative flex h-full items-center px-6">
+          <div className="mx-auto w-full max-w-7xl">
+            <p className="mb-3 text-sm font-bold uppercase tracking-widest text-primary">{copy.eyebrow}</p>
+            <h1 className="mb-4 text-6xl font-black tracking-tight">
+              <span className="text-primary">{copy.titleA}</span>
+              <br />
+              <span className="text-white">{copy.titleB}</span>
+            </h1>
+            <p className="max-w-2xl text-base leading-relaxed text-white/70">{copy.subtitle}</p>
           </div>
         </div>
       </div>
 
       <div className="p-6">
-      <div className="max-w-7xl mx-auto">
-
-        {/* Filters */}
-        <div className="backdrop-blur-xl bg-card/80 border border-border/50 rounded-2xl p-6 mb-6 shadow-[0_8px_32px_rgba(0,0,0,0.3)]">
-          <div className="flex flex-col md:flex-row gap-4">
-            {/* Search */}
-            <div className="flex-1 relative">
-              <Search className="w-5 h-5 text-muted-foreground absolute left-3 top-1/2 -translate-y-1/2" />
-              <input
-                type="text"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="Search by name, ID, or phone..."
-                className="w-full bg-input pl-10 pr-4 py-4 rounded-xl border-2 border-border focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all font-medium"
-              />
-            </div>
-
-            {/* Status Filter */}
-            <div className="flex gap-2">
-              <button
-                onClick={() => setStatusFilter('all')}
-                className={`px-4 py-3 rounded-xl font-bold transition-all ${
-                  statusFilter === 'all'
-                    ? 'bg-gradient-to-r from-primary to-destructive text-white shadow-[0_0_30px_rgba(255,0,0,0.5)]'
-                    : 'bg-input hover:bg-secondary'
-                }`}
-              >
-                All
-              </button>
-              <button
-                onClick={() => setStatusFilter('Active')}
-                className={`px-4 py-3 rounded-xl font-bold transition-all ${
-                  statusFilter === 'Active'
-                    ? 'bg-gradient-to-r from-primary to-destructive text-white shadow-[0_0_30px_rgba(255,0,0,0.5)]'
-                    : 'bg-input hover:bg-secondary'
-                }`}
-              >
-                Active
-              </button>
-              <button
-                onClick={() => setStatusFilter('Expired')}
-                className={`px-4 py-3 rounded-xl font-bold transition-all ${
-                  statusFilter === 'Expired'
-                    ? 'bg-gradient-to-r from-primary to-destructive text-white shadow-[0_0_30px_rgba(255,0,0,0.5)]'
-                    : 'bg-input hover:bg-secondary'
-                }`}
-              >
-                Expired
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Members Table */}
-        <div className="backdrop-blur-xl bg-card/80 border border-border/50 rounded-2xl overflow-hidden shadow-[0_8px_32px_rgba(0,0,0,0.3)]">
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-border bg-secondary/30">
-                  <th className="text-left px-6 py-4 font-medium">Member ID</th>
-                  <th className="text-left px-6 py-4 font-medium">Full Name</th>
-                  <th className="text-left px-6 py-4 font-medium">Phone</th>
-                  <th className="text-left px-6 py-4 font-medium">Citizen ID</th>
-                  <th className="text-left px-6 py-4 font-medium">Status</th>
-                  <th className="text-left px-6 py-4 font-medium">Current Package</th>
-                  <th className="text-left px-6 py-4 font-medium">Expiration</th>
-                  <th className="text-left px-6 py-4 font-medium">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredMembers.map((member, index) => (
-                  <tr
-                    key={member.memberId}
-                    className={`border-b border-border hover:bg-secondary/20 transition-colors ${
-                      index % 2 === 0 ? 'bg-transparent' : 'bg-secondary/10'
-                    }`}
-                  >
-                    <td className="px-6 py-4">
-                      <span className="font-mono text-primary">{member.memberId}</span>
-                    </td>
-                    <td className="px-6 py-4 font-medium">{member.fullName}</td>
-                    <td className="px-6 py-4 text-muted-foreground">{member.phoneNum}</td>
-                    <td className="px-6 py-4 text-muted-foreground font-mono text-sm">{member.citizenId}</td>
-                    <td className="px-6 py-4">{getStatusBadge(member.status)}</td>
-                    <td className="px-6 py-4">{member.currentPackage}</td>
-                    <td className="px-6 py-4 text-muted-foreground">
-                      {new Date(member.expirationDate).toLocaleDateString('vi-VN')}
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-2">
-                        <Link
-                          to={`/members/${member.memberId}`}
-                          className="p-2 hover:bg-primary/20 rounded-lg transition-colors group"
-                          title="View Detail"
-                        >
-                          <Eye className="w-4 h-4 text-muted-foreground group-hover:text-primary" />
-                        </Link>
-                        <button
-                          className="p-2 hover:bg-primary/20 rounded-lg transition-colors group"
-                          title="Edit Member"
-                        >
-                          <Edit className="w-4 h-4 text-muted-foreground group-hover:text-primary" />
-                        </button>
-                        <Link
-                          to={`/renew-package/${member.memberId}`}
-                          className="p-2 hover:bg-primary/20 rounded-lg transition-colors group"
-                          title="Renew Package"
-                        >
-                          <RefreshCw className="w-4 h-4 text-muted-foreground group-hover:text-primary" />
-                        </Link>
-                        <button
-                          className="p-2 hover:bg-destructive/20 rounded-lg transition-colors group"
-                          title="Disable Member"
-                        >
-                          <UserX className="w-4 h-4 text-muted-foreground group-hover:text-destructive" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          {/* Empty State */}
-          {filteredMembers.length === 0 && (
-            <div className="text-center py-12">
-              <div className="w-16 h-16 bg-secondary rounded-full flex items-center justify-center mx-auto mb-4">
-                <Search className="w-8 h-8 text-muted-foreground" />
+        <div className="mx-auto max-w-7xl">
+          {warning && <div className="mb-4 rounded-xl border border-yellow-500/30 bg-yellow-500/10 px-4 py-3 text-sm font-semibold text-yellow-300">{warning}</div>}
+          <div className="mb-6 rounded-2xl border border-border/50 bg-card/80 p-6 shadow-[0_8px_32px_rgba(0,0,0,0.3)] backdrop-blur-xl">
+            <div className="flex flex-col gap-4 md:flex-row">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  type="text"
+                  value={searchTerm}
+                  onChange={(event) => setSearchTerm(event.target.value)}
+                  placeholder={copy.search}
+                  className="w-full rounded-xl border-2 border-border bg-input py-4 pl-10 pr-4 font-medium outline-none transition-all focus:border-primary focus:ring-2 focus:ring-primary/50"
+                />
               </div>
-              <h3 className="text-lg font-medium mb-2">No members found</h3>
-              <p className="text-muted-foreground">Try adjusting your search or filters</p>
+              <div className="flex gap-2">
+                {[
+                  ['all', copy.all],
+                  ['Active', copy.active],
+                  ['Expired', copy.expired],
+                  ['Disabled', copy.disabled],
+                ].map(([value, label]) => (
+                  <button
+                    key={value}
+                    onClick={() => setStatusFilter(value)}
+                    className={`rounded-xl px-4 py-3 font-bold transition-all ${statusFilter === value ? 'bg-gradient-to-r from-primary to-destructive text-white shadow-[0_0_30px_rgba(255,0,0,0.5)]' : 'bg-input hover:bg-secondary'}`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
             </div>
-          )}
-        </div>
+          </div>
 
-        {/* Summary */}
-        <div className="mt-4 text-sm text-muted-foreground">
-          Showing {filteredMembers.length} of {members.length} members
+          <div className="overflow-hidden rounded-2xl border border-border/50 bg-card/80 shadow-[0_8px_32px_rgba(0,0,0,0.3)] backdrop-blur-xl">
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-border bg-secondary/30">
+                    {['Member ID', 'Full Name', 'Phone', 'Citizen ID', 'Status', 'Current Package', 'Expiration', 'Actions'].map((heading) => (
+                      <th key={heading} className="px-6 py-4 text-left font-medium">{heading}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredMembers.map((member, index) => (
+                    <tr key={member.memberUuid} className={`border-b border-border transition-colors hover:bg-secondary/20 ${index % 2 === 0 ? 'bg-transparent' : 'bg-secondary/10'}`}>
+                      <td className="px-6 py-4"><span className="font-mono text-primary">{member.memberId}</span></td>
+                      <td className="px-6 py-4 font-medium">{member.fullName}</td>
+                      <td className="px-6 py-4 text-muted-foreground">{member.phoneNum || '-'}</td>
+                      <td className="px-6 py-4 font-mono text-sm text-muted-foreground">{member.citizenId}</td>
+                      <td className="px-6 py-4">{getStatusBadge(member.status)}</td>
+                      <td className="px-6 py-4">{member.currentPackage}</td>
+                      <td className="px-6 py-4 text-muted-foreground">{formatDate(member.expirationDate)}</td>
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-2">
+                          <button onClick={() => openModal(member, 'view')} className="rounded-lg p-2 transition-colors hover:bg-primary/20" title={copy.view}>
+                            <Eye className="h-4 w-4 text-muted-foreground" />
+                          </button>
+                          <button onClick={() => openModal(member, 'edit')} className="rounded-lg p-2 transition-colors hover:bg-primary/20" title={copy.edit}>
+                            <Edit className="h-4 w-4 text-muted-foreground" />
+                          </button>
+                          <button className="rounded-lg p-2 transition-colors hover:bg-primary/20" title={copy.renew}>
+                            <RefreshCw className="h-4 w-4 text-muted-foreground" />
+                          </button>
+                          <button onClick={() => openModal(member, 'disable')} className="rounded-lg p-2 transition-colors hover:bg-destructive/20" title={copy.disable}>
+                            <UserX className="h-4 w-4 text-muted-foreground" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {loading && <div className="py-10 text-center text-muted-foreground">{copy.loading}</div>}
+            {!loading && filteredMembers.length === 0 && (
+              <div className="py-12 text-center">
+                <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-secondary">
+                  <Search className="h-8 w-8 text-muted-foreground" />
+                </div>
+                <h3 className="mb-2 text-lg font-medium">{copy.noMembers}</h3>
+                <p className="text-muted-foreground">{copy.adjust}</p>
+              </div>
+            )}
+          </div>
+
+          <div className="mt-4 text-sm text-muted-foreground">
+            {copy.showing} {filteredMembers.length} {copy.of} {members.length} members
+          </div>
         </div>
       </div>
-      </div>
+
+      {selectedMember && modalMode && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-2xl rounded-2xl border border-primary/40 bg-card p-6 shadow-[0_0_50px_rgba(255,0,0,0.35)]">
+            <div className="mb-5 flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-2xl font-black">{modalMode === 'view' ? copy.view : modalMode === 'edit' ? copy.edit : copy.disable}</h2>
+                <p className="mt-1 text-sm text-muted-foreground">{selectedMember.memberId} - {selectedMember.fullName}</p>
+              </div>
+              <button onClick={closeModal} className="rounded-lg p-2 hover:bg-secondary"><X className="h-5 w-5" /></button>
+            </div>
+
+            {modalError && <div className="mb-4 rounded-xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm font-semibold text-destructive">{modalError}</div>}
+
+            {modalMode === 'view' && (
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                {[
+                  ['Email', selectedMember.email || '-'],
+                  ['Phone', selectedMember.phoneNum || '-'],
+                  ['Date of Birth', formatDate(selectedMember.dateOfBirth)],
+                  ['Gender', selectedMember.gender],
+                  ['Current Package', selectedMember.currentPackage],
+                  ['Expiration', formatDate(selectedMember.expirationDate)],
+                  ['Status', selectedMember.status],
+                  ['User ID', selectedMember.userId || '-'],
+                ].map(([label, value]) => (
+                  <div key={label} className="rounded-xl border border-border bg-input p-4">
+                    <p className="mb-1 text-xs font-bold uppercase text-muted-foreground">{label}</p>
+                    <p className="font-semibold text-white">{value}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {modalMode === 'edit' && (
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <input className="rounded-xl border border-border bg-input px-4 py-3 outline-none focus:border-primary" value={editForm.firstName || ''} onChange={(event) => setEditForm({ ...editForm, firstName: event.target.value })} placeholder="First name" />
+                <input className="rounded-xl border border-border bg-input px-4 py-3 outline-none focus:border-primary" value={editForm.lastName || ''} onChange={(event) => setEditForm({ ...editForm, lastName: event.target.value })} placeholder="Last name" />
+                <input className="rounded-xl border border-border bg-input px-4 py-3 outline-none focus:border-primary" value={editForm.phoneNum || ''} onChange={(event) => setEditForm({ ...editForm, phoneNum: event.target.value })} placeholder="Phone" />
+                <input type="date" className="rounded-xl border border-border bg-input px-4 py-3 outline-none focus:border-primary" value={editForm.dateOfBirth || ''} onChange={(event) => setEditForm({ ...editForm, dateOfBirth: event.target.value })} />
+                <select className="rounded-xl border border-border bg-input px-4 py-3 outline-none focus:border-primary" value={editForm.gender || 'unspecified'} onChange={(event) => setEditForm({ ...editForm, gender: event.target.value })}>
+                  <option value="unspecified">Unspecified</option>
+                  <option value="male">Male</option>
+                  <option value="female">Female</option>
+                  <option value="other">Other</option>
+                </select>
+                <button onClick={handleSaveMember} className="rounded-xl bg-primary px-5 py-3 font-bold text-white hover:bg-destructive">{copy.save}</button>
+              </div>
+            )}
+
+            {modalMode === 'disable' && (
+              <div>
+                <p className="mb-4 text-sm text-muted-foreground">{copy.disablePrompt}</p>
+                <input
+                  type="password"
+                  value={staffPassword}
+                  onChange={(event) => setStaffPassword(event.target.value)}
+                  placeholder={copy.password}
+                  className="mb-5 w-full rounded-xl border border-border bg-input px-4 py-3 outline-none focus:border-primary"
+                />
+                <div className="flex gap-3">
+                  <button onClick={handleDisableMember} className="flex-1 rounded-xl bg-destructive px-5 py-3 font-bold text-white">{copy.confirmDisable}</button>
+                  <button onClick={closeModal} className="rounded-xl border border-border px-5 py-3 font-bold hover:bg-secondary">{copy.cancel}</button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -7,6 +7,8 @@ import {
   useMemo,
   useState,
 } from 'react';
+import { getCurrentUser, setCurrentUser } from '../../services/authService';
+import { updateCurrentUserLanguagePreference } from '../../services/userProfileApi';
 
 export type AppLanguage = 'en' | 'vi';
 
@@ -23,6 +25,7 @@ const DICTIONARY: Record<string, string> = {
   'Owner Portal': 'Cổng chủ phòng tập',
   'Staff Portal': 'Cổng nhân viên',
   'PT Portal': 'Cổng PT',
+  'Member Portal': 'Cổng hội viên',
   'Executive Dashboard': 'Bảng điều hành',
   'Revenue Analytics': 'Phân tích doanh thu',
   'Membership Analytics': 'Phân tích hội viên',
@@ -47,6 +50,11 @@ const DICTIONARY: Record<string, string> = {
   'Manage Trainees': 'Quản lý học viên',
   'Schedule & Progress': 'Lịch tập & tiến độ',
   'Workout Guidance': 'Hướng dẫn bài tập',
+  'My Package': 'Gói tập của tôi',
+  'My Schedule': 'Lịch tập của tôi',
+  Trainers: 'Huấn luyện viên',
+  'Rate Service': 'Đánh giá dịch vụ',
+  Profile: 'Hồ sơ',
   Logout: 'Đăng xuất',
   Search: 'Tìm kiếm',
   'Search...': 'Tìm kiếm...',
@@ -144,7 +152,10 @@ const DICTIONARY: Record<string, string> = {
   'Staff Account': 'Tài khoản nhân viên',
   'Owner Profile': 'Hồ sơ chủ phòng tập',
   'Staff Profile': 'Hồ sơ nhân viên',
+  'Member Profile': 'Hồ sơ hội viên',
+  'Member Account': 'Tài khoản hội viên',
   'Gym Owner': 'Chủ phòng tập',
+  'Gym Member': 'Hội viên phòng tập',
   'Management Staff': 'Nhân viên quản lý',
   Owner: 'Chủ phòng tập',
   'Email and phone number are edited in Settings.': 'Email và số điện thoại được chỉnh sửa trong Cài đặt.',
@@ -164,6 +175,22 @@ const DICTIONARY: Record<string, string> = {
   'Turn off to use the light interface with blue as the primary color.':
     'Tắt để dùng giao diện sáng với xanh dương làm màu chủ đạo.',
   'Use English across the system': 'Sử dụng tiếng Anh cho toàn hệ thống',
+  'Search packages, workouts, trainers...': 'Tìm gói tập, buổi tập, huấn luyện viên...',
+  'Member Dashboard': 'Bảng điều khiển hội viên',
+  'Current Package': 'Gói hiện tại',
+  'Upcoming Workout': 'Buổi tập sắp tới',
+  'Quick Actions': 'Thao tác nhanh',
+  'Book Workout': 'Đặt lịch tập',
+  'Renew Package': 'Gia hạn gói',
+  'View Trainers': 'Xem huấn luyện viên',
+  'Buy / Renew / Upgrade': 'Mua / gia hạn / nâng cấp',
+  Payment: 'Thanh toán',
+  'Transaction History': 'Lịch sử giao dịch',
+  'Workout Calendar': 'Lịch tập',
+  'View Detail': 'Xem chi tiết',
+  Reschedule: 'Đổi lịch',
+  'Send Feedback': 'Gửi phản hồi',
+  'Submit Feedback': 'Gửi đánh giá',
   'Register Package': 'Đăng ký gói',
   'Create Invoice': 'Tạo hóa đơn',
   'View Reports': 'Xem báo cáo',
@@ -230,6 +257,9 @@ const LanguageContext = createContext<LanguageContextValue | null>(null);
 
 function getInitialLanguage(): AppLanguage {
   if (typeof window === 'undefined') return 'en';
+  const currentUser = getCurrentUser();
+  const userLanguage = currentUser?.preferredLanguage || currentUser?.preferred_language;
+  if (userLanguage === 'vi' || userLanguage === 'en') return userLanguage;
   return window.localStorage.getItem(STORAGE_KEY) === 'vi' ? 'vi' : 'en';
 }
 
@@ -294,7 +324,27 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
     setLanguageState(nextLanguage);
     window.localStorage.setItem(STORAGE_KEY, nextLanguage);
     document.documentElement.lang = nextLanguage;
+    const currentUser = getCurrentUser();
+    if (currentUser) {
+      const nextUser = {
+        ...currentUser,
+        preferredLanguage: nextLanguage,
+        preferred_language: nextLanguage,
+      };
+      setCurrentUser(nextUser);
+      void updateCurrentUserLanguagePreference(nextUser, nextLanguage);
+    }
   };
+
+  useEffect(() => {
+    const currentUser = getCurrentUser();
+    const userLanguage = currentUser?.preferredLanguage || currentUser?.preferred_language;
+    if ((userLanguage === 'vi' || userLanguage === 'en') && userLanguage !== language) {
+      setLanguageState(userLanguage);
+      window.localStorage.setItem(STORAGE_KEY, userLanguage);
+      document.documentElement.lang = userLanguage;
+    }
+  }, []);
 
   useEffect(() => {
     document.documentElement.lang = language;

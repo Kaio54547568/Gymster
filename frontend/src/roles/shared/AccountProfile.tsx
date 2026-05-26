@@ -1,5 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Camera, Edit2, Mail, Phone, Save, User, X } from 'lucide-react';
+import { getCurrentUser, setCurrentUser } from '../../services/authService';
+import { updateCurrentUserProfile, uploadCurrentUserAvatar } from '../../services/userProfileApi';
 
 type AccountProfileProps = {
   title: string;
@@ -12,6 +14,7 @@ type AccountProfileProps = {
   email: string;
   phone: string;
   initials: string;
+  avatarUrl?: string;
 };
 
 export default function AccountProfile({
@@ -25,16 +28,91 @@ export default function AccountProfile({
   email,
   phone,
   initials,
+  avatarUrl: initialAvatarUrl = '',
 }: AccountProfileProps) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [editing, setEditing] = useState(false);
   const [firstName, setFirstName] = useState(initialFirstName);
   const [lastName, setLastName] = useState(initialLastName);
   const [dob, setDob] = useState(initialDob);
   const [headline, setHeadline] = useState(initialHeadline);
+  const [avatarUrl, setAvatarUrl] = useState(initialAvatarUrl);
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+  const [statusMessage, setStatusMessage] = useState('');
+  const displayTitle = [firstName, lastName].filter(Boolean).join(' ').trim() || title;
+
+  useEffect(() => {
+    setFirstName(initialFirstName);
+    setLastName(initialLastName);
+    setDob(initialDob);
+    setHeadline(initialHeadline);
+  }, [initialFirstName, initialLastName, initialDob, initialHeadline]);
+
+  useEffect(() => {
+    setAvatarUrl(initialAvatarUrl);
+  }, [initialAvatarUrl]);
 
   const fieldClass = `mt-2 w-full rounded-xl border border-white/10 bg-[#222] px-4 py-3 text-sm text-white outline-none transition-colors ${
     editing ? 'focus:border-[#EF233C]/60' : 'cursor-not-allowed opacity-70'
   }`;
+
+  const cancelEdit = () => {
+    setFirstName(initialFirstName);
+    setLastName(initialLastName);
+    setDob(initialDob);
+    setHeadline(initialHeadline);
+    setStatusMessage('');
+    setEditing(false);
+  };
+
+  const saveProfile = async () => {
+    setStatusMessage('');
+    const result = await updateCurrentUserProfile(getCurrentUser(), {
+      firstName,
+      lastName,
+      dob,
+      headline,
+    });
+
+    setStatusMessage(result.message);
+
+    if (result.ok) {
+      const currentUser = getCurrentUser();
+      if (currentUser) {
+        setCurrentUser({
+          ...currentUser,
+          firstName,
+          lastName,
+          fullName: [firstName, lastName].filter(Boolean).join(' ').trim(),
+          dob,
+          date_of_birth: dob,
+        });
+      }
+      setEditing(false);
+    }
+  };
+
+  const uploadAvatar = async (file?: File) => {
+    if (!file) return;
+
+    setIsUploadingAvatar(true);
+    setStatusMessage('');
+    const result = await uploadCurrentUserAvatar(getCurrentUser(), file);
+    setIsUploadingAvatar(false);
+    setStatusMessage(result.message);
+
+    if (result.ok && result.avatarUrl) {
+      setAvatarUrl(result.avatarUrl);
+      const currentUser = getCurrentUser();
+      if (currentUser) {
+        setCurrentUser({
+          ...currentUser,
+          avatarUrl: result.avatarUrl,
+          avatar_url: result.avatarUrl,
+        });
+      }
+    }
+  };
 
   return (
     <div className="min-h-full px-6 py-8">
@@ -45,25 +123,42 @@ export default function AccountProfile({
             <div className="flex items-center gap-5">
               <div className="relative">
                 <div className="flex h-24 w-24 items-center justify-center rounded-3xl border border-[#EF233C]/25 bg-[#EF233C]/15 text-3xl font-black text-[#EF233C] shadow-[0_20px_50px_rgba(239,35,60,0.18)]">
-                  {initials}
+                  {avatarUrl ? (
+                    <img src={avatarUrl} alt={`${displayTitle} avatar`} className="h-full w-full rounded-3xl object-cover" />
+                  ) : (
+                    initials
+                  )}
                 </div>
-                <button className="absolute -bottom-2 -right-2 flex h-9 w-9 items-center justify-center rounded-xl bg-[#EF233C] text-white shadow-lg shadow-[#EF233C]/30">
-                  <Camera className="h-4 w-4" />
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(event) => uploadAvatar(event.target.files?.[0])}
+                />
+                <button
+                  type="button"
+                  disabled={isUploadingAvatar}
+                  onClick={() => fileInputRef.current?.click()}
+                  className="absolute -bottom-2 -right-2 flex h-9 w-9 items-center justify-center rounded-xl bg-[#EF233C] text-white shadow-lg shadow-[#EF233C]/30 disabled:cursor-not-allowed disabled:bg-white/20"
+                  aria-label="Upload avatar"
+                >
+                  {isUploadingAvatar ? <span className="text-xs font-black">...</span> : <Camera className="h-4 w-4" />}
                 </button>
               </div>
               <div>
-                <h1 className="text-5xl font-black tracking-tight text-white">{title}</h1>
+                <h1 className="text-5xl font-black tracking-tight text-white">{displayTitle}</h1>
                 <p className="mt-2 text-sm font-semibold text-[#EF233C]">{roleLabel}</p>
                 <p className="mt-2 max-w-xl text-sm leading-6 text-white/55">{headline}</p>
               </div>
             </div>
             {editing ? (
               <div className="flex gap-2">
-                <button className="flex items-center gap-2 rounded-xl border border-white/10 px-4 py-3 text-sm font-bold text-white/70 hover:bg-white/5" onClick={() => setEditing(false)}>
+                <button className="flex items-center gap-2 rounded-xl border border-white/10 px-4 py-3 text-sm font-bold text-white/70 hover:bg-white/5" onClick={cancelEdit}>
                   <X className="h-4 w-4" />
                   Cancel
                 </button>
-                <button className="flex items-center gap-2 rounded-xl bg-[#EF233C] px-4 py-3 text-sm font-bold text-white hover:bg-[#990000]" onClick={() => setEditing(false)}>
+                <button className="flex items-center gap-2 rounded-xl bg-[#EF233C] px-4 py-3 text-sm font-bold text-white hover:bg-[#990000]" onClick={saveProfile}>
                   <Save className="h-4 w-4" />
                   Save
                 </button>
@@ -75,6 +170,7 @@ export default function AccountProfile({
               </button>
             )}
           </div>
+          {statusMessage && <p className="mt-4 text-xs font-semibold text-white/55">{statusMessage}</p>}
         </div>
 
         <section className="rounded-2xl border border-white/8 bg-[#181818]">

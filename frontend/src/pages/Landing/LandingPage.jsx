@@ -1,4 +1,6 @@
+import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router";
+import { fetchLandingPageData } from "../../services/landingApi";
 import "./LandingPage.css";
 
 const navItems = [
@@ -11,51 +13,10 @@ const navItems = [
 ];
 
 const features = [
-  ["Quản lý hội viên thông minh", "Quản lý hồ sơ hội viên, lịch sử tập luyện và trạng thái gói tập trên một nền tảng duy nhất."],
-  ["Đặt lịch huấn luyện viên", "Đặt lịch với PT, theo dõi buổi tập và đánh giá tiến độ theo thời gian thực."],
-  ["Theo dõi tập luyện", "Ghi nhận lịch sử tập, đo lường hiệu suất và nhận kế hoạch tập luyện cá nhân hóa."],
-  ["Thanh toán và gia hạn", "Xử lý thanh toán, biên lai và gia hạn gói tập rõ ràng, nhanh chóng."],
-  ["Theo dõi thiết bị", "Quản lý tình trạng thiết bị, lên lịch bảo trì và nhận cảnh báo khi cần xử lý."],
-  ["Báo cáo vận hành", "Theo dõi doanh thu, hội viên mới và hiệu suất nhân sự theo thời gian thực."],
-];
-
-const packages = [
-  {
-    name: "CƠ BẢN",
-    price: "299.000",
-    unit: "đ/tháng",
-    duration: "Gói 3 tháng",
-    features: ["Truy cập phòng gym 24/7", "Sử dụng thiết bị cơ bản", "Tủ đồ cá nhân", "1 buổi tư vấn dinh dưỡng", "App theo dõi cơ bản"],
-  },
-  {
-    name: "NÂNG CAO",
-    price: "599.000",
-    unit: "đ/tháng",
-    duration: "Gói 6 tháng",
-    badge: "PHỔ BIẾN",
-    featured: true,
-    features: ["Tất cả quyền lợi Cơ bản", "Lớp học nhóm không giới hạn", "2 buổi PT miễn phí/tháng", "Đánh giá thể trạng định kỳ", "Ưu tiên đặt lịch"],
-  },
-  {
-    name: "VIP",
-    price: "999.000",
-    unit: "đ/tháng",
-    duration: "Gói 12 tháng",
-    badge: "CAO CẤP",
-    features: ["Tất cả quyền lợi Nâng cao", "PT cá nhân không giới hạn", "Kế hoạch dinh dưỡng riêng", "Phòng thay đồ VIP", "Hỗ trợ ưu tiên 24/7"],
-  },
-];
-
-const trainers = [
-  ["Nguyễn Minh Đức", "Sức mạnh và thể hình", "8 năm", "4.9", "https://images.unsplash.com/photo-1750698545009-679820502908?w=500&h=620&fit=crop&auto=format"],
-  ["Trần Thị Phương", "HIIT và Yoga", "6 năm", "4.8", "https://images.unsplash.com/photo-1683889842937-bfd75dbc4a81?w=500&h=620&fit=crop&auto=format"],
-  ["Lê Thanh Bình", "Cardio và sức bền", "10 năm", "4.9", "https://images.unsplash.com/photo-1652400744403-8f29705bd6a5?w=500&h=620&fit=crop&auto=format"],
-];
-
-const testimonials = [
-  ["Phạm Quốc Huy", "Gymster giúp tôi theo dõi tiến độ và lịch PT rõ ràng hơn rất nhiều."],
-  ["Nguyễn Thị Lan", "Giao diện dễ dùng, lịch tập và thông báo rất tiện cho hội viên."],
-  ["Trần Minh Khoa", "Tôi thích cách hệ thống gom gói tập, thanh toán và lịch tập vào một nơi."],
+  ["Quản lý hội viên", "Theo dõi hồ sơ, gói tập, lịch tập và trạng thái thanh toán trong một hệ thống."],
+  ["Đặt lịch PT", "Kết nối hội viên với huấn luyện viên và cập nhật tiến độ tập luyện."],
+  ["Bảo trì thiết bị", "Nhận report từ nhân viên và theo dõi trạng thái xử lý của từng thiết bị."],
+  ["Báo cáo vận hành", "Tổng hợp doanh thu, hội viên, nhân sự và phản hồi dựa trên dữ liệu hệ thống."],
 ];
 
 function scrollToSection(id) {
@@ -104,7 +65,11 @@ function Navbar() {
   );
 }
 
-function HeroSection() {
+function EmptyState({ label }) {
+  return <p className="preview-text">{label}</p>;
+}
+
+function HeroSection({ stats }) {
   const navigate = useNavigate();
 
   return (
@@ -118,31 +83,30 @@ function HeroSection() {
             <span>Limits</span>
           </h1>
           <p>
-            Chuyển đổi cơ thể với huấn luyện viên chuyên nghiệp, thiết bị hiện đại và trải nghiệm fitness đẳng cấp cao.
+            Chuyển đổi trải nghiệm phòng tập bằng dữ liệu vận hành thực tế: hội viên, PT, gói tập,
+            thanh toán và bảo trì đều nằm trong một hệ thống.
           </p>
           <div className="hero-actions">
             <button className="red-btn" type="button" onClick={() => navigate("/register")}>
-              Tham gia ngay <span>→</span>
+              Tham gia ngay <span>-&gt;</span>
             </button>
             <button className="ghost-btn" type="button" onClick={() => scrollToSection("membership")}>
-              ▶ Xem gói tập
+              Xem gói tập
             </button>
           </div>
-          <div className="hero-metrics">
-            <div><strong>5,000+</strong><span>Hội viên</span></div>
-            <div><strong>50+</strong><span>Huấn luyện viên</span></div>
-            <div><strong>24/7</strong><span>Hỗ trợ</span></div>
-            <div><strong>10+</strong><span>Chương trình</span></div>
-          </div>
+          {stats.length > 0 && (
+            <div className="hero-metrics">
+              {stats.map(([value, label]) => (
+                <div key={label}><strong>{value}</strong><span>{label}</span></div>
+              ))}
+            </div>
+          )}
         </div>
         <div className="hero-visual">
           <img
             src="https://images.unsplash.com/photo-1599058917212-d750089bc07e?w=760&h=920&fit=crop&auto=format"
-            alt="Hoi vien Gymster tap luyen"
+            alt="Hội viên Gymster tập luyện"
           />
-          <div className="float-card top">Hôm nay<strong>1,240 kcal</strong></div>
-          <div className="float-card mid">Buổi tập<strong>45 phút</strong></div>
-          <div className="float-card bottom">Nhịp tim<strong>142 bpm</strong></div>
         </div>
       </div>
     </section>
@@ -168,49 +132,57 @@ function FeaturesSection() {
   );
 }
 
-function PackagesSection() {
+function PackagesSection({ packages }) {
   return (
     <section className="landing-section dark-band" id="membership">
       <div className="landing-container">
-        <SectionTitle kicker="Membership" title="Chọn gói tập" accent="phù hợp" />
-        <div className="package-list">
-          {packages.map((pkg) => (
-            <article className={`membership-card ${pkg.featured ? "featured" : ""}`} key={pkg.name}>
-              {pkg.badge && <span className="membership-badge">{pkg.badge}</span>}
-              <h3>{pkg.name}</h3>
-              <div className="membership-price">{pkg.price}<span>{pkg.unit}</span></div>
-              <p>{pkg.duration}</p>
-              <ul>
-                {pkg.features.map((feature) => <li key={feature}>{feature}</li>)}
-              </ul>
-              <Link className={pkg.featured ? "red-btn full" : "outline-btn full"} to="/register">
-                Đăng ký gói này
-              </Link>
-            </article>
-          ))}
-        </div>
+        <SectionTitle kicker="Membership" title="Gói tập hội viên" />
+        {packages.length ? (
+          <div className="package-list">
+            {packages.map((pkg) => (
+              <article className={`membership-card ${pkg.featured ? "featured" : ""}`} key={pkg.id || pkg.name}>
+                {pkg.badge && <span className="membership-badge">{pkg.badge}</span>}
+                <h3>{pkg.name}</h3>
+                <div className="membership-price">{pkg.price}<span>{pkg.unit}</span></div>
+                <p>{pkg.duration}</p>
+                <ul>
+                  {pkg.features.map((feature) => <li key={feature}>{feature}</li>)}
+                </ul>
+                <Link className={pkg.featured ? "red-btn full" : "outline-btn full"} to="/register">
+                  Đăng ký gói này
+                </Link>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <EmptyState label="Chưa có gói tập đang hoạt động." />
+        )}
       </div>
     </section>
   );
 }
 
-function TrainersSection() {
+function TrainersSection({ trainers }) {
   return (
     <section className="landing-section" id="trainers">
       <div className="landing-container">
-        <SectionTitle kicker="Huấn luyện viên" title="Đội ngũ PT" accent="chuyên nghiệp" />
-        <div className="trainer-list">
-          {trainers.map(([name, specialty, exp, rating, img]) => (
-            <article className="trainer-card-landing" key={name}>
-              <img src={img} alt={name} />
-              <div>
-                <h3>{name}</h3>
-                <p>{specialty}</p>
-                <span>{exp} kinh nghiệm · {rating}/5</span>
-              </div>
-            </article>
-          ))}
-        </div>
+        <SectionTitle kicker="Huấn luyện viên" title="Đội ngũ PT chuyên nghiệp" />
+        {trainers.length ? (
+          <div className="trainer-list">
+            {trainers.map(([name, specialty, detail, rating, img]) => (
+              <article className="trainer-card-landing" key={name}>
+                <img src={img} alt={name} />
+                <div>
+                  <h3>{name}</h3>
+                  <p>{specialty}</p>
+                  <span>{detail} - {rating}/5</span>
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <EmptyState label="Chưa có huấn luyện viên đang hoạt động." />
+        )}
       </div>
     </section>
   );
@@ -223,31 +195,14 @@ function AboutSection() {
         <SectionTitle kicker="Về Gymster" title="Một nền tảng cho" accent="toàn bộ phòng tập" />
         <div className="about-copy">
           <p>
-            Gymster kết hợp trải nghiệm fitness cao cấp với hệ thống quản lý hiện đại. Phòng tập có thể quản lý hội viên, gói tập, huấn luyện viên, thiết bị và báo cáo vận hành trong cùng một giao diện.
+            Gymster kết hợp công cụ quản lý hội viên, gói tập, huấn luyện viên, thiết bị và báo cáo
+            trong cùng một giao diện.
           </p>
           <div className="about-points">
-            <span>Quản lý nhanh hơn</span>
-            <span>Dữ liệu rõ ràng hơn</span>
-            <span>Trải nghiệm hội viên tốt hơn</span>
+            <span>Dữ liệu tập trung</span>
+            <span>Quy trình rõ ràng</span>
+            <span>Trạng thái cập nhật liên tục</span>
           </div>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function TestimonialsSection() {
-  return (
-    <section className="landing-section">
-      <div className="landing-container">
-        <SectionTitle kicker="Cảm nhận" title="Hội viên nói gì" accent="về Gymster" />
-        <div className="testimonial-list">
-          {testimonials.map(([name, quote]) => (
-            <article className="testimonial-card" key={name}>
-              <p>“{quote}”</p>
-              <strong>{name}</strong>
-            </article>
-          ))}
         </div>
       </div>
     </section>
@@ -261,13 +216,9 @@ function AppPreviewSection() {
         <div>
           <SectionTitle kicker="Ứng dụng" title="Theo dõi tiến độ" accent="mọi lúc" />
           <p className="preview-text">
-            Hội viên xem lịch tập, gói tập, số buổi PT và chỉ số luyện tập. Chủ phòng tập theo dõi doanh thu, thiết bị và hiệu suất vận hành.
+            Hội viên xem lịch tập, gói tập, buổi PT và chỉ số luyện tập. Admin theo dõi doanh thu,
+            thiết bị và hiệu suất vận hành bằng dữ liệu hệ thống.
           </p>
-        </div>
-        <div className="app-preview">
-          <div className="preview-row"><span>Calories</span><strong>1,240 kcal</strong></div>
-          <div className="preview-row"><span>Buổi tập</span><strong>45 phút</strong></div>
-          <div className="preview-row"><span>Gói tập</span><strong>Nâng cao</strong></div>
         </div>
       </div>
     </section>
@@ -279,7 +230,7 @@ function ContactSection() {
     <section className="landing-cta" id="contact">
       <div className="landing-container cta-inner">
         <h2>Sẵn sàng bắt đầu cùng Gymster?</h2>
-        <p>Đăng ký ngay để trải nghiệm giao diện hội viên và chuẩn bị kết nối dashboard quản trị.</p>
+        <p>Đăng ký để sử dụng luồng onboarding và dashboard quản lý.</p>
         <div className="hero-actions centered">
           <Link className="red-btn" to="/register">Đăng ký ngay</Link>
           <Link className="ghost-btn" to="/login">Đăng nhập</Link>
@@ -302,15 +253,41 @@ function Footer() {
 }
 
 function LandingPage() {
+  const [landingData, setLandingData] = useState({
+    stats: [],
+    packages: [],
+    trainers: [],
+  });
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadLandingData() {
+      const { data } = await fetchLandingPageData();
+      if (!isMounted || !data) return;
+
+      setLandingData({
+        stats: data.stats || [],
+        packages: data.packages || [],
+        trainers: data.trainers || [],
+      });
+    }
+
+    loadLandingData();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
   return (
     <div className="landing-page">
       <Navbar />
-      <HeroSection />
+      <HeroSection stats={landingData.stats} />
       <FeaturesSection />
-      <PackagesSection />
-      <TrainersSection />
+      <PackagesSection packages={landingData.packages} />
+      <TrainersSection trainers={landingData.trainers} />
       <AboutSection />
-      <TestimonialsSection />
       <AppPreviewSection />
       <ContactSection />
       <Footer />
