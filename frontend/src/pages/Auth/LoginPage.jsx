@@ -59,7 +59,7 @@ function LoginPage() {
                   <input
                     id="identifier"
                     type="text"
-                    placeholder="admin hoặc admin@gymster.local"
+                    placeholder={'T\u00ean \u0111\u0103ng nh\u1eadp'}
                     value={form.identifier}
                     onChange={updateField("identifier")}
                     autoComplete="username"
@@ -85,7 +85,7 @@ function LoginPage() {
                     aria-label={showPassword ? "Ẩn mật khẩu" : "Hiện mật khẩu"}
                     onClick={() => setShowPassword((current) => !current)}
                   >
-                    {showPassword ? "ẩn" : "xem"}
+                    {showPassword ? "Ẩn" : "Xem"}
                   </button>
                 </div>
               </div>

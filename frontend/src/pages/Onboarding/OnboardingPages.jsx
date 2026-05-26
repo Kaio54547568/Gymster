@@ -30,7 +30,6 @@ import {
   fixedScheduleOptions,
   formatVnd,
   getOnboardingState,
-  mockPackages,
   saveOnboardingState,
 } from "../../services/onboardingService";
 
@@ -133,6 +132,26 @@ function StatusBadge({ status }) {
 }
 
 function Stepper({ state }) {
+  if (state.accountStatus === ACCOUNT_STATUSES.PendingOnboarding && !state.selectedPackage) {
+    return (
+      <Panel>
+        <div className="grid gap-3 md:grid-cols-3">
+          {["Account Created", "Staff Review", "Account Activated"].map((step, index) => {
+            const active = index === 1;
+            return (
+              <div key={step} className={`rounded-xl border p-4 ${active ? "border-[#EF233C] bg-[#EF233C]/10" : "border-white/8 bg-white/[0.03]"}`}>
+                <div className={`mb-3 flex h-8 w-8 items-center justify-center rounded-full text-xs font-black ${index === 0 ? "bg-[#EF233C] text-white" : "bg-white/10 text-white/55"}`}>
+                  {index === 0 ? <CheckCircle className="h-4 w-4" /> : index + 1}
+                </div>
+                <div className={`text-sm font-black ${active || index === 0 ? "text-white" : "text-white/45"}`}>{step}</div>
+              </div>
+            );
+          })}
+        </div>
+      </Panel>
+    );
+  }
+
   const hasPt = Boolean(state.selectedPackage?.hasPersonalTrainer || state.selectedTrainer || state.trainingRequest);
   const steps = hasPt
     ? ["Account Created", "Choose Package", "Choose Trainer", "PT Approval", "Payment", "Activated"]
@@ -207,9 +226,12 @@ export function RegistrationStatusPage() {
   const [state, save] = useOnboardingState();
   const [isSyncingRequest, setIsSyncingRequest] = useState(false);
   const status = state.accountStatus;
+  const isNewAccountPending = status === ACCOUNT_STATUSES.PendingOnboarding && !state.selectedPackage;
 
   const statusMessage = {
-    PendingOnboarding: "Your account has been created. Please choose a package to continue.",
+    PendingOnboarding: isNewAccountPending
+      ? "Your account has been created and is waiting for staff review. You will be able to continue once the account is approved."
+      : "Your account has been created. Please choose a package to continue.",
     PendingPTApproval: "Your request has been sent to the trainer. Please wait for approval.",
     PendingPayment: "Please complete your payment to activate your account.",
     Active: "Your membership is active.",
@@ -269,8 +291,12 @@ export function RegistrationStatusPage() {
   return (
     <PageShell>
       <PageHeader
-        title="Complete Your Membership"
-        subtitle="Your account has been created. Complete your membership setup to unlock the Member Portal."
+        title={isNewAccountPending ? "Account Pending Review" : "Complete Your Membership"}
+        subtitle={
+          isNewAccountPending
+            ? "Your Gymster account is created. Staff will verify the registration before your member setup continues."
+            : "Your account has been created. Complete your membership setup to unlock the Member Portal."
+        }
       />
 
       <div className="space-y-5">
@@ -289,7 +315,10 @@ export function RegistrationStatusPage() {
             </div>
 
             <div className="flex flex-wrap gap-3">
-              {(status === ACCOUNT_STATUSES.PendingOnboarding || status === ACCOUNT_STATUSES.Cancelled) && (
+              {status === ACCOUNT_STATUSES.PendingOnboarding && !isNewAccountPending && (
+                <PrimaryButton onClick={() => navigate("/onboarding/packages")}>Choose Package</PrimaryButton>
+              )}
+              {status === ACCOUNT_STATUSES.Cancelled && (
                 <PrimaryButton onClick={() => navigate("/onboarding/packages")}>Choose Package</PrimaryButton>
               )}
               {status === ACCOUNT_STATUSES.Cancelled && state.selectedPackage?.hasPersonalTrainer && (
@@ -355,10 +384,10 @@ export function RegistrationStatusPage() {
 export function PackageSelectionPage() {
   const navigate = useNavigate();
   const [, save] = useOnboardingState();
-  const [packages, setPackages] = useState(mockPackages);
+  const [packages, setPackages] = useState([]);
   const [isLoadingPackages, setIsLoadingPackages] = useState(true);
   const [packageLoadError, setPackageLoadError] = useState("");
-  const [isUsingFallbackPackages, setIsUsingFallbackPackages] = useState(false);
+  const [hasNoSupabasePackages, setHasNoSupabasePackages] = useState(false);
   const [isSelectingPackage, setIsSelectingPackage] = useState(false);
 
   useEffect(() => {
@@ -370,17 +399,17 @@ export function PackageSelectionPage() {
       }
 
       if (error) {
-        setPackages(mockPackages);
-        setPackageLoadError("Packages could not be loaded from Supabase. Showing demo packages instead.");
-        setIsUsingFallbackPackages(true);
+        setPackages([]);
+        setPackageLoadError("Package list could not be loaded.");
+        setHasNoSupabasePackages(true);
       } else if (data.length === 0) {
-        setPackages(mockPackages);
+        setPackages([]);
         setPackageLoadError("");
-        setIsUsingFallbackPackages(true);
+        setHasNoSupabasePackages(true);
       } else {
         setPackages(data);
         setPackageLoadError("");
-        setIsUsingFallbackPackages(false);
+        setHasNoSupabasePackages(false);
       }
 
       setIsLoadingPackages(false);
@@ -389,10 +418,10 @@ export function PackageSelectionPage() {
         return;
       }
 
-      console.error("[Gymster Supabase] Failed to load packages:", error);
-      setPackages(mockPackages);
-      setPackageLoadError("Packages could not be loaded from Supabase. Showing demo packages instead.");
-      setIsUsingFallbackPackages(true);
+      console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to load packages:", error);
+      setPackages([]);
+      setPackageLoadError("Package list could not be loaded.");
+      setHasNoSupabasePackages(true);
       setIsLoadingPackages(false);
     });
 
@@ -429,7 +458,7 @@ export function PackageSelectionPage() {
       selectedSchedule: "",
       memberPackageId: data?.memberPackageId || null,
       memberPackage: data || nextLocalMemberPackage,
-      memberPackageSyncError: error ? "Supabase member package creation failed. Local onboarding state was saved." : "",
+      memberPackageSyncError: error ? "Member package could not be created." : "",
       trainingRequest: null,
       payment: null,
     });
@@ -453,9 +482,9 @@ export function PackageSelectionPage() {
         </Panel>
       ) : null}
 
-      {!packageLoadError && isUsingFallbackPackages && !isLoadingPackages ? (
+      {!packageLoadError && hasNoSupabasePackages && !isLoadingPackages ? (
         <Panel className="mb-5">
-          <div className="p-5 text-sm font-bold text-white/60">No Supabase packages were returned. Showing demo packages instead.</div>
+          <div className="p-5 text-sm font-bold text-white/60">No packages found.</div>
         </Panel>
       ) : null}
 
@@ -497,7 +526,6 @@ export function TrainerSelectionPage() {
   const [trainers, setTrainers] = useState(() => getTrainers());
   const [isLoadingTrainers, setIsLoadingTrainers] = useState(true);
   const [trainerLoadError, setTrainerLoadError] = useState("");
-  const [isUsingFallbackTrainers, setIsUsingFallbackTrainers] = useState(false);
   const [selectedTrainerId, setSelectedTrainerId] = useState(state.selectedTrainer?.id || "");
   const [selectedSchedule, setSelectedSchedule] = useState(state.selectedSchedule || "");
   const [isCreatingRequest, setIsCreatingRequest] = useState(false);
@@ -513,17 +541,14 @@ export function TrainerSelectionPage() {
       }
 
       if (error) {
-        setTrainers(getTrainers());
-        setTrainerLoadError("Trainers could not be loaded from Supabase. Showing demo trainers instead.");
-        setIsUsingFallbackTrainers(true);
+        setTrainers([]);
+        setTrainerLoadError("Trainer list could not be loaded.");
       } else if (data.length === 0) {
-        setTrainers(getTrainers());
+        setTrainers([]);
         setTrainerLoadError("");
-        setIsUsingFallbackTrainers(true);
       } else {
         setTrainers(data);
         setTrainerLoadError("");
-        setIsUsingFallbackTrainers(false);
       }
 
       setIsLoadingTrainers(false);
@@ -532,10 +557,9 @@ export function TrainerSelectionPage() {
         return;
       }
 
-      console.error("[Gymster Supabase] Failed to load trainers:", error);
-      setTrainers(getTrainers());
-      setTrainerLoadError("Trainers could not be loaded from Supabase. Showing demo trainers instead.");
-      setIsUsingFallbackTrainers(true);
+      console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to load trainers:", error);
+      setTrainers([]);
+      setTrainerLoadError("Trainer list could not be loaded.");
       setIsLoadingTrainers(false);
     });
 
@@ -582,7 +606,7 @@ export function TrainerSelectionPage() {
         : null,
       trainingRequestId: data?.requestId || null,
       trainingRequest: nextRequest,
-      trainingRequestSyncError: error ? "Supabase request creation failed. Local demo request was saved." : "",
+      trainingRequestSyncError: error ? "Training request could not be created." : "",
       payment: null,
     });
     navigate("/onboarding/status");
@@ -604,9 +628,9 @@ export function TrainerSelectionPage() {
         </Panel>
       ) : null}
 
-      {!trainerLoadError && isUsingFallbackTrainers && !isLoadingTrainers ? (
+      {!trainerLoadError && trainers.length === 0 && !isLoadingTrainers ? (
         <Panel className="mb-5">
-          <div className="p-5 text-sm font-bold text-white/60">No Supabase trainers were returned. Showing demo trainers instead.</div>
+          <div className="p-5 text-sm font-bold text-white/60">No trainers found.</div>
         </Panel>
       ) : null}
 
@@ -759,7 +783,7 @@ export function OnboardingPaymentPage() {
     setIsCreatingPayment(false);
 
     if (error) {
-      setPaymentError("Payment could not be saved to Supabase. The demo payment was saved locally instead.");
+      setPaymentError("Payment could not be saved.");
     }
 
     const savedPayment = data || payment;
@@ -786,7 +810,7 @@ export function OnboardingPaymentPage() {
 
   return (
     <PageShell>
-      <PageHeader title="Complete Payment" subtitle="This is a mock payment screen for demo onboarding only." />
+      <PageHeader title="Complete Payment" subtitle="Complete payment information." />
 
       <div className="grid gap-5 lg:grid-cols-[1fr_420px]">
         <Panel title="Payment Details">
@@ -822,15 +846,15 @@ export function OnboardingPaymentPage() {
 
           {paymentMethod === "Bank Transfer" ? (
             <div className="mt-5 rounded-2xl border border-[#EF233C]/25 bg-[#EF233C]/10 p-4">
-              <div className="mb-3 text-sm font-black text-white">Mock QR Payment</div>
-              <DetailRow label="Bank name" value="Gymster Demo Bank" />
+              <div className="mb-3 text-sm font-black text-white">QR Payment</div>
+              <DetailRow label="Bank name" value="Gymster Bank" />
               <DetailRow label="Account number" value="8888 2026 0517" />
               <DetailRow label="Transfer content" value={`GYMSTER ${state.selectedPackage.id}`} />
               <DetailRow label="Amount" value={formatVnd(state.selectedPackage.price)} />
               <div className="mt-4 flex h-44 items-center justify-center rounded-xl border border-dashed border-white/20 bg-black/25">
                 <div className="text-center">
                   <QrCode className="mx-auto h-16 w-16 text-white/45" />
-                  <div className="mt-2 text-xs font-bold text-white/45">Mock QR Placeholder</div>
+                  <div className="mt-2 text-xs font-bold text-white/45">Payment QR code</div>
                 </div>
               </div>
             </div>

@@ -21,26 +21,12 @@ interface UsageHistory {
   note: string;
 }
 
-const fallbackHistory: UsageHistory[] = [
-  {
-    historyId: 'DEMO-HIS-001',
-    memberId: 'MB-DEMO-001',
-    memberName: 'Member Demo 01',
-    phoneNum: '0910000001',
-    usageDate: '2026-05-18',
-    usageTime: '07:00',
-    serviceType: 'Gym Floor',
-    trainerName: 'Self-training',
-    note: 'Demo activity shown because Supabase usage history could not be loaded.',
-  },
-];
-
 const COPY = {
   en: {
     eyebrow: 'Member Activity',
     titleA: 'USAGE',
     titleB: 'HISTORY',
-    subtitle: 'Search member service usage, workout activity, PT sessions, and gym floor visits from Supabase.',
+    subtitle: 'Tra c?u l?ch s? d?ng d?ch v?, bu?i t?p, PT v? l??t v?o ph?ng t?p.',
     criteria: 'Search Criteria',
     memberLabel: 'Member',
     keyword: 'Enter member name, ID, phone, or service type...',
@@ -50,7 +36,7 @@ const COPY = {
     cancel: 'Cancel',
     required: 'Enter a member keyword or select a date range.',
     dateInvalid: 'From date cannot be after to date.',
-    warning: 'Some usage history could not be loaded. Demo data is shown temporarily.',
+    warning: 'Some usage history could not be loaded.',
     loading: 'Loading usage history...',
     results: 'Search Results',
     noResults: 'No Results Found',
@@ -60,7 +46,7 @@ const COPY = {
     eyebrow: 'Hoạt động hội viên',
     titleA: 'LỊCH SỬ',
     titleB: 'SỬ DỤNG',
-    subtitle: 'Tra cứu lịch sử dùng dịch vụ, buổi tập, PT và lượt vào phòng tập từ Supabase.',
+    subtitle: 'Tra cứu lịch sử dùng dịch vụ, buổi tập, PT và lượt vào phòng tập từ h\u1ec7 th\u1ed1ng.',
     criteria: 'Tiêu chí tìm kiếm',
     memberLabel: 'Hội viên',
     keyword: 'Nhập tên, mã, số điện thoại hoặc loại dịch vụ...',
@@ -70,7 +56,7 @@ const COPY = {
     cancel: 'Hủy',
     required: 'Nhập từ khóa hội viên hoặc chọn khoảng ngày.',
     dateInvalid: 'Ngày bắt đầu không được sau ngày kết thúc.',
-    warning: 'Một số lịch sử sử dụng không tải được. Dữ liệu demo đang được hiển thị tạm thời.',
+    warning: 'Một số lịch sử sử dụng không tải được từ h\u1ec7 th\u1ed1ng.',
     loading: 'Đang tải lịch sử sử dụng...',
     results: 'Kết quả tìm kiếm',
     noResults: 'Không tìm thấy kết quả',
@@ -82,7 +68,7 @@ export function ViewHistoryUI() {
   const { language } = useLanguage();
   const copy = COPY[language];
   const [searchData, setSearchData] = useState<SearchDTO>({ keyword: '', fromDate: '', toDate: '' });
-  const [historyRows, setHistoryRows] = useState<UsageHistory[]>(fallbackHistory);
+  const [historyRows, setHistoryRows] = useState<UsageHistory[]>([]);
   const [searched, setSearched] = useState(false);
   const [error, setError] = useState('');
   const [warning, setWarning] = useState('');
@@ -93,9 +79,9 @@ export function ViewHistoryUI() {
     async function loadHistory() {
       setLoading(true);
       const result = await getStaffUsageHistory();
-      if (result.error || !result.data.length) {
+      if (result.error) {
         setWarning(copy.warning);
-        setHistoryRows(fallbackHistory);
+        setHistoryRows([]);
       } else {
         setWarning('');
         setHistoryRows(result.data);

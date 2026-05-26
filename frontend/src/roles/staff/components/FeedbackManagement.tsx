@@ -20,62 +20,9 @@ interface Feedback {
   sourceTable?: 'service_feedback' | 'complaints';
 }
 
-const initialFeedbacks: Feedback[] = [
-  {
-    feedbackId: 'FB001',
-    kind: 'Complaint',
-    memberId: 'M00123',
-    memberName: 'Nguyen Hoang Anh',
-    category: 'Equipment',
-    target: 'Treadmill X12 #5',
-    content: 'The treadmill stopped suddenly during use and needs urgent inspection.',
-    date: '2026-05-12',
-    status: 'In Review',
-    priority: 'High',
-    response: 'The maintenance team has been notified.',
-  },
-  {
-    feedbackId: 'FB002',
-    kind: 'Feedback',
-    memberId: 'M00124',
-    memberName: 'Tran Minh Duc',
-    category: 'Facilities',
-    target: 'Cardio Area',
-    content: 'The room was crowded during peak hours.',
-    date: '2026-05-10',
-    status: 'Submitted',
-    priority: 'Medium',
-  },
-  {
-    feedbackId: 'FB003',
-    kind: 'Feedback',
-    memberId: 'M00125',
-    memberName: 'Le Quoc Bao',
-    category: 'Trainer',
-    target: 'Nguyen Van Nam',
-    content: 'Professional trainer and clear correction during the workout session.',
-    date: '2026-05-08',
-    status: 'Resolved',
-    priority: 'Low',
-    response: 'Thank you. We shared your feedback with the trainer team.',
-  },
-  {
-    feedbackId: 'FB004',
-    kind: 'Complaint',
-    memberId: 'M00126',
-    memberName: 'Pham Mai',
-    category: 'Customer Support',
-    target: 'Front desk',
-    content: 'I needed faster support for a package renewal question.',
-    date: '2026-05-02',
-    status: 'Rejected',
-    priority: 'Low',
-  },
-];
-
 export function FeedbackManagement() {
   const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [feedbacks, setFeedbacks] = useState<Feedback[]>(initialFeedbacks);
+  const [feedbacks, setFeedbacks] = useState<Feedback[]>([]);
   const [selectedFeedbackId, setSelectedFeedbackId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [warning, setWarning] = useState('');
@@ -85,9 +32,9 @@ export function FeedbackManagement() {
   const loadFeedbacks = async () => {
     setLoading(true);
     const result = await getStaffFeedbackItems();
-    if (result.error || !result.data.length) {
-      setWarning('Some feedback data could not be loaded. Demo data is shown temporarily.');
-      setFeedbacks(initialFeedbacks);
+    if (result.error) {
+      setWarning('Some feedback data could not be loaded.');
+      setFeedbacks([]);
     } else {
       setWarning('');
       setFeedbacks(result.data);

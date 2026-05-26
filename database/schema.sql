@@ -127,6 +127,61 @@ create table if not exists public.members (
   updated_at timestamptz not null default now()
 );
 
+create or replace function public.gymster_activate_member_account(
+  target_user_id uuid default null,
+  target_member_id uuid default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  resolved_user_id uuid := target_user_id;
+  resolved_member_id uuid := target_member_id;
+begin
+  if resolved_member_id is null and resolved_user_id is not null then
+    select member_id
+      into resolved_member_id
+      from public.members
+     where user_id = resolved_user_id
+     limit 1;
+  end if;
+
+  if resolved_user_id is null and resolved_member_id is not null then
+    select user_id
+      into resolved_user_id
+      from public.members
+     where member_id = resolved_member_id
+     limit 1;
+  end if;
+
+  if resolved_user_id is null or resolved_member_id is null then
+    raise exception 'Cannot activate member account without user_id and member_id';
+  end if;
+
+  update public.users
+     set account_status = 'active',
+         updated_at = now()
+   where user_id = resolved_user_id;
+
+  update public.members
+     set status = 'active',
+         join_date = coalesce(join_date, current_date),
+         updated_at = now()
+   where member_id = resolved_member_id;
+
+  return jsonb_build_object(
+    'user_id', resolved_user_id,
+    'member_id', resolved_member_id,
+    'account_status', 'active',
+    'member_status', 'active'
+  );
+end;
+$$;
+
+grant execute on function public.gymster_activate_member_account(uuid, uuid) to anon, authenticated;
+
 create table if not exists public.employees (
   employee_id uuid primary key default gen_random_uuid(),
   user_id uuid unique references public.users(user_id) on delete set null,
@@ -157,6 +212,20 @@ create table if not exists public.trainers (
   status text not null default 'active' check (status in ('active', 'inactive', 'full', 'suspended')),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
+);
+
+create table if not exists public.trainer_weekly_availability (
+  trainer_weekly_availability_id uuid primary key default gen_random_uuid(),
+  trainer_id uuid not null references public.trainers(trainer_id) on delete cascade,
+  day_of_week text not null check (
+    day_of_week in ('monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday')
+  ),
+  start_time time not null,
+  end_time time not null,
+  is_available boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (trainer_id, day_of_week, start_time, end_time)
 );
 
 create table if not exists public.packages (
@@ -294,6 +363,8 @@ create index if not exists idx_users_account_status on public.users(account_stat
 create index if not exists idx_members_user_id on public.members(user_id);
 create index if not exists idx_members_status on public.members(status);
 create index if not exists idx_trainers_status on public.trainers(status);
+create index if not exists idx_trainer_weekly_availability_trainer_id on public.trainer_weekly_availability(trainer_id);
+create index if not exists idx_trainer_weekly_availability_day on public.trainer_weekly_availability(day_of_week);
 create index if not exists idx_packages_type_status on public.packages(package_type, status);
 create index if not exists idx_package_features_package_id on public.package_features(package_id);
 create index if not exists idx_member_packages_member_id on public.member_packages(member_id);
@@ -310,6 +381,33 @@ create index if not exists idx_workout_sessions_trainer_id on public.workout_ses
 create index if not exists idx_workout_sessions_session_date on public.workout_sessions(session_date);
 create index if not exists idx_notifications_user_id on public.notifications(user_id);
 create index if not exists idx_notifications_is_read on public.notifications(is_read);
+
+insert into public.trainer_weekly_availability (trainer_id, day_of_week, start_time, end_time, is_available)
+select
+  t.trainer_id,
+  d.day_of_week,
+  s.start_time::time,
+  s.end_time::time,
+  true
+from public.trainers t
+cross join (
+  values
+    ('monday'),
+    ('tuesday'),
+    ('wednesday'),
+    ('thursday'),
+    ('friday'),
+    ('saturday'),
+    ('sunday')
+) as d(day_of_week)
+cross join (
+  values
+    ('08:00', '10:00'),
+    ('14:00', '16:00'),
+    ('16:00', '18:00'),
+    ('18:00', '20:00')
+) as s(start_time, end_time)
+on conflict (trainer_id, day_of_week, start_time, end_time) do nothing;
 
 drop trigger if exists set_users_updated_at on public.users;
 create trigger set_users_updated_at
@@ -362,7 +460,7 @@ before update on public.workout_sessions
 for each row execute function public.set_updated_at();
 
 -- Additional portal tables for full Supabase migration across Member, Trainer/PT, Staff, and Admin/Owner.
--- These tables support the remaining UI areas that previously used local mock data.
+-- These tables support the remaining UI areas that need application data.
 
 create table if not exists public.rooms (
   room_id uuid primary key default gen_random_uuid(),
@@ -968,7 +1066,7 @@ create index if not exists idx_training_requests_request_id on public.training_r
 create index if not exists idx_workout_sessions_session_id on public.workout_sessions(session_id);
 create index if not exists idx_payments_transaction_code on public.payments(transaction_code);
 
--- Demo RLS policies for the current frontend-only MVP.
+-- Open RLS policies for the current frontend-only MVP.
 -- Replace these with authenticated, role-aware policies before production.
 do $$
 declare
@@ -978,6 +1076,7 @@ declare
     'members',
     'employees',
     'trainers',
+    'trainer_weekly_availability',
     'packages',
     'package_features',
     'member_packages',
@@ -1016,27 +1115,27 @@ begin
       select 1 from pg_policies
       where schemaname = 'public'
         and tablename = table_name
-        and policyname = 'gymster_demo_select'
+        and policyname = 'gymster_app_select'
     ) then
-      execute format('create policy gymster_demo_select on public.%I for select using (true)', table_name);
+      execute format('create policy gymster_app_select on public.%I for select using (true)', table_name);
     end if;
 
     if not exists (
       select 1 from pg_policies
       where schemaname = 'public'
         and tablename = table_name
-        and policyname = 'gymster_demo_insert'
+        and policyname = 'gymster_app_insert'
     ) then
-      execute format('create policy gymster_demo_insert on public.%I for insert with check (true)', table_name);
+      execute format('create policy gymster_app_insert on public.%I for insert with check (true)', table_name);
     end if;
 
     if not exists (
       select 1 from pg_policies
       where schemaname = 'public'
         and tablename = table_name
-        and policyname = 'gymster_demo_update'
+        and policyname = 'gymster_app_update'
     ) then
-      execute format('create policy gymster_demo_update on public.%I for update using (true) with check (true)', table_name);
+      execute format('create policy gymster_app_update on public.%I for update using (true) with check (true)', table_name);
     end if;
   end loop;
 end;

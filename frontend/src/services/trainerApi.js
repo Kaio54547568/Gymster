@@ -65,8 +65,8 @@ async function fetchRelatedTrainerRows() {
 
 export async function fetchTrainersFromSupabase() {
   if (!supabase) {
-    const error = new Error("Missing Supabase environment variables.");
-    console.error("[Gymster Supabase] Failed to load trainers:", error);
+    const error = new Error("Missing h\u1ec7 th\u1ed1ng environment variables.");
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to load trainers:", error);
     return { data: [], error };
   }
 
@@ -77,7 +77,7 @@ export async function fetchTrainersFromSupabase() {
   }
 
   if (error) {
-    console.error("[Gymster Supabase] Failed to load trainers:", error);
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to load trainers:", error);
     return { data: [], error };
   }
 

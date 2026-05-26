@@ -35,7 +35,7 @@ async function exactCount(table, column = "*", applyFilters = null) {
   if (applyFilters) query = applyFilters(query);
   const { count, error } = await query;
   if (error) {
-    console.error(`[Gymster Supabase] Failed to count ${table}:`, error);
+    console.error(`[Gymster h\u1ec7 th\u1ed1ng] Failed to count ${table}:`, error);
     return 0;
   }
   return count || 0;
@@ -47,7 +47,7 @@ async function fetchRows(table, columns, applyFilters = null) {
   if (applyFilters) query = applyFilters(query);
   const { data, error } = await query;
   if (error) {
-    console.error(`[Gymster Supabase] Failed to load ${table}:`, error);
+    console.error(`[Gymster h\u1ec7 th\u1ed1ng] Failed to load ${table}:`, error);
     return [];
   }
   return Array.isArray(data) ? data : [];

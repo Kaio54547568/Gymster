@@ -22,38 +22,19 @@ interface Member {
   gender: string;
 }
 
-const fallbackMembers: Member[] = [
-  {
-    memberUuid: 'demo-member-001',
-    memberId: 'MB-DEMO-001',
-    userId: '',
-    fullName: 'Member Demo 01',
-    firstName: 'Member',
-    lastName: 'Demo 01',
-    email: 'member.demo01@gymster.local',
-    phoneNum: '0910000001',
-    citizenId: 'MB-DEMO-001',
-    status: 'Active',
-    currentPackage: 'Basic Gym 6 Months',
-    expirationDate: '2026-10-10',
-    dateOfBirth: '1995-01-01',
-    gender: 'unspecified',
-  },
-];
-
 const COPY = {
   en: {
     eyebrow: 'Member Operations',
     titleA: 'MEMBER',
     titleB: 'LIST',
-    subtitle: 'Manage member records, package status, and account access from Supabase data.',
+    subtitle: 'Qu?n l? h? s? h?i vi?n, tr?ng th?i g?i t?p v? quy?n truy c?p.',
     search: 'Search by name, ID, or phone...',
     all: 'All',
     active: 'Active',
     expired: 'Expired',
     disabled: 'Disabled',
     loading: 'Loading members...',
-    warning: 'Some member data could not be loaded. Demo data is shown temporarily.',
+    warning: 'Some member data could not be loaded.',
     noMembers: 'No members found',
     adjust: 'Try adjusting your search or filters',
     showing: 'Showing',
@@ -73,14 +54,14 @@ const COPY = {
     eyebrow: 'Quản lý hội viên',
     titleA: 'DANH SÁCH',
     titleB: 'HỘI VIÊN',
-    subtitle: 'Quản lý hồ sơ hội viên, trạng thái gói tập và quyền truy cập từ dữ liệu Supabase.',
+    subtitle: 'Quản lý hồ sơ hội viên, trạng thái gói tập và quyền truy cập từ dữ liệu h\u1ec7 th\u1ed1ng.',
     search: 'Tìm theo tên, mã hoặc số điện thoại...',
     all: 'Tất cả',
     active: 'Hoạt động',
     expired: 'Hết hạn',
     disabled: 'Vô hiệu hóa',
     loading: 'Đang tải hội viên...',
-    warning: 'Một số dữ liệu hội viên không tải được. Dữ liệu demo đang được hiển thị tạm thời.',
+    warning: 'Một số dữ liệu hội viên không tải được từ h\u1ec7 th\u1ed1ng.',
     noMembers: 'Không tìm thấy hội viên',
     adjust: 'Hãy thử đổi từ khóa hoặc bộ lọc',
     showing: 'Đang hiển thị',
@@ -108,7 +89,7 @@ function formatDate(value: string) {
 export function MemberList() {
   const { language } = useLanguage();
   const copy = COPY[language];
-  const [members, setMembers] = useState<Member[]>(fallbackMembers);
+  const [members, setMembers] = useState<Member[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [loading, setLoading] = useState(true);
@@ -122,9 +103,9 @@ export function MemberList() {
   const loadMembers = async () => {
     setLoading(true);
     const result = await getStaffMembers();
-    if (result.error || !result.data.length) {
+    if (result.error) {
       setWarning(copy.warning);
-      setMembers(fallbackMembers);
+      setMembers([]);
     } else {
       setWarning('');
       setMembers(result.data);

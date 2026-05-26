@@ -25,43 +25,7 @@ import {
 } from 'recharts';
 import { getAllPayments } from '../../../services/paymentApi';
 import { getInvoicesForAdmin } from '../../../services/invoiceApi';
-
-const monthlyRevenue = [
-  { month: 'Jan', revenue: 450 },
-  { month: 'Feb', revenue: 520 },
-  { month: 'Mar', revenue: 680 },
-  { month: 'Apr', revenue: 750 },
-  { month: 'May', revenue: 820 },
-  { month: 'Jun', revenue: 950 }
-];
-
-const fallbackRevenueByPaymentMethod = [
-  { name: 'Cash', value: 35, color: '#22C55E' },
-  { name: 'Bank Transfer', value: 45, color: '#EF233C' },
-  { name: 'Credit Card', value: 15, color: '#F97316' },
-  { name: 'E-Wallet', value: 5, color: '#990000' }
-];
-
-const revenueByPackage = [
-  { package: 'Basic 3 Months', revenue: 280 },
-  { package: 'Basic 6 Months', revenue: 320 },
-  { package: 'VIP 12 Months', revenue: 220 },
-  { package: 'PT Elite', revenue: 130 }
-];
-
-const fallbackInvoiceRows = [
-  { invoiceId: 'INV-2026-001', amount: 2500000, date: '08/05/2026', packageType: 'Basic 3 Months', member: 'Nguyen Van A', method: 'Bank Transfer', status: 'Paid' },
-  { invoiceId: 'INV-2026-002', amount: 4500000, date: '08/05/2026', packageType: 'Basic 6 Months', member: 'Taylor Morgan', method: 'Cash', status: 'Paid' },
-  { invoiceId: 'INV-2026-003', amount: 8000000, date: '07/05/2026', packageType: 'VIP PT Package', member: 'Jordan Lee', method: 'Credit Card', status: 'Pending' },
-];
-
-const employeeRevenue = [
-  { name: 'Alex Carter', revenue: '85,500,000', contracts: 34, ranking: 1, contribution: '28%' },
-  { name: 'Gymster Staff', revenue: '72,300,000', contracts: 29, ranking: 2, contribution: '24%' },
-  { name: 'Jordan Lee', revenue: '68,900,000', contracts: 27, ranking: 3, contribution: '23%' },
-  { name: 'Taylor Morgan', revenue: '56,200,000', contracts: 22, ranking: 4, contribution: '19%' },
-  { name: 'Owner Gymster', revenue: '45,100,000', contracts: 18, ranking: 5, contribution: '15%' }
-];
+import { fetchRevenueBreakdowns } from '../../../services/adminDataApi';
 
 type RevenueRow = {
   invoiceId: string;
@@ -117,7 +81,10 @@ function getStatusClass(status: string) {
 export default function RevenueAnalytics() {
   const [timeRange, setTimeRange] = useState('month');
   const [payments, setPayments] = useState<any[]>([]);
-  const [invoiceRows, setInvoiceRows] = useState<RevenueRow[]>(fallbackInvoiceRows);
+  const [invoiceRows, setInvoiceRows] = useState<RevenueRow[]>([]);
+  const [monthlyRevenue, setMonthlyRevenue] = useState<Array<{ month: string; revenue: number }>>([]);
+  const [revenueByPackage, setRevenueByPackage] = useState<Array<{ package: string; revenue: number }>>([]);
+  const [revenueByPaymentMethod, setRevenueByPaymentMethod] = useState<Array<{ name: string; value: number; color: string }>>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadMessage, setLoadMessage] = useState('');
 
@@ -130,11 +97,17 @@ export default function RevenueAnalytics() {
         getAllPayments(),
         getInvoicesForAdmin(),
       ]);
+      const breakdownResult = await fetchRevenueBreakdowns();
 
       if (!isMounted) return;
 
       if (!paymentsResult.error) {
         setPayments(paymentsResult.data);
+      }
+      if (!breakdownResult.error && breakdownResult.data) {
+        setMonthlyRevenue(breakdownResult.data.monthlyRevenue);
+        setRevenueByPackage(breakdownResult.data.revenueByPackage);
+        setRevenueByPaymentMethod(breakdownResult.data.revenueByPaymentMethod);
       }
 
       if (!invoicesResult.error && invoicesResult.data.length) {
@@ -157,15 +130,13 @@ export default function RevenueAnalytics() {
           method: formatMethod(payment.paymentMethod),
           status: payment.paymentStatusLabel || formatStatus(payment.paymentStatus),
         })));
-      } else if (paymentsResult.error || invoicesResult.error) {
-        setInvoiceRows(fallbackInvoiceRows);
       } else {
         setInvoiceRows([]);
       }
 
       setLoadMessage(
-        paymentsResult.error || invoicesResult.error
-          ? 'Some payment or invoice data could not be loaded. Demo rows are shown temporarily.'
+        paymentsResult.error || invoicesResult.error || breakdownResult.error
+          ? 'Some payment, invoice, or analytics data could not be loaded.'
           : ''
       );
       setIsLoading(false);
@@ -186,31 +157,6 @@ export default function RevenueAnalytics() {
       pendingCount: payments.filter((payment) => payment.paymentStatus === 'pending').length,
       failedCount: payments.filter((payment) => ['failed', 'cancelled', 'refunded'].includes(payment.paymentStatus)).length,
     };
-  }, [payments]);
-
-  const revenueByPaymentMethod = useMemo(() => {
-    if (!payments.length) return fallbackRevenueByPaymentMethod;
-
-    const paidTotal = payments
-      .filter((payment) => payment.paymentStatus === 'paid')
-      .reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
-
-    if (!paidTotal) return fallbackRevenueByPaymentMethod;
-
-    const colors = ['#22C55E', '#EF233C', '#F97316', '#990000'];
-    const totals = payments
-      .filter((payment) => payment.paymentStatus === 'paid')
-      .reduce<Record<string, number>>((acc, payment) => {
-        const method = formatMethod(payment.paymentMethod);
-        acc[method] = (acc[method] || 0) + Number(payment.amount || 0);
-        return acc;
-      }, {});
-
-    return Object.entries(totals).map(([name, total], index) => ({
-      name,
-      value: Math.round((total / paidTotal) * 100),
-      color: colors[index % colors.length],
-    }));
   }, [payments]);
 
   return (
@@ -242,7 +188,7 @@ export default function RevenueAnalytics() {
 
       {isLoading && (
         <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 text-sm font-bold text-white/50">
-          Loading payments and invoices from Supabase...
+          Loading payments and invoices...
         </div>
       )}
 
@@ -255,8 +201,8 @@ export default function RevenueAnalytics() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <KPICard
           title="Total Revenue"
-          value={formatCompactVnd(paymentSummary.totalRevenue || 950000000)}
-          change="+15.3%"
+          value={formatCompactVnd(paymentSummary.totalRevenue)}
+          change="Cập nhật"
           changeType="positive"
           icon={DollarSign}
           iconColor="#22C55E"
@@ -407,31 +353,10 @@ export default function RevenueAnalytics() {
       </div>
 
       <div className="glass border border-white/10 rounded-[2rem] p-8 shadow-float">
-        <h3 className="text-3xl font-bold text-white mb-8 tracking-tight">Employee Revenue Performance</h3>
-        <div className="space-y-5">
-          {employeeRevenue.map((employee) => (
-            <div
-              key={employee.name}
-              className="flex items-center gap-8 p-6 glass border border-white/10 rounded-3xl hover:border-[#EF233C]/30 hover:shadow-glow-red transition-all duration-300 group relative overflow-hidden"
-            >
-              <div className="absolute inset-0 bg-gradient-to-r from-[#EF233C]/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-              <div className="w-16 h-16 bg-gradient-to-br from-[#EF233C] via-[#FF2D2D] to-[#990000] rounded-2xl flex items-center justify-center shadow-glow-red relative z-10 group-hover:scale-110 transition-transform duration-300">
-                <span className="text-white font-black text-2xl">#{employee.ranking}</span>
-              </div>
-              <div className="flex-1 relative z-10">
-                <h4 className="text-white font-bold text-xl mb-2">{employee.name}</h4>
-                <p className="text-white/50 text-sm font-medium">{employee.contracts} contracts</p>
-              </div>
-              <div className="text-right relative z-10">
-                <p className="text-[#22C55E] font-black text-2xl mb-1">{employee.revenue} VND</p>
-                <p className="text-white/50 text-sm font-medium">Contribution: <span className="text-[#EF233C] font-bold">{employee.contribution}</span></p>
-              </div>
-              <button className="px-6 py-3 bg-gradient-to-r from-[#EF233C] to-[#990000] text-white rounded-2xl hover:scale-105 transition-all duration-300 text-sm font-bold shadow-glow-red relative z-10">
-                Details
-              </button>
-            </div>
-          ))}
-        </div>
+        <h3 className="text-3xl font-bold text-white mb-3 tracking-tight">Employee Revenue Performance</h3>
+        <p className="text-white/50 text-sm font-medium">
+          Doanh thu theo nhân viên sẽ hiển thị khi hóa đơn có liên kết nhân viên.
+        </p>
       </div>
     </div>
   );

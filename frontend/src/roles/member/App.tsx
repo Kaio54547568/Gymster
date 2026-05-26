@@ -11,73 +11,87 @@ import {
   ReceiptText,
   Settings,
   Star,
-  User,
   Users,
 } from 'lucide-react';
 import RoleShell, { type RoleShellItem } from '../shared/RoleShell';
+import RoleNotificationsPage from '../shared/RoleNotificationsPage';
 import AccountProfile from '../shared/AccountProfile';
 import AccountSettings from '../shared/AccountSettings';
 import { useSupabaseUserProfile } from '../shared/useSupabaseUserProfile';
-import { getAvailableTrainers, getMemberTrainingNotifications, getTrainingRequests } from '../../services/trainerService';
-import { getCurrentUser } from '../../services/authService';
+import { fetchTrainersFromSupabase } from '../../services/trainerApi';
+import { getCurrentUser, setCurrentUser } from '../../services/authService';
 import { getTrainingRequestsForMember } from '../../services/trainingRequestApi';
 import { fetchPackagesFromSupabase } from '../../services/packageApi';
 import {
+  createMemberPackage,
   createPackageChangeRequest,
-  createPendingRenewalRequest,
   getCurrentMemberPackageForUser,
+  updateMemberPackageStatus,
 } from '../../services/memberPackageApi';
 import { getInvoicesForMember } from '../../services/invoiceApi';
-import { getPaymentsForMember } from '../../services/paymentApi';
+import { createPayment, getPaymentsForMember } from '../../services/paymentApi';
 import {
+  createWorkoutSessionsForSchedule,
   getWorkoutSessionStatusLabel,
   getWorkoutSessionsForMember,
 } from '../../services/workoutSessionApi';
+import {
+  createMemberComplaint,
+  createMemberServiceFeedback,
+  getMemberFeedbackPortalData,
+} from '../../services/memberEngagementApi';
+import { activateMemberAccount } from '../../services/userApi';
+import { getTrainerWeeklyAvailability } from '../../services/trainerAvailabilityApi';
 
 const member = {
-  name: 'Nguyen Van A',
-  email: 'nguyenvana@gmail.com',
-  phone: '0912 345 678',
-  initials: 'NVA',
-  package: 'Basic Gym 6 Months',
+  name: 'Member',
+  email: '',
+  phone: '',
+  initials: 'MB',
+  package: '',
   role: 'Gym Member',
 };
 
 const currentPackage = {
-  title: 'Basic Gym 6 Months',
-  status: 'Active',
-  registrationDate: '10/04/2026',
-  expiryDate: '10/10/2026',
-  totalSessions: 48,
-  usedSessions: 36,
-  remainingSessions: 12,
-  daysRemaining: 30,
-  price: '3,000,000 VND',
+  title: '',
+  status: '',
+  registrationDate: '',
+  expiryDate: '',
+  totalSessions: 0,
+  usedSessions: 0,
+  remainingSessions: 0,
+  daysRemaining: 0,
+  price: '',
 };
 
-const packages = [
-  { title: 'Basic Gym 3 Months', duration: '3 months', price: '1,500,000 VND', benefits: ['Unlimited gym access', 'Basic nutrition guidance', 'Locker access'] },
-  { title: 'Basic Gym 6 Months', duration: '6 months', price: '3,000,000 VND', benefits: ['Cardio area access', 'Priority schedule support', 'Monthly body check'] },
-  { title: 'VIP PT Package', duration: '3 months', price: '5,000,000 VND', benefits: ['24 PT sessions', 'Personal workout plan', 'Weekly progress tracking'] },
-];
+const paymentMethods = ['Bank Transfer'];
 
-const workouts = [
-  { title: 'Strength Training', trainer: 'Alex Carter', date: '18/05/2026', time: '18:00 - 19:00', status: 'Upcoming' },
-  { title: 'Cardio & HIIT', trainer: 'Maya Tran', date: '20/05/2026', time: '19:00 - 20:00', status: 'Upcoming' },
-  { title: 'Full Body Recovery', trainer: 'Jordan Lee', date: '12/05/2026', time: '07:00 - 08:00', status: 'Completed' },
-];
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => {
+      window.setTimeout(() => reject(new Error(message)), timeoutMs);
+    }),
+  ]);
+}
 
-const trainers = [
-  { name: 'Alex Carter', specialty: 'Strength Training', rating: 4.8, experience: '5 years', students: 120 },
-  { name: 'Maya Tran', specialty: 'Weight Loss, Cardio, HIIT', rating: 4.7, experience: '4 years', students: 95 },
-  { name: 'Jordan Lee', specialty: 'Yoga, Mobility, Recovery', rating: 4.9, experience: '6 years', students: 140 },
-];
+function addMonths(date: Date, months: number) {
+  const nextDate = new Date(date);
+  nextDate.setMonth(nextDate.getMonth() + months);
+  return nextDate;
+}
 
-const transactions = [
-  { id: 'INV-1001', service: 'Basic Gym 6 Months', date: '10/04/2026', amount: '3,000,000 VND', status: 'Paid' },
-  { id: 'INV-0974', service: 'PT trial session', date: '02/04/2026', amount: '300,000 VND', status: 'Paid' },
-];
-const paymentMethods = ['Cash', 'Bank Transfer', 'Credit Card', 'E-Wallet'];
+function toDateInputValue(date: Date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function getPackageDurationMonths(pkg: any) {
+  const directValue = Number(pkg?.durationMonths || pkg?.packageDurationMonths);
+  if (Number.isFinite(directValue) && directValue > 0) return directValue;
+
+  const match = String(pkg?.durationText || pkg?.duration || '').match(/\d+/);
+  return Math.max(1, Number(match?.[0] || 1));
+}
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -91,7 +105,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 
 function useMemberTrainingRequests() {
-  const [requests, setRequests] = useState<any[]>(getTrainingRequests());
+  const [requests, setRequests] = useState<any[]>([]);
   const [isLoadingRequests, setIsLoadingRequests] = useState(true);
   const [requestLoadMessage, setRequestLoadMessage] = useState('');
 
@@ -105,8 +119,8 @@ function useMemberTrainingRequests() {
         if (!isMounted) return;
 
         if (error || !data.length) {
-          setRequests(getTrainingRequests());
-          setRequestLoadMessage(error ? 'Supabase request status could not be loaded. Showing demo request status.' : '');
+          setRequests([]);
+          setRequestLoadMessage(error ? 'Request status could not be loaded.' : '');
         } else {
           setRequests(data);
           setRequestLoadMessage('');
@@ -116,8 +130,8 @@ function useMemberTrainingRequests() {
       })
       .catch(() => {
         if (!isMounted) return;
-        setRequests(getTrainingRequests());
-        setRequestLoadMessage('Supabase request status could not be loaded. Showing demo request status.');
+        setRequests([]);
+        setRequestLoadMessage('Request status could not be loaded.');
         setIsLoadingRequests(false);
       });
 
@@ -130,19 +144,89 @@ function useMemberTrainingRequests() {
 }
 
 function Dashboard() {
+  const currentUser = getCurrentUser();
+  const displayName = currentUser?.fullName || currentUser?.username || member.name;
+  const [dashboardPackage, setDashboardPackage] = useState({
+    title: 'Chưa có gói tập đang hoạt động',
+    status: '',
+    expiryDate: '',
+    totalSessions: 0,
+    usedSessions: 0,
+    remainingSessions: 0,
+    daysRemaining: 0,
+  });
+  const [workoutRows, setWorkoutRows] = useState<any[]>([]);
+  const [dashboardMessage, setDashboardMessage] = useState('');
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadDashboard() {
+      const [packageResult, workoutResult] = await Promise.all([
+        getCurrentMemberPackageForUser(currentUser),
+        getWorkoutSessionsForMember(currentUser),
+      ]);
+
+      if (!isMounted) return;
+
+      if (!packageResult.error && packageResult.data) {
+        const item = packageResult.data;
+        const totalSessions = item.sessionsTotal ?? item.packageSessionLimit ?? 0;
+        const usedSessions = item.usedSessions ?? 0;
+        const remainingSessions = item.remainingSessions ?? (totalSessions > 0 ? Math.max(0, totalSessions - usedSessions) : 0);
+        const diff = item.endDate ? new Date(item.endDate).getTime() - Date.now() : 0;
+
+        setDashboardPackage({
+          title: item.packageName || 'Gói tập hiện tại',
+          status: item.status || '',
+          expiryDate: item.endDate ? new Date(item.endDate).toLocaleDateString('vi-VN') : '',
+          totalSessions,
+          usedSessions,
+          remainingSessions: Number(remainingSessions) || 0,
+          daysRemaining: item.endDate ? Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24))) : 0,
+        });
+      }
+
+      setWorkoutRows(workoutResult.error ? [] : workoutResult.data);
+      setDashboardMessage(packageResult.error || workoutResult.error ? 'Không thể tải đầy đủ dữ liệu dashboard.' : '');
+    }
+
+    loadDashboard();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const currentMonth = new Date().getMonth();
+  const currentYear = new Date().getFullYear();
+  const monthlyWorkouts = workoutRows.filter((session) => {
+    const sessionDate = new Date(session.sessionDate);
+    return sessionDate.getMonth() === currentMonth && sessionDate.getFullYear() === currentYear;
+  }).length;
+  const completedSessions = workoutRows.filter((session) => String(session.status || '').toLowerCase() === 'completed').length;
+  const upcomingWorkout = workoutRows.find((session) => {
+    const sessionDate = new Date(`${session.sessionDate}T${session.startTime || '00:00'}`);
+    return sessionDate.getTime() >= Date.now() && String(session.status || '').toLowerCase() === 'scheduled';
+  });
+  const usagePercent = dashboardPackage.totalSessions > 0
+    ? Math.min(100, Math.round((dashboardPackage.usedSessions / dashboardPackage.totalSessions) * 100))
+    : 0;
+
   return (
     <div className="space-y-6 p-6">
       <div>
         <h1 className="text-4xl font-black text-white">Member Dashboard</h1>
-        <p className="mt-1 text-sm text-white/50">Welcome back, {member.name}. Track your membership, workouts, and trainers.</p>
+        <p className="mt-1 text-sm text-white/50">Welcome back, {displayName}. Track your membership, workouts, and trainers.</p>
+        {dashboardMessage && <p className="mt-2 text-sm font-semibold text-[#EF233C]">{dashboardMessage}</p>}
       </div>
 
       <div className="grid gap-4 md:grid-cols-4">
         {[
-          ['Monthly Workouts', '9', CalendarDays],
-          ['Calories Burned', '8,420', Dumbbell],
-          ['Remaining Sessions', currentPackage.remainingSessions, History],
-          ['Days Remaining', currentPackage.daysRemaining, CheckCircle],
+          ['Monthly Workouts', monthlyWorkouts, CalendarDays],
+          ['Completed Sessions', completedSessions, Dumbbell],
+          ['Remaining Sessions', dashboardPackage.remainingSessions, History],
+          ['Days Remaining', dashboardPackage.daysRemaining, CheckCircle],
         ].map(([label, value, Icon]) => (
           <div key={label as string} className="rounded-2xl border border-white/8 bg-[#181818] p-5">
             <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-[#EF233C]/15 text-[#EF233C]">
@@ -158,24 +242,26 @@ function Dashboard() {
         <Section title="Current Package">
           <div className="space-y-4">
             <div>
-              <div className="text-2xl font-black text-white">{currentPackage.title}</div>
-              <div className="mt-1 text-sm text-[#EF233C]">{currentPackage.status} · {currentPackage.expiryDate}</div>
+              <div className="text-2xl font-black text-white">{dashboardPackage.title}</div>
+              <div className="mt-1 text-sm text-[#EF233C]">
+                {[dashboardPackage.status, dashboardPackage.expiryDate].filter(Boolean).join(' · ')}
+              </div>
             </div>
             <div className="h-3 overflow-hidden rounded-full bg-white/10">
-              <div className="h-full rounded-full bg-[#EF233C]" style={{ width: `${(currentPackage.usedSessions / currentPackage.totalSessions) * 100}%` }} />
+              <div className="h-full rounded-full bg-[#EF233C]" style={{ width: `${usagePercent}%` }} />
             </div>
             <div className="grid grid-cols-2 gap-3 text-sm text-white/65">
-              <div>Used: <span className="font-bold text-white">{currentPackage.usedSessions}</span></div>
-              <div>Remaining: <span className="font-bold text-white">{currentPackage.remainingSessions}</span></div>
+              <div>Used: <span className="font-bold text-white">{dashboardPackage.usedSessions}</span></div>
+              <div>Remaining: <span className="font-bold text-white">{dashboardPackage.remainingSessions}</span></div>
             </div>
           </div>
         </Section>
 
         <Section title="Upcoming Workout">
-          <div className="rounded-xl border border-[#EF233C]/20 bg-[#EF233C]/10 p-4">
-            <div className="font-bold text-white">{workouts[0].title}</div>
-            <div className="mt-2 text-sm text-white/60">{workouts[0].trainer}</div>
-            <div className="mt-2 text-sm font-semibold text-[#EF233C]">{workouts[0].date} · {workouts[0].time}</div>
+          <div className="rounded-xl border border-[#EF233C]/20 bg-[#EF233C]/10 p-4 text-sm font-bold text-white/60">
+            {upcomingWorkout
+              ? `${upcomingWorkout.sessionTitle || upcomingWorkout.exerciseType || 'Buổi tập'} · ${new Date(upcomingWorkout.sessionDate).toLocaleDateString('vi-VN')} · ${String(upcomingWorkout.startTime || '').slice(0, 5)} · ${getWorkoutSessionStatusLabel(upcomingWorkout.status)}`
+              : 'Các buổi tập sẽ hiển thị trong màn hình lịch tập.'}
           </div>
         </Section>
 
@@ -237,29 +323,54 @@ function MyPackage() {
     const date = new Date(value);
     return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString('en-GB');
   };
+  const toValidDate = (value?: string | null) => {
+    if (!value) return null;
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date;
+  };
+  const resolveStartDate = (item: any) => {
+    return item.startDate || item.activatedAt || item.createdAt || null;
+  };
+  const resolveEndDate = (item: any, startDate?: string | null) => {
+    if (item.endDate) return item.endDate;
+    const parsedStartDate = toValidDate(startDate);
+    const durationMonths = getPackageDurationMonths(item);
+    return parsedStartDate ? toDateInputValue(addMonths(parsedStartDate, durationMonths)) : null;
+  };
   const getDaysRemaining = (endDate?: string | null) => {
     if (!endDate) return currentPackage.daysRemaining;
     const diff = new Date(endDate).getTime() - Date.now();
     return Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)));
   };
+  const resolveSessionStats = (item: any) => {
+    const usedSessions = Number(item.usedSessions ?? 0);
+    const packageSessionLimit = Number(item.packageSessionLimit);
+    const sessionsTotal = Number(item.sessionsTotal);
+    const storedRemaining = item.remainingSessions;
+    const inferredTotal = Number.isFinite(sessionsTotal) && sessionsTotal > 0
+      ? sessionsTotal
+      : Number.isFinite(packageSessionLimit) && packageSessionLimit > 0
+        ? packageSessionLimit
+        : Number.isFinite(Number(storedRemaining)) && Number(storedRemaining) >= 0
+          ? usedSessions + Number(storedRemaining)
+          : 0;
 
-  const fallbackPackages: DisplayPackage[] = packages.map((item, index) => ({
-    id: `fallback-${index}`,
-    title: item.title,
-    name: item.title,
-    duration: item.duration,
-    price: item.price,
-    priceValue: Number(String(item.price).replace(/[^\d]/g, '')) || 0,
-    description: item.benefits.join(', '),
-    sessionLimit: item.benefits.find((benefit) => benefit.toLowerCase().includes('session')) || 'Unlimited gym access',
-    hasPersonalTrainer: item.benefits.some((benefit) => benefit.toLowerCase().includes('pt')),
-    benefits: item.benefits,
-  }));
-  const fallbackTransactions: DisplayTransaction[] = [
-    ...transactions,
-    { id: 'INV-1000', service: 'VIP PT package', date: '08/05/2026', amount: '5,000,000 VND', status: 'Pending' },
-    { id: 'INV-0951', service: 'E-Wallet renewal', date: '25/03/2026', amount: '1,500,000 VND', status: 'Failed' },
-  ];
+    if (inferredTotal <= 0 && !item.hasPersonalTrainer) {
+      return {
+        totalSessions: 0,
+        usedSessions,
+        remainingSessions: 'Unlimited',
+      };
+    }
+
+    return {
+      totalSessions: inferredTotal,
+      usedSessions,
+      remainingSessions: Number.isFinite(Number(storedRemaining)) && Number(storedRemaining) >= 0
+        ? Number(storedRemaining)
+        : Math.max(0, inferredTotal - usedSessions),
+    };
+  };
 
   const [availablePackages, setAvailablePackages] = useState<DisplayPackage[]>([]);
   const [displayCurrentPackage, setDisplayCurrentPackage] = useState<DisplayCurrentPackage>({
@@ -327,42 +438,28 @@ function MyPackage() {
             pkg.hasPersonalTrainer ? 'Personal trainer included' : 'Self-service training',
           ],
         })));
-      } else if (packagesResult.error) {
-        setAvailablePackages(fallbackPackages);
+      } else {
+        setAvailablePackages([]);
       }
 
       if (!currentPackageResult.error && currentPackageResult.data) {
         const item = currentPackageResult.data;
-        const totalSessions = item.sessionsTotal ?? item.packageSessionLimit ?? 0;
-        const usedSessions = item.usedSessions ?? 0;
-        const remainingSessions = item.remainingSessions ?? (totalSessions > 0 ? Math.max(0, totalSessions - usedSessions) : '-');
+        const startDate = resolveStartDate(item);
+        const endDate = resolveEndDate(item, startDate);
+        const sessionStats = resolveSessionStats(item);
         setResolvedMemberId(currentPackageResult.memberId || item.memberId || null);
         setDisplayCurrentPackage({
           hasPackage: true,
           title: item.packageName || currentPackage.title,
           status: item.status || currentPackage.status,
-          registrationDate: formatDate(item.startDate || item.activatedAt),
-          expiryDate: formatDate(item.endDate),
-          totalSessions,
-          usedSessions,
-          remainingSessions,
-          daysRemaining: getDaysRemaining(item.endDate),
+          registrationDate: formatDate(startDate),
+          expiryDate: formatDate(endDate),
+          totalSessions: sessionStats.totalSessions,
+          usedSessions: sessionStats.usedSessions,
+          remainingSessions: sessionStats.remainingSessions,
+          daysRemaining: getDaysRemaining(endDate),
           price: item.packagePrice ? formatVnd(item.packagePrice) : currentPackage.price,
           trainer: item.trainerName || '',
-        });
-      } else if (currentPackageResult.error) {
-        setDisplayCurrentPackage({
-          hasPackage: true,
-          title: currentPackage.title,
-          status: currentPackage.status,
-          registrationDate: currentPackage.registrationDate,
-          expiryDate: currentPackage.expiryDate,
-          totalSessions: currentPackage.totalSessions,
-          usedSessions: currentPackage.usedSessions,
-          remainingSessions: currentPackage.remainingSessions,
-          daysRemaining: currentPackage.daysRemaining,
-          price: currentPackage.price,
-          trainer: '',
         });
       } else {
         setResolvedMemberId(currentPackageResult.memberId || null);
@@ -384,15 +481,13 @@ function MyPackage() {
           amount: formatVnd(payment.amount),
           status: payment.paymentStatusLabel || (payment.paymentStatus ? payment.paymentStatus[0].toUpperCase() + payment.paymentStatus.slice(1) : 'Paid'),
         })));
-      } else if (paymentsResult.error || invoicesResult.error) {
-        setTransactionRows(fallbackTransactions);
       } else {
         setTransactionRows([]);
       }
 
       setLoadMessage(
         packagesResult.error || currentPackageResult.error || paymentsResult.error || invoicesResult.error
-          ? 'Some membership data could not be loaded. Demo data is shown temporarily.'
+          ? 'Some package data could not be loaded.'
           : ''
       );
       setIsLoadingMemberPackage(false);
@@ -421,7 +516,7 @@ function MyPackage() {
     if (!selectedPackage || !selectedPaymentMethod) return;
     const currentUser = getCurrentUser();
     const requestPayload = {
-      memberId: resolvedMemberId || currentUser?.memberId || currentUser?.member_id || currentUser?.id || 'mock-member',
+      memberId: resolvedMemberId || currentUser?.memberId || currentUser?.member_id || '',
       memberEmail: currentUser?.email || '',
       memberName: currentUser?.fullName || currentUser?.full_name || member.name,
       currentPackageName: displayCurrentPackage.hasPackage ? displayCurrentPackage.title : 'No active package',
@@ -439,14 +534,13 @@ function MyPackage() {
       return;
     }
 
-    const request = createPendingRenewalRequest(requestPayload);
-    setRequestMessage(`Request ${request.requestId} submitted locally because Supabase insert failed.`);
+    setRequestMessage('Request could not be saved.');
   };
 
   return (
     <div className="space-y-6 p-6">
       <h1 className="text-4xl font-black text-white">My Package</h1>
-      {isLoadingMemberPackage && <div className="rounded-2xl border border-white/8 bg-[#181818] p-4 text-sm font-bold text-white/45">Loading package data from Supabase...</div>}
+      {isLoadingMemberPackage && <div className="rounded-2xl border border-white/8 bg-[#181818] p-4 text-sm font-bold text-white/45">Loading package data...</div>}
       {loadMessage && !isLoadingMemberPackage && <div className="rounded-2xl border border-amber-400/25 bg-amber-500/10 p-4 text-sm font-bold text-amber-300">{loadMessage}</div>}
 
       <div className="grid gap-6 xl:grid-cols-2">
@@ -477,7 +571,9 @@ function MyPackage() {
               </div>
               <div className="rounded-xl bg-white/[0.03] p-3">
                 <div className="text-xs text-white/40">Remaining days</div>
-                <div className="mt-1 font-bold text-white">{displayCurrentPackage.daysRemaining} days</div>
+                <div className="mt-1 font-bold text-white">
+                  {displayCurrentPackage.daysRemaining === '-' ? '-' : `${displayCurrentPackage.daysRemaining} days`}
+                </div>
               </div>
               <div className="rounded-xl bg-white/[0.03] p-3">
                 <div className="text-xs text-white/40">Remaining sessions</div>
@@ -503,7 +599,9 @@ function MyPackage() {
               </div>
               {displayCurrentPackage.hasPackage ? (
                 <div className="mt-2 text-xs text-white/45">
-                  {displayCurrentPackage.usedSessions}/{displayCurrentPackage.totalSessions} sessions used
+                  {displayCurrentPackage.totalSessions > 0
+                    ? `${displayCurrentPackage.usedSessions}/${displayCurrentPackage.totalSessions} sessions used`
+                    : 'Unlimited gym access'}
                 </div>
               ) : (
                 <div className="mt-2 text-xs text-white/45">No session usage yet.</div>
@@ -659,30 +757,6 @@ function MyPackage() {
     </div>
   );
 }
-function MyScheduleOld() {
-  return (
-    <div className="space-y-6 p-6">
-      <h1 className="text-4xl font-black text-white">My Schedule</h1>
-      <Section title="Workout Calendar">
-        <div className="grid gap-4 md:grid-cols-3">
-          {workouts.map((item) => (
-            <div key={`${item.date}-${item.title}`} className="rounded-xl border border-white/8 bg-[#222] p-4">
-              <div className="font-bold text-white">{item.title}</div>
-              <div className="mt-1 text-sm text-white/55">{item.trainer}</div>
-              <div className="mt-3 text-sm font-semibold text-[#EF233C]">{item.date} · {item.time}</div>
-              <div className="mt-4 flex gap-2">
-                <button className="rounded-lg bg-[#EF233C] px-3 py-2 text-xs font-bold text-white">View Detail</button>
-                <button className="rounded-lg border border-[#EF233C]/30 px-3 py-2 text-xs font-bold text-[#EF233C]">Reschedule</button>
-                <button className="rounded-lg border border-white/10 px-3 py-2 text-xs font-bold text-white/60">Cancel</button>
-              </div>
-            </div>
-          ))}
-        </div>
-      </Section>
-    </div>
-  );
-}
-
 function MySchedule() {
   type ScheduleSession = {
     id: string;
@@ -715,60 +789,6 @@ function MySchedule() {
     { short: 'Sun', date: 'May 24' },
   ];
   const timeSlots = ['06:00', '08:00', '10:00', '12:00', '14:00', '16:00', '18:00', '20:00'];
-  const fallbackScheduleSessions: ScheduleSession[] = [
-    {
-      id: 'S001',
-      title: 'Strength Training',
-      trainer: 'Alex Carter',
-      date: 'May 18, 2026',
-      day: 'Mon',
-      time: '18:00 - 19:00',
-      startHour: 18,
-      room: 'Strength Zone A',
-      status: 'Scheduled',
-      packageName: currentPackage.title,
-      notes: 'Focus on compound lifts. Bring lifting gloves and arrive 10 minutes early.',
-    },
-    {
-      id: 'S002',
-      title: 'Cardio & HIIT',
-      trainer: 'Maya Tran',
-      date: 'May 20, 2026',
-      day: 'Wed',
-      time: '19:00 - 20:00',
-      startHour: 19,
-      room: 'Studio 2',
-      status: 'Scheduled',
-      packageName: currentPackage.title,
-      notes: 'High-intensity interval session. Keep hydration ready.',
-    },
-    {
-      id: 'S003',
-      title: 'Mobility Recovery',
-      trainer: 'Jordan Lee',
-      date: 'May 22, 2026',
-      day: 'Fri',
-      time: '08:00 - 09:00',
-      startHour: 8,
-      room: 'Recovery Room',
-      status: 'Pending Reschedule',
-      packageName: currentPackage.title,
-      notes: 'Member requested a later slot. Awaiting trainer confirmation.',
-    },
-    {
-      id: 'S004',
-      title: 'Full Body Recovery',
-      trainer: 'Jordan Lee',
-      date: 'May 12, 2026',
-      day: 'Tue',
-      time: '07:00 - 08:00',
-      startHour: 7,
-      room: 'Yoga Studio',
-      status: 'Completed',
-      packageName: currentPackage.title,
-      notes: 'Completed recovery session with mobility assessment.',
-    },
-  ];
   const mapWorkoutSessionToSchedule = (session: any): ScheduleSession => {
     const date = session.sessionDate || '';
     const startTime = String(session.startTime || '').slice(0, 5);
@@ -791,7 +811,7 @@ function MySchedule() {
       room: session.roomName || 'Training Room',
       status: getWorkoutSessionStatusLabel(session.status) as ScheduleSession['status'],
       packageName: session.packageName || currentPackage.title,
-      notes: session.note || 'Workout session loaded from Supabase.',
+      notes: session.note || 'Workout session loaded.',
     };
   };
 
@@ -804,8 +824,8 @@ function MySchedule() {
         if (!isMounted) return;
 
         if (error) {
-          setScheduleSessions(fallbackScheduleSessions);
-          setSessionLoadMessage('Some workout sessions could not be loaded. Demo schedule is shown temporarily.');
+          setScheduleSessions([]);
+          setSessionLoadMessage('Some workout sessions could not be loaded.');
         } else if (data.length) {
           setScheduleSessions(data.map(mapWorkoutSessionToSchedule));
           setSessionLoadMessage('');
@@ -818,8 +838,8 @@ function MySchedule() {
       })
       .catch(() => {
         if (!isMounted) return;
-        setScheduleSessions(fallbackScheduleSessions);
-        setSessionLoadMessage('Some workout sessions could not be loaded. Demo schedule is shown temporarily.');
+        setScheduleSessions([]);
+        setSessionLoadMessage('Some workout sessions could not be loaded.');
         setIsLoadingSessions(false);
       });
 
@@ -870,7 +890,7 @@ function MySchedule() {
       </div>
 
       <Section title="Workout Calendar">
-        {isLoadingSessions && <div className="mb-5 rounded-2xl border border-white/8 bg-[#222] p-4 text-sm font-bold text-white/45">Loading workout sessions from Supabase...</div>}
+        {isLoadingSessions && <div className="mb-5 rounded-2xl border border-white/8 bg-[#222] p-4 text-sm font-bold text-white/45">Loading workout schedule...</div>}
         {sessionLoadMessage && !isLoadingSessions && <div className="mb-5 rounded-2xl border border-amber-400/25 bg-amber-500/10 p-4 text-sm font-bold text-amber-300">{sessionLoadMessage}</div>}
         {!isLoadingSessions && !sessionLoadMessage && scheduleSessions.length === 0 && (
           <div className="mb-5 rounded-2xl border border-white/8 bg-[#222] p-6 text-center text-sm font-bold text-white/45">No workout sessions found.</div>
@@ -1051,15 +1071,29 @@ function MySchedule() {
 }
 
 function Trainers() {
-  const availableTrainers = getAvailableTrainers();
+  const [availableTrainers, setAvailableTrainers] = useState<any[]>([]);
+  const [trainerLoadMessage, setTrainerLoadMessage] = useState('');
   const { requests: memberRequests, isLoadingRequests, requestLoadMessage } = useMemberTrainingRequests();
   const trackedRequests = memberRequests.filter((request) => ['Pending Approval', 'Accepted', 'Declined', 'Completed'].includes(request.statusLabel) || ['Pending Approval', 'Accepted', 'Declined', 'Completed'].includes(request.status) || ['pending_pt_approval', 'accepted', 'approved', 'declined', 'completed'].includes(request.rawStatus || request.status));
   const declinedRequests = trackedRequests.filter((request) => request.status === 'declined' || request.statusLabel === 'Declined' || request.status === 'Declined' || request.rawStatus === 'declined');
-  const notifications = getMemberTrainingNotifications();
+  const notifications: any[] = [];
+
+  useEffect(() => {
+    let isMounted = true;
+    fetchTrainersFromSupabase().then(({ data, error }) => {
+      if (!isMounted) return;
+      setAvailableTrainers(data.filter((trainer: any) => trainer.currentActiveMembers < trainer.maxActiveMembers));
+      setTrainerLoadMessage(error ? 'Trainer list could not be loaded.' : '');
+    });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   return (
     <div className="space-y-6 p-6">
       <h1 className="text-4xl font-black text-white">Trainers</h1>
+      {trainerLoadMessage && <div className="rounded-2xl border border-amber-400/25 bg-amber-500/10 p-4 text-sm font-bold text-amber-300">{trainerLoadMessage}</div>}
       {(isLoadingRequests || requestLoadMessage || trackedRequests.length > 0 || notifications.length > 0) && (
         <Section title="Trainer Request Status">
           {isLoadingRequests && <div className="mb-3 rounded-xl border border-white/8 bg-[#222] p-4 text-sm font-bold text-white/45">Loading trainer request status...</div>}
@@ -1093,7 +1127,6 @@ function Trainers() {
             <div className="mt-1 text-sm text-white/50">{trainer.specialty}</div>
             <div className="mt-4 flex items-center gap-4 text-sm text-white/65">
               <span><Star className="mr-1 inline h-4 w-4 text-[#EF233C]" />{trainer.rating}</span>
-              <span>{trainer.experience}</span>
               <span>{trainer.currentActiveMembers}/{trainer.maxActiveMembers} active members</span>
             </div>
             <div className="mt-4 h-2 overflow-hidden rounded-full bg-white/10">
@@ -1138,51 +1171,13 @@ function RateService() {
   const ratingLabels = ['Very Poor', 'Poor', 'Average', 'Good', 'Excellent'];
   const ratingCriteria = ['Trainer attitude', 'Training quality', 'Equipment condition', 'Cleanliness', 'Staff support'];
   const quickTags = ['Professional trainer', 'Clean facilities', 'Good equipment', 'Crowded room', 'Equipment issue', 'Late trainer', 'Need better support'];
-  const trainerTargets = ['Nguyen Van Nam', 'Tran Minh Duc', 'Le Hoang An'];
-  const recentSessions = ['Strength Training - May 18, 2026', 'Cardio & HIIT - May 20, 2026', 'Full Body Recovery - May 12, 2026'];
-  const equipmentRooms = ['Strength Zone A', 'Studio 2', 'Recovery Room', 'Cardio Area', 'Locker Room'];
-  const recentFeedback: Array<{ target: string; date: string; rating: number; comment: string; status: FeedbackStatus; response?: string }> = [
-    {
-      target: 'Strength Training with Nguyen Van Nam',
-      date: 'May 10, 2026',
-      rating: 5,
-      comment: 'Great coaching and clear exercise corrections throughout the session.',
-      status: 'Resolved',
-      response: 'Thank you. We shared your feedback with the trainer team.',
-    },
-    {
-      target: 'Cardio Area',
-      date: 'May 04, 2026',
-      rating: 3,
-      comment: 'Room was crowded during peak hours.',
-      status: 'In Review',
-    },
-    {
-      target: 'Customer Support',
-      date: 'Apr 28, 2026',
-      rating: 4,
-      comment: 'Support staff helped me renew the package quickly.',
-      status: 'Submitted',
-    },
-  ];
-  const recentComplaints: Array<{ type: string; target: string; date: string; description: string; status: ComplaintStatus; response?: string }> = [
-    {
-      type: 'Equipment',
-      target: 'Treadmill X12 #5',
-      date: 'May 12, 2026',
-      description: 'The treadmill stopped suddenly during use and needs urgent inspection.',
-      status: 'In Review',
-      response: 'The maintenance team has been notified and the machine is temporarily unavailable.',
-    },
-    {
-      type: 'Customer Support',
-      target: 'Front desk',
-      date: 'May 02, 2026',
-      description: 'I needed faster support for a package renewal question.',
-      status: 'Resolved',
-    },
-  ];
-
+  const [trainerTargets, setTrainerTargets] = useState<string[]>([]);
+  const [recentSessions, setRecentSessions] = useState<string[]>([]);
+  const [equipmentRooms, setEquipmentRooms] = useState<string[]>([]);
+  const [recentFeedback, setRecentFeedback] = useState<Array<{ target: string; date: string; rating: number; comment: string; status: FeedbackStatus; response?: string }>>([]);
+  const [recentComplaints, setRecentComplaints] = useState<Array<{ type: string; target: string; date: string; description: string; status: ComplaintStatus; response?: string }>>([]);
+  const [loadMessage, setLoadMessage] = useState('');
+  const [submitMessage, setSubmitMessage] = useState('');
   const [serviceType, setServiceType] = useState<ServiceType | ''>('');
   const [relatedTarget, setRelatedTarget] = useState('');
   const [overallRating, setOverallRating] = useState(0);
@@ -1194,6 +1189,58 @@ function RateService() {
 
   const isLowRating = overallRating > 0 && overallRating <= 2;
   const canSubmit = Boolean(serviceType && overallRating && (!isLowRating || comment.trim().length > 0));
+
+  const loadFeedbackData = async () => {
+    const { data, error } = await getMemberFeedbackPortalData();
+    if (error || !data) {
+      setLoadMessage('Feedback data could not be loaded.');
+      return;
+    }
+    setLoadMessage('');
+    setTrainerTargets(data.trainers || []);
+    setRecentSessions(data.sessions || []);
+    setEquipmentRooms(data.equipmentRooms || []);
+    setRecentFeedback(data.feedback || []);
+    setRecentComplaints(data.complaints || []);
+  };
+
+  useEffect(() => {
+    void loadFeedbackData();
+  }, []);
+
+  const submitFeedback = async () => {
+    const { error } = await createMemberServiceFeedback({
+      serviceType,
+      rating: overallRating,
+      comment,
+      tags: selectedTags,
+      target: relatedTarget,
+    });
+    if (error) {
+      setSubmitMessage('Feedback could not be saved.');
+      return;
+    }
+    setSubmitMessage('Feedback saved.');
+    setServiceType('');
+    setRelatedTarget('');
+    setOverallRating(0);
+    setCriteriaRatings({});
+    setSelectedTags([]);
+    setComment('');
+    await loadFeedbackData();
+  };
+
+  const submitComplaint = async () => {
+    const { error } = await createMemberComplaint(complaintForm);
+    if (error) {
+      setSubmitMessage('Complaint could not be saved.');
+      return;
+    }
+    setSubmitMessage('Complaint saved.');
+    setComplaintForm({ type: '', target: '', description: '' });
+    setShowComplaintModal(false);
+    await loadFeedbackData();
+  };
 
   const getTargets = () => {
     if (serviceType === 'Trainer') return trainerTargets;
@@ -1233,6 +1280,8 @@ function RateService() {
         <h1 className="text-4xl font-black text-white">Rate Service</h1>
         <p className="mt-1 text-sm text-white/50">Share your experience so Gymster can improve your training journey.</p>
       </div>
+      {loadMessage && <div className="rounded-2xl border border-amber-400/25 bg-amber-500/10 p-4 text-sm font-bold text-amber-300">{loadMessage}</div>}
+      {submitMessage && <div className="rounded-2xl border border-[#EF233C]/25 bg-[#EF233C]/10 p-4 text-sm font-bold text-white">{submitMessage}</div>}
 
       <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
         <Section title="Send Feedback">
@@ -1362,6 +1411,7 @@ function RateService() {
               className="rounded-xl bg-[#EF233C] px-5 py-3 text-sm font-bold text-white disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-white/35"
               type="button"
               disabled={!canSubmit}
+              onClick={submitFeedback}
             >
               Submit Feedback
             </button>
@@ -1399,6 +1449,7 @@ function RateService() {
                 )}
               </article>
             ))}
+            {!recentFeedback.length && <div className="rounded-2xl border border-white/8 bg-[#222] p-6 text-center text-sm font-bold text-white/45">No feedback yet.</div>}
           </div>
         </Section>
       </div>
@@ -1422,6 +1473,7 @@ function RateService() {
               )}
             </article>
           ))}
+          {!recentComplaints.length && <div className="rounded-2xl border border-white/8 bg-[#222] p-6 text-center text-sm font-bold text-white/45">No complaints yet.</div>}
         </div>
       </Section>
 
@@ -1479,10 +1531,7 @@ function RateService() {
               <button
                 type="button"
                 disabled={!canSendComplaint}
-                onClick={() => {
-                  setShowComplaintModal(false);
-                  setComplaintForm({ type: '', target: '', description: '' });
-                }}
+                onClick={submitComplaint}
                 className="flex-1 rounded-xl bg-[#EF233C] px-5 py-3 text-sm font-bold text-white disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-white/35"
               >
                 Submit Complaint
@@ -1498,6 +1547,392 @@ function RateService() {
   );
 }
 
+function SelectPackageOnboarding({ onMemberActivated }: { onMemberActivated?: (user: any) => void }) {
+  const navigate = useNavigate();
+  const currentUser = getCurrentUser();
+  const [packages, setPackages] = useState<any[]>([]);
+  const [trainers, setTrainers] = useState<any[]>([]);
+  const [availability, setAvailability] = useState<any[]>([]);
+  const [selectedPackage, setSelectedPackage] = useState<any | null>(null);
+  const [selectedTrainer, setSelectedTrainer] = useState<any | null>(null);
+  const [selectedSlot, setSelectedSlot] = useState<any | null>(null);
+  const [paymentMethod, setPaymentMethod] = useState('Bank Transfer');
+  const [step, setStep] = useState<'package' | 'trainer' | 'payment'>('package');
+  const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingAvailability, setIsLoadingAvailability] = useState(false);
+  const [message, setMessage] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadOptions() {
+      setIsLoading(true);
+      const [packageResult, trainerResult] = await Promise.all([
+        fetchPackagesFromSupabase(),
+        fetchTrainersFromSupabase(),
+      ]);
+
+      if (!isMounted) return;
+
+      setPackages(packageResult.error ? [] : packageResult.data.filter((item: any) => item.isActive !== false));
+      setTrainers(trainerResult.error ? [] : trainerResult.data.filter((item: any) => item.status === 'active'));
+      setMessage(packageResult.error || trainerResult.error ? 'Some package or trainer data could not be loaded.' : '');
+      setIsLoading(false);
+    }
+
+    loadOptions();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    if (!selectedTrainer?.id) {
+      setAvailability([]);
+      return () => {
+        isMounted = false;
+      };
+    }
+
+    setIsLoadingAvailability(true);
+    getTrainerWeeklyAvailability(selectedTrainer.id).then(({ data }) => {
+      if (!isMounted) return;
+      setAvailability(data);
+      setIsLoadingAvailability(false);
+    }).catch(() => {
+      if (!isMounted) return;
+      setAvailability([]);
+      setIsLoadingAvailability(false);
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedTrainer?.id]);
+
+  const choosePackage = (pkg: any) => {
+    setSelectedPackage(pkg);
+    setSelectedTrainer(null);
+    setSelectedSlot(null);
+    setStep(pkg.hasPersonalTrainer ? 'trainer' : 'payment');
+    setMessage('');
+  };
+
+  const chooseTrainer = (trainer: any) => {
+    setSelectedTrainer(trainer);
+    setSelectedSlot(null);
+    setMessage('');
+  };
+
+  const chooseSlot = (day: any, slot: any) => {
+    if (!slot.available) return;
+    setSelectedSlot({
+      dayKey: day.key,
+      dayLabel: day.label,
+      startTime: slot.startTime,
+      endTime: slot.endTime,
+      label: `${day.label}, ${slot.label}`,
+    });
+    setStep('payment');
+    setMessage('');
+  };
+
+  const completePayment = async () => {
+    if (!selectedPackage) return;
+    if (selectedPackage.hasPersonalTrainer && (!selectedTrainer || !selectedSlot)) {
+      setMessage('Please choose a trainer and a weekly training slot.');
+      return;
+    }
+
+    setIsSubmitting(true);
+    setMessage('');
+
+    const activeUser = {
+      ...currentUser,
+      role: currentUser?.role || 'member',
+      accountStatus: 'Active',
+      account_status: 'active',
+    };
+    const flowData = {
+      currentUser,
+      selectedPackage,
+      selectedTrainer,
+      selectedSlot,
+      paymentMethod,
+      sessionLimit: selectedPackage.sessionLimitValue ?? (selectedPackage.hasPersonalTrainer ? 4 : null),
+    };
+
+    setCurrentUser(activeUser);
+    onMemberActivated?.(activeUser);
+    setIsSubmitting(false);
+    navigate('/member', { replace: true });
+
+    void (async () => {
+      try {
+        await withTimeout(activateMemberAccount(flowData.currentUser), 10000, 'Account activation timed out.');
+
+        const createdPackage = await withTimeout(createMemberPackage({
+          memberId: flowData.currentUser?.memberId || flowData.currentUser?.member_id,
+          memberEmail: flowData.currentUser?.email || '',
+          packageId: flowData.selectedPackage.id,
+          trainerId: flowData.selectedTrainer?.id || null,
+          status: 'pending_payment',
+          remainingSessions: flowData.sessionLimit,
+        }), 10000, 'Package registration timed out.');
+
+        if (createdPackage.error || !createdPackage.data?.memberPackageId) {
+          console.error('[Gymster hệ thống] Demo package registration could not be saved:', createdPackage.error);
+          return;
+        }
+
+        const transactionCode = `GYMSTER-DEMO-${Date.now()}`;
+        const paymentDate = new Date().toISOString();
+        const paymentResult = await withTimeout(createPayment({
+          memberId: flowData.currentUser?.memberId || flowData.currentUser?.member_id,
+          memberEmail: flowData.currentUser?.email || '',
+          packageId: flowData.selectedPackage.id,
+          memberPackageId: createdPackage.data.memberPackageId,
+          amount: flowData.selectedPackage.price,
+          paymentMethod: flowData.paymentMethod,
+          paymentDate,
+          transactionCode,
+          transferContent: `GYMSTER DEMO ${flowData.selectedPackage.code || flowData.selectedPackage.id}`,
+        }), 10000, 'Payment save timed out.');
+
+        if (paymentResult.error) {
+          console.error('[Gymster hệ thống] Demo payment could not be saved:', paymentResult.error);
+          return;
+        }
+
+        const startDate = toDateInputValue(new Date(paymentDate));
+        const endDate = toDateInputValue(addMonths(new Date(paymentDate), getPackageDurationMonths(flowData.selectedPackage)));
+        const packageUpdate = await withTimeout(updateMemberPackageStatus(createdPackage.data.memberPackageId, 'active', {
+          start_date: startDate,
+          end_date: endDate,
+          remaining_sessions: flowData.sessionLimit,
+          used_sessions: 0,
+          activated_at: paymentDate,
+        }), 10000, 'Package activation timed out.');
+
+        if (packageUpdate.error) {
+          console.error('[Gymster hệ thống] Demo member package could not be activated:', packageUpdate.error);
+          return;
+        }
+
+        if (flowData.selectedPackage.hasPersonalTrainer && flowData.selectedTrainer && flowData.selectedSlot) {
+          await withTimeout(createWorkoutSessionsForSchedule({
+            memberId: flowData.currentUser?.memberId || flowData.currentUser?.member_id,
+            memberEmail: flowData.currentUser?.email || '',
+            trainerId: flowData.selectedTrainer.id,
+            packageId: flowData.selectedPackage.id,
+            memberPackageId: createdPackage.data.memberPackageId,
+            selectedSchedule: flowData.selectedSlot.label,
+            sessionCount: flowData.sessionLimit || 4,
+          }), 8000, 'Workout session creation timed out.');
+        }
+      } catch (error) {
+        console.error('[Gymster hệ thống] Demo payment background sync failed:', error);
+      }
+    })();
+
+  };
+
+  const canPay = Boolean(
+    selectedPackage &&
+    paymentMethod &&
+    (!selectedPackage.hasPersonalTrainer || (selectedTrainer && selectedSlot)),
+  );
+
+  return (
+    <div className="space-y-6 p-6">
+      <div>
+        <h1 className="text-4xl font-black text-white">Select Package</h1>
+        <p className="mt-1 text-sm text-white/50">
+          Choose a membership package. PT packages require a trainer and one available weekly training slot.
+        </p>
+      </div>
+
+      {message && (
+        <div className="rounded-2xl border border-[#EF233C]/25 bg-[#EF233C]/10 p-4 text-sm font-bold text-white">
+          {message}
+        </div>
+      )}
+
+      <div className="grid gap-4 md:grid-cols-3">
+        {[
+          ['Package', step === 'package' || selectedPackage, selectedPackage?.name || 'Choose package'],
+          ['Trainer & Schedule', !selectedPackage?.hasPersonalTrainer || step === 'trainer' || selectedTrainer, selectedPackage?.hasPersonalTrainer ? selectedTrainer?.name || 'Choose trainer' : 'Not required'],
+          ['Payment', step === 'payment', paymentMethod],
+        ].map(([label, active, value]) => (
+          <div key={label as string} className={`rounded-2xl border p-4 ${active ? 'border-[#EF233C] bg-[#EF233C]/10' : 'border-white/8 bg-[#181818]'}`}>
+            <div className="text-xs font-black uppercase tracking-[0.2em] text-white/35">{label}</div>
+            <div className="mt-2 text-sm font-black text-white">{value as string}</div>
+          </div>
+        ))}
+      </div>
+
+      <Section title="Available Packages">
+        {isLoading ? (
+          <div className="rounded-xl border border-white/8 bg-[#222] p-5 text-sm font-bold text-white/45">Loading packages...</div>
+        ) : (
+          <div className="grid gap-4 xl:grid-cols-3">
+            {packages.map((pkg) => (
+              <button
+                key={pkg.id}
+                type="button"
+                onClick={() => choosePackage(pkg)}
+                className={`rounded-2xl border p-5 text-left transition ${
+                  selectedPackage?.id === pkg.id ? 'border-[#EF233C] bg-[#EF233C]/10' : 'border-white/8 bg-[#222] hover:border-[#EF233C]/40'
+                }`}
+              >
+                <div className="mb-4 flex items-start justify-between gap-3">
+                  <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#EF233C]/15 text-[#EF233C]">
+                    {pkg.hasPersonalTrainer ? <Users className="h-5 w-5" /> : <Dumbbell className="h-5 w-5" />}
+                  </div>
+                  <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-black text-white/60">{pkg.type}</span>
+                </div>
+                <h2 className="text-xl font-black text-white">{pkg.name}</h2>
+                <p className="mt-2 min-h-12 text-sm leading-6 text-white/55">{pkg.description || 'Membership package'}</p>
+                <div className="mt-4 grid gap-2 text-sm text-white/65">
+                  <div>Duration: <span className="font-bold text-white">{pkg.duration}</span></div>
+                  <div>Sessions: <span className="font-bold text-white">{pkg.sessionLimit}</span></div>
+                  <div>Trainer: <span className="font-bold text-white">{pkg.hasPersonalTrainer ? 'Required' : 'Optional later'}</span></div>
+                </div>
+                <div className="mt-5 text-2xl font-black text-[#EF233C]">{Number(pkg.price || 0).toLocaleString('vi-VN')} VND</div>
+              </button>
+            ))}
+            {!packages.length && <div className="rounded-xl border border-white/8 bg-[#222] p-5 text-sm font-bold text-white/45">No active packages found.</div>}
+          </div>
+        )}
+      </Section>
+
+      {selectedPackage?.hasPersonalTrainer && (
+        <Section title="Choose PT and Weekly Schedule">
+          <div className="grid gap-5 xl:grid-cols-[0.85fr_1.15fr]">
+            <div className="space-y-3">
+              {trainers.map((trainer) => (
+                <button
+                  key={trainer.id}
+                  type="button"
+                  onClick={() => chooseTrainer(trainer)}
+                  className={`w-full rounded-2xl border p-4 text-left transition ${
+                    selectedTrainer?.id === trainer.id ? 'border-[#EF233C] bg-[#EF233C]/10' : 'border-white/8 bg-[#222] hover:border-[#EF233C]/40'
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-lg font-black text-white">{trainer.name}</div>
+                      <div className="mt-1 text-sm font-semibold text-white/45">{trainer.specialty}</div>
+                    </div>
+                    <span className="flex items-center gap-1 rounded-full bg-[#EF233C]/15 px-3 py-1 text-xs font-black text-[#EF233C]">
+                      <Star className="h-3.5 w-3.5 fill-current" /> {trainer.rating || 'New'}
+                    </span>
+                  </div>
+                  <div className="mt-3 text-xs font-bold text-white/40">
+                    Active members {trainer.currentActiveMembers}/{trainer.maxActiveMembers || '-'}
+                  </div>
+                </button>
+              ))}
+              {!trainers.length && <div className="rounded-xl border border-white/8 bg-[#222] p-5 text-sm font-bold text-white/45">No active trainers found.</div>}
+            </div>
+
+            <div className="rounded-2xl border border-white/8 bg-[#222] p-4">
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-lg font-black text-white">Weekly available slots</h3>
+                  <p className="mt-1 text-xs font-semibold text-white/45">Booked slots are hidden from selection.</p>
+                </div>
+                {selectedSlot && <span className="rounded-full bg-[#EF233C]/15 px-3 py-1 text-xs font-black text-[#EF233C]">{selectedSlot.label}</span>}
+              </div>
+
+              {!selectedTrainer ? (
+                <div className="rounded-xl border border-white/8 bg-black/20 p-6 text-center text-sm font-bold text-white/45">Choose a PT to see available slots.</div>
+              ) : isLoadingAvailability ? (
+                <div className="rounded-xl border border-white/8 bg-black/20 p-6 text-center text-sm font-bold text-white/45">Loading PT schedule...</div>
+              ) : (
+                <div className="grid gap-3 lg:grid-cols-7">
+                  {availability.map((day) => (
+                    <div key={day.key} className="rounded-xl border border-white/8 bg-black/20 p-3">
+                      <div className="mb-3 text-center text-sm font-black text-white">{day.shortLabel}</div>
+                      <div className="grid gap-2">
+                        {day.slots.map((slot: any) => (
+                          <button
+                            key={`${day.key}-${slot.label}`}
+                            type="button"
+                            disabled={!slot.available}
+                            onClick={() => chooseSlot(day, slot)}
+                            className={`rounded-lg border px-2 py-2 text-xs font-black transition ${
+                              selectedSlot?.dayKey === day.key && selectedSlot?.startTime === slot.startTime
+                                ? 'border-[#EF233C] bg-[#EF233C] text-white'
+                                : slot.available
+                                  ? 'border-white/10 bg-white/5 text-white/70 hover:border-[#EF233C]/45 hover:text-white'
+                                  : 'cursor-not-allowed border-white/5 bg-white/[0.02] text-white/20 line-through'
+                            }`}
+                          >
+                            {slot.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </Section>
+      )}
+
+      {selectedPackage && (!selectedPackage.hasPersonalTrainer || selectedSlot) && (
+        <Section title="Payment">
+          <div className="grid gap-5 lg:grid-cols-[1fr_420px]">
+            <div className="rounded-2xl border border-white/8 bg-[#222] p-5">
+              <h3 className="text-xl font-black text-white">{selectedPackage.name}</h3>
+              <div className="mt-4 grid gap-3 text-sm text-white/65">
+                <div className="flex justify-between gap-3"><span>Amount</span><span className="font-black text-white">{Number(selectedPackage.price || 0).toLocaleString('vi-VN')} VND</span></div>
+                <div className="flex justify-between gap-3"><span>Trainer</span><span className="font-black text-white">{selectedTrainer?.name || 'Not required'}</span></div>
+                <div className="flex justify-between gap-3"><span>Schedule</span><span className="font-black text-white">{selectedSlot?.label || 'Not required'}</span></div>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <button
+                type="button"
+                onClick={() => setPaymentMethod('Bank Transfer')}
+                className="flex w-full items-center gap-3 rounded-xl border border-[#EF233C] bg-[#EF233C]/10 px-4 py-3 text-left text-sm font-black text-white transition"
+              >
+                <CreditCard className="h-4 w-4 text-[#EF233C]" />
+                Bank Transfer
+              </button>
+              <div className="rounded-xl border border-white/8 bg-[#222] p-4 text-sm leading-6 text-white/55">
+                Bank transfer QR payment will be connected later. Use demo skip to activate this member package while testing.
+              </div>
+              <button
+                type="button"
+                disabled={!canPay || isSubmitting}
+                className="w-full rounded-xl border border-white/10 bg-white/5 px-5 py-4 text-sm font-black text-white/35 disabled:cursor-not-allowed"
+              >
+                Continue to Bank Transfer (Coming Soon)
+              </button>
+              <button
+                type="button"
+                disabled={!canPay || isSubmitting}
+                onClick={completePayment}
+                className="w-full rounded-xl bg-[#EF233C] px-5 py-4 text-sm font-black text-white transition hover:bg-[#c91930] disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-white/35"
+              >
+                {isSubmitting ? 'Activating...' : 'Skip payment (demo)'}
+              </button>
+            </div>
+          </div>
+        </Section>
+      )}
+    </div>
+  );
+}
+
 function Profile() {
   const { profile, isLoading, errorMessage } = useSupabaseUserProfile('member');
 
@@ -1506,7 +1941,7 @@ function Profile() {
       {(isLoading || errorMessage) && (
         <div className="px-6 pt-6">
           <div className="mx-auto max-w-5xl rounded-2xl border border-white/10 bg-[#181818] p-4 text-sm font-bold text-white/55">
-            {isLoading ? 'Loading profile from Supabase...' : errorMessage}
+            {isLoading ? 'Loading profile...' : errorMessage}
           </div>
         </div>
       )}
@@ -1521,6 +1956,7 @@ function Profile() {
         email={profile.email}
         phone={profile.phone}
         initials={profile.initials}
+        avatarUrl={profile.avatarUrl}
       />
     </>
   );
@@ -1545,15 +1981,21 @@ function MemberSettings() {
 function MemberLayout() {
   const navigate = useNavigate();
   const { profile } = useSupabaseUserProfile('member');
-  const menuItems: RoleShellItem[] = [
+  const [currentUser, setCurrentUserState] = useState(() => getCurrentUser());
+  const isActiveMember = currentUser?.accountStatus === 'Active' || currentUser?.account_status === 'active';
+  const activeMenuItems: RoleShellItem[] = [
     { id: 'dashboard', path: '/member', icon: LayoutDashboard, label: 'Dashboard' },
     { id: 'package', path: '/member/my-package', icon: ReceiptText, label: 'My Package' },
     { id: 'schedule', path: '/member/my-schedule', icon: CalendarDays, label: 'My Schedule' },
     { id: 'trainers', path: '/member/trainers', icon: Users, label: 'Trainers' },
     { id: 'rate-service', path: '/member/rate-service', icon: MessageSquare, label: 'Rate Service' },
-    { id: 'profile', path: '/member/profile', icon: User, label: 'Profile' },
     { id: 'settings', path: '/member/settings', icon: Settings, label: 'Settings' },
   ];
+  const onboardingMenuItems: RoleShellItem[] = [
+    { id: 'select-package', path: '/member/select-package', icon: ReceiptText, label: 'Select Package' },
+    { id: 'settings', path: '/member/settings', icon: Settings, label: 'Settings' },
+  ];
+  const menuItems = isActiveMember ? activeMenuItems : onboardingMenuItems;
 
   return (
     <RoleShell
@@ -1563,18 +2005,29 @@ function MemberLayout() {
       userName={profile.fullName || 'Member'}
       userRole={profile.roleLabel}
       userInitials={profile.initials}
-      onAvatarClick={() => navigate('/member/profile')}
+      userAvatarUrl={profile.avatarUrl}
+      onAvatarClick={() => navigate(isActiveMember ? '/member/profile' : '/member/settings')}
     >
-      <Routes>
-        <Route index element={<Dashboard />} />
-        <Route path="my-package" element={<MyPackage />} />
-        <Route path="my-schedule" element={<MySchedule />} />
-        <Route path="trainers" element={<Trainers />} />
-        <Route path="rate-service" element={<RateService />} />
-        <Route path="profile" element={<Profile />} />
-        <Route path="settings" element={<MemberSettings />} />
-        <Route path="*" element={<Navigate to="/member" replace />} />
-      </Routes>
+      {isActiveMember ? (
+        <Routes>
+          <Route index element={<Dashboard />} />
+          <Route path="my-package" element={<MyPackage />} />
+          <Route path="my-schedule" element={<MySchedule />} />
+          <Route path="trainers" element={<Trainers />} />
+          <Route path="rate-service" element={<RateService />} />
+          <Route path="notifications" element={<RoleNotificationsPage />} />
+          <Route path="profile" element={<Profile />} />
+          <Route path="settings" element={<MemberSettings />} />
+          <Route path="*" element={<Navigate to="/member" replace />} />
+        </Routes>
+      ) : (
+        <Routes>
+          <Route index element={<Navigate to="/member/select-package" replace />} />
+          <Route path="select-package" element={<SelectPackageOnboarding onMemberActivated={setCurrentUserState} />} />
+          <Route path="settings" element={<MemberSettings />} />
+          <Route path="*" element={<Navigate to="/member/select-package" replace />} />
+        </Routes>
+      )}
     </RoleShell>
   );
 }

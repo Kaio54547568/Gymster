@@ -103,15 +103,15 @@ async function queryPackages() {
 
 export async function fetchPackagesFromSupabase() {
   if (!supabase) {
-    const error = new Error("Missing Supabase environment variables.");
-    console.error("[Gymster Supabase] Failed to load packages:", error);
+    const error = new Error("Missing h\u1ec7 th\u1ed1ng environment variables.");
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to load packages:", error);
     return { data: [], error };
   }
 
   const { data, error } = await queryPackages();
 
   if (error) {
-    console.error("[Gymster Supabase] Failed to load packages:", error);
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to load packages:", error);
     return { data: [], error };
   }
 
@@ -123,8 +123,8 @@ export async function fetchPackagesFromSupabase() {
 
 export async function createPackageInSupabase(packageData) {
   if (!supabase) {
-    const error = new Error("Missing Supabase environment variables.");
-    console.error("[Gymster Supabase] Failed to create package:", error);
+    const error = new Error("Missing h\u1ec7 th\u1ed1ng environment variables.");
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to create package:", error);
     return { data: null, error };
   }
 
@@ -168,9 +168,83 @@ export async function createPackageInSupabase(packageData) {
     .single();
 
   if (error) {
-    console.error("[Gymster Supabase] Failed to create package:", error);
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to create package:", error);
     return { data: null, error };
   }
 
   return { data: mapPackageRow(data), error: null };
+}
+
+export async function updatePackageInSupabase(packageId, packageData) {
+  if (!supabase) {
+    const error = new Error("Missing h\u1ec7 th\u1ed1ng environment variables.");
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to update package:", error);
+    return { data: null, error };
+  }
+
+  const hasPersonalTrainer = Boolean(packageData.hasPersonalTrainer);
+  const packageType = normalizePackageType(packageData.type || packageData.packageType, hasPersonalTrainer);
+  const status = String(packageData.status || "Active").toLowerCase() === "inactive" ? "inactive" : "active";
+  const durationMonths = parseDurationMonths(packageData.duration || packageData.durationMonths);
+  const price = parsePrice(packageData.price);
+
+  const payload = {
+    package_name: String(packageData.name || "").trim(),
+    package_type: packageType,
+    duration_months: durationMonths,
+    price,
+    description: packageData.description || "",
+    session_limit: parseSessionLimit(packageData.sessionLimit, hasPersonalTrainer),
+    has_personal_trainer: hasPersonalTrainer || packageType.includes("pt"),
+    is_popular: Boolean(packageData.isPopular || packageData.popular),
+    is_active: status === "active",
+    status,
+  };
+
+  const { data, error } = await supabase
+    .from("packages")
+    .update(payload)
+    .eq("package_id", packageId)
+    .select(`
+      package_id,
+      package_code,
+      package_name,
+      package_type,
+      duration_months,
+      price,
+      description,
+      session_limit,
+      has_personal_trainer,
+      is_popular,
+      is_active,
+      status
+    `)
+    .single();
+
+  if (error) {
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to update package:", error);
+    return { data: null, error };
+  }
+
+  return { data: mapPackageRow(data), error: null };
+}
+
+export async function deletePackageInSupabase(packageId) {
+  if (!supabase) {
+    const error = new Error("Missing h\u1ec7 th\u1ed1ng environment variables.");
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to delete package:", error);
+    return { error };
+  }
+
+  const { error } = await supabase
+    .from("packages")
+    .delete()
+    .eq("package_id", packageId);
+
+  if (error) {
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to delete package:", error);
+    return { error };
+  }
+
+  return { error: null };
 }

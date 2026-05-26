@@ -1,6 +1,7 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { DollarSign, Download, Eye, Printer } from 'lucide-react';
 import { getCurrentUser } from '../../../services/authService';
+import { fetchPayrollData } from '../../../services/adminDataApi';
 
 type PaymentStatus = 'Paid' | 'Pending' | 'Failed';
 
@@ -16,15 +17,6 @@ type PayrollRecord = {
   quarter: string;
   year: string;
 };
-
-const payrollRecords: PayrollRecord[] = [
-  { employeeCode: 'EMP001', employeeName: 'Nguyen Minh PT', role: 'Trainer', baseSalary: 15000000, bonus: 3500000, deductions: 500000, status: 'Paid', month: 'May', quarter: 'Q2', year: '2026' },
-  { employeeCode: 'EMP002', employeeName: 'Tran Hoang', role: 'Manager', baseSalary: 22000000, bonus: 4200000, deductions: 0, status: 'Pending', month: 'May', quarter: 'Q2', year: '2026' },
-  { employeeCode: 'EMP003', employeeName: 'Le Thi Hang', role: 'Staff', baseSalary: 14000000, bonus: 1800000, deductions: 300000, status: 'Paid', month: 'May', quarter: 'Q2', year: '2026' },
-  { employeeCode: 'EMP004', employeeName: 'Pham Van Dung', role: 'Trainer', baseSalary: 16000000, bonus: 3200000, deductions: 200000, status: 'Failed', month: 'April', quarter: 'Q2', year: '2026' },
-  { employeeCode: 'EMP005', employeeName: 'Hoang Van Nam', role: 'Staff', baseSalary: 12000000, bonus: 1500000, deductions: 0, status: 'Paid', month: 'March', quarter: 'Q1', year: '2026' },
-  { employeeCode: 'EMP006', employeeName: 'Mai Anh', role: 'Trainer', baseSalary: 17000000, bonus: 2800000, deductions: 400000, status: 'Pending', month: 'February', quarter: 'Q1', year: '2026' },
-];
 
 const months = ['All', 'January', 'February', 'March', 'April', 'May'];
 const quarters = ['All', 'Q1', 'Q2', 'Q3', 'Q4'];
@@ -44,11 +36,27 @@ export default function Payroll() {
   const currentUser = getCurrentUser();
   const allowedRoles = ['admin', 'manager', 'owner'];
   const canViewPayroll = Boolean(currentUser && allowedRoles.includes(currentUser.role));
+  const [payrollRecords, setPayrollRecords] = useState<PayrollRecord[]>([]);
   const [month, setMonth] = useState('May');
   const [quarter, setQuarter] = useState('All');
   const [year, setYear] = useState('2026');
   const [role, setRole] = useState('All');
   const [status, setStatus] = useState('All');
+  const [loading, setLoading] = useState(true);
+  const [loadMessage, setLoadMessage] = useState('');
+
+  useEffect(() => {
+    let isMounted = true;
+    fetchPayrollData().then(({ data, error }) => {
+      if (!isMounted) return;
+      setPayrollRecords(data);
+      setLoadMessage(error ? 'Payroll data could not be loaded.' : '');
+      setLoading(false);
+    });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const filteredRecords = useMemo(() => {
     return payrollRecords.filter((record) => {
@@ -87,6 +95,8 @@ export default function Payroll() {
       </div>
 
       <div className="rounded-2xl border border-[#EF233C]/20 bg-[#0c1014] p-6">
+        {loading && <div className="mb-4 rounded-xl border border-[#EF233C]/20 bg-black/30 p-4 text-sm font-bold text-[#A1A1AA]">Loading payroll records...</div>}
+        {loadMessage && !loading && <div className="mb-4 rounded-xl border border-[#EF233C]/20 bg-[#EF233C]/10 p-4 text-sm font-bold text-white">{loadMessage}</div>}
         <div className="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
           {[
             ['Month', month, setMonth, months],

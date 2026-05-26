@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Check, CreditCard, Wallet, Smartphone, Building, Download, Printer, Mail, Plus, X } from 'lucide-react';
+import { Check, CreditCard, Wallet, Smartphone, Building, Download, Printer, Mail, Pencil, Plus, Trash2, X } from 'lucide-react';
 import { motion } from 'motion/react';
-import { createPackageInSupabase, fetchPackagesFromSupabase } from '../../../services/packageApi';
+import { createPackageInSupabase, deletePackageInSupabase, fetchPackagesFromSupabase, updatePackageInSupabase } from '../../../services/packageApi';
 
 type PackageStatus = 'Active' | 'Inactive';
 type PackageType = 'Basic' | 'PT' | 'VIP' | 'Session-based' | string;
@@ -46,61 +46,6 @@ type GymPackage = {
   isPopular?: boolean;
 };
 
-const initialPackages: GymPackage[] = [
-  {
-    id: 1,
-    name: 'Basic 3 Months',
-    type: 'Basic',
-    price: '2,500,000',
-    duration: '3 months',
-    description: 'Entry package for regular gym access.',
-    status: 'Active',
-    sessionLimit: 'Unlimited gym access',
-    hasPersonalTrainer: false,
-    features: ['Unlimited training access', 'Personal locker', 'Free Wi-Fi'],
-    popular: false,
-  },
-  {
-    id: 2,
-    name: 'Premium 6 Months',
-    type: 'VIP',
-    price: '4,500,000',
-    duration: '6 months',
-    description: 'Popular membership with PT trial sessions.',
-    status: 'Active',
-    sessionLimit: 'Unlimited gym access',
-    hasPersonalTrainer: true,
-    features: ['Unlimited training access', 'Personal locker', 'Free Wi-Fi', '2 PT sessions included'],
-    popular: true,
-  },
-  {
-    id: 3,
-    name: 'VIP Elite 12 Months',
-    type: 'VIP',
-    price: '8,000,000',
-    duration: '12 months',
-    description: 'Premium annual package for high-value members.',
-    status: 'Active',
-    sessionLimit: 'Unlimited gym access',
-    hasPersonalTrainer: true,
-    features: ['Unlimited training access', 'VIP locker', 'Free Wi-Fi', '5 PT sessions included', 'Private training room'],
-    popular: false,
-  },
-  {
-    id: 4,
-    name: 'PT Elite',
-    type: 'PT',
-    price: '12,000,000',
-    duration: '12 months',
-    description: 'Personal training focused package.',
-    status: 'Inactive',
-    sessionLimit: '20 PT sessions',
-    hasPersonalTrainer: true,
-    features: ['VIP benefits', '20 PT sessions', 'Custom workout plan', 'Nutrition consultation'],
-    popular: false,
-  },
-];
-
 const emptyPackageForm = {
   name: '',
   type: 'Basic' as PackageType,
@@ -110,6 +55,7 @@ const emptyPackageForm = {
   status: 'Active' as PackageStatus,
   sessionLimit: '',
   hasPersonalTrainer: false,
+  isPopular: false,
 };
 
 function mapSupabasePackageToAdminPackage(pkg: SupabasePackage): GymPackage {
@@ -143,7 +89,7 @@ function mapSupabasePackageToAdminPackage(pkg: SupabasePackage): GymPackage {
 }
 
 export default function PackagesPayments() {
-  const [packages, setPackages] = useState<GymPackage[]>(initialPackages);
+  const [packages, setPackages] = useState<GymPackage[]>([]);
   const [isLoadingPackages, setIsLoadingPackages] = useState(true);
   const [packageLoadMessage, setPackageLoadMessage] = useState('');
   const [selectedPackage, setSelectedPackage] = useState<GymPackage | null>(null);
@@ -152,7 +98,9 @@ export default function PackagesPayments() {
   const [showReceipt, setShowReceipt] = useState(false);
   const [showPackageModal, setShowPackageModal] = useState(false);
   const [packageForm, setPackageForm] = useState(emptyPackageForm);
+  const [editingPackage, setEditingPackage] = useState<GymPackage | null>(null);
   const [isSavingPackage, setIsSavingPackage] = useState(false);
+  const [isDeletingPackage, setIsDeletingPackage] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -162,11 +110,11 @@ export default function PackagesPayments() {
         if (!isMounted) return;
 
         if (error) {
-          setPackages(initialPackages);
-          setPackageLoadMessage('Packages could not be loaded from Supabase. Showing demo packages instead.');
+          setPackages([]);
+          setPackageLoadMessage('Package list could not be loaded.');
         } else if (!data.length) {
-          setPackages(initialPackages);
-          setPackageLoadMessage('No Supabase packages were returned. Showing demo packages instead.');
+          setPackages([]);
+          setPackageLoadMessage('No packages found.');
         } else {
           setPackages(data.map(mapSupabasePackageToAdminPackage));
           setPackageLoadMessage('');
@@ -175,11 +123,11 @@ export default function PackagesPayments() {
         setIsLoadingPackages(false);
       })
       .catch((error) => {
-        console.error('[Gymster Supabase] Failed to load admin packages:', error);
+        console.error('[Gymster h\u1ec7 th\u1ed1ng] Failed to load admin packages:', error);
 
         if (!isMounted) return;
-        setPackages(initialPackages);
-        setPackageLoadMessage('Packages could not be loaded from Supabase. Showing demo packages instead.');
+        setPackages([]);
+        setPackageLoadMessage('Package list could not be loaded.');
         setIsLoadingPackages(false);
       });
 
@@ -206,36 +154,75 @@ export default function PackagesPayments() {
     setShowReceipt(true);
   };
 
-  const handleAddPackage = async () => {
+  const openCreatePackageModal = () => {
+    setEditingPackage(null);
+    setPackageForm(emptyPackageForm);
+    setShowPackageModal(true);
+  };
+
+  const openEditPackageModal = (pkg: GymPackage) => {
+    setEditingPackage(pkg);
+    setPackageForm({
+      name: pkg.name,
+      type: pkg.type,
+      duration: pkg.duration,
+      price: pkg.price,
+      description: pkg.description,
+      status: pkg.status,
+      sessionLimit: pkg.sessionLimit,
+      hasPersonalTrainer: pkg.hasPersonalTrainer,
+      isPopular: Boolean(pkg.isPopular || pkg.popular),
+    });
+    setShowPackageModal(true);
+  };
+
+  const closePackageModal = () => {
+    setShowPackageModal(false);
+    setEditingPackage(null);
+    setPackageForm(emptyPackageForm);
+  };
+
+  const handleSavePackage = async () => {
     if (!packageForm.name.trim() || !packageForm.duration.trim() || !packageForm.price.trim()) return;
 
     setIsSavingPackage(true);
-    const { data, error } = await createPackageInSupabase(packageForm);
+    const { data, error } = editingPackage
+      ? await updatePackageInSupabase(editingPackage.id, packageForm)
+      : await createPackageInSupabase(packageForm);
     setIsSavingPackage(false);
 
     if (!error && data) {
-      setPackages((current) => [mapSupabasePackageToAdminPackage(data), ...current]);
-      setPackageForm(emptyPackageForm);
-      setShowPackageModal(false);
+      const mappedPackage = mapSupabasePackageToAdminPackage(data);
+      setPackages((current) => (
+        editingPackage
+          ? current.map((pkg) => (pkg.id === editingPackage.id ? mappedPackage : pkg))
+          : [mappedPackage, ...current]
+      ));
+      closePackageModal();
       setPackageLoadMessage('');
       return;
     }
 
-    const nextPackage: GymPackage = {
-      id: Date.now(),
-      ...packageForm,
-      features: [
-        packageForm.description || 'Custom package benefits',
-        packageForm.sessionLimit || 'Session limit configured',
-        packageForm.hasPersonalTrainer ? 'Personal trainer included' : 'Self-service training',
-      ],
-      popular: false,
-    };
+    setPackageLoadMessage(editingPackage ? 'Package could not be updated.' : 'Package could not be saved. No package was created.');
+  };
 
-    setPackages((current) => [nextPackage, ...current]);
-    setPackageLoadMessage('Package could not be saved to Supabase. It was added to the current demo view only.');
-    setPackageForm(emptyPackageForm);
-    setShowPackageModal(false);
+  const handleDeletePackage = async () => {
+    if (!editingPackage || isDeletingPackage) return;
+    const shouldDelete = window.confirm(`Delete package "${editingPackage.name}"? This cannot be undone.`);
+    if (!shouldDelete) return;
+
+    setIsDeletingPackage(true);
+    const { error } = await deletePackageInSupabase(editingPackage.id);
+    setIsDeletingPackage(false);
+
+    if (!error) {
+      setPackages((current) => current.filter((pkg) => pkg.id !== editingPackage.id));
+      closePackageModal();
+      setPackageLoadMessage('');
+      return;
+    }
+
+    setPackageLoadMessage('Package could not be deleted. It may already be linked to members or payments.');
   };
 
   return (
@@ -246,7 +233,7 @@ export default function PackagesPayments() {
           <p className="text-[#A1A1AA]">Manage membership packages, availability, and payment preview flows.</p>
         </div>
         <button
-          onClick={() => setShowPackageModal(true)}
+          onClick={openCreatePackageModal}
           className="flex items-center justify-center gap-2 rounded-xl bg-[#EF233C] px-6 py-3 font-semibold text-white transition-colors hover:bg-[#990000]"
         >
           <Plus className="h-5 w-5" />
@@ -269,7 +256,7 @@ export default function PackagesPayments() {
 
       {isLoadingPackages && (
         <div className="rounded-2xl border border-[#EF233C]/20 bg-[#0c1014] p-5 text-sm font-bold text-[#A1A1AA]">
-          Loading packages from Supabase...
+          Loading packages...
         </div>
       )}
 
@@ -294,6 +281,18 @@ export default function PackagesPayments() {
                 MOST POPULAR
               </div>
             )}
+
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                openEditPackageModal(pkg);
+              }}
+              className="absolute right-4 top-4 rounded-xl border border-[#EF233C]/25 bg-[#050607]/90 p-2 text-white/70 transition-colors hover:border-[#EF233C] hover:bg-[#EF233C]/10 hover:text-white"
+              aria-label={`Edit ${pkg.name}`}
+            >
+              <Pencil className="h-4 w-4" />
+            </button>
 
             <div className="mb-6 text-center">
               <div className="mb-3 flex items-center justify-center gap-2">
@@ -341,14 +340,16 @@ export default function PackagesPayments() {
       )}
 
       {showPackageModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-6 backdrop-blur-sm" onClick={() => setShowPackageModal(false)}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-6 backdrop-blur-sm" onClick={closePackageModal}>
           <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-3xl border border-[#EF233C]/30 bg-[#0c1014] p-8" onClick={(event) => event.stopPropagation()}>
             <div className="mb-6 flex items-center justify-between gap-4">
               <div>
-                <h2 className="bebas text-4xl tracking-wider text-white">ADD PACKAGE</h2>
-                <p className="text-sm text-[#A1A1AA]">Create a new package option for Gymster members.</p>
+                <h2 className="bebas text-4xl tracking-wider text-white">{editingPackage ? 'EDIT PACKAGE' : 'ADD PACKAGE'}</h2>
+                <p className="text-sm text-[#A1A1AA]">
+                  {editingPackage ? 'Update package details for member registration and renewals.' : 'Create a new package option for Gymster members.'}
+                </p>
               </div>
-              <button onClick={() => setShowPackageModal(false)} className="rounded-xl border border-[#EF233C]/30 p-2 text-white hover:bg-[#EF233C]/10">
+              <button onClick={closePackageModal} className="rounded-xl border border-[#EF233C]/30 p-2 text-white hover:bg-[#EF233C]/10">
                 <X className="h-5 w-5" />
               </button>
             </div>
@@ -391,13 +392,28 @@ export default function PackagesPayments() {
                 <input type="checkbox" checked={packageForm.hasPersonalTrainer} onChange={(event) => setPackageForm({ ...packageForm, hasPersonalTrainer: event.target.checked })} />
                 Has personal trainer
               </label>
+              <label className="flex items-center gap-3 rounded-xl border border-[#EF233C]/20 bg-[#050607] p-4 text-white md:col-span-2">
+                <input type="checkbox" checked={packageForm.isPopular} onChange={(event) => setPackageForm({ ...packageForm, isPopular: event.target.checked })} />
+                Mark as most popular
+              </label>
             </div>
 
             <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-              <button onClick={handleAddPackage} disabled={isSavingPackage || !packageForm.name.trim() || !packageForm.duration.trim() || !packageForm.price.trim()} className="flex-1 rounded-xl bg-[#EF233C] px-6 py-3 font-semibold text-white transition-colors hover:bg-[#990000] disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-white/35">
+              {editingPackage && (
+                <button
+                  type="button"
+                  onClick={handleDeletePackage}
+                  disabled={isDeletingPackage || isSavingPackage}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl border border-[#EF233C]/40 px-6 py-3 font-semibold text-[#EF233C] transition-colors hover:bg-[#EF233C]/10 disabled:cursor-not-allowed disabled:border-white/10 disabled:text-white/35"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  {isDeletingPackage ? 'Deleting...' : 'Delete'}
+                </button>
+              )}
+              <button onClick={handleSavePackage} disabled={isSavingPackage || !packageForm.name.trim() || !packageForm.duration.trim() || !packageForm.price.trim()} className="flex-1 rounded-xl bg-[#EF233C] px-6 py-3 font-semibold text-white transition-colors hover:bg-[#990000] disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-white/35">
                 {isSavingPackage ? 'Saving...' : 'Save Package'}
               </button>
-              <button onClick={() => setShowPackageModal(false)} className="rounded-xl border border-[#EF233C]/30 px-6 py-3 font-semibold text-white transition-colors hover:bg-[#EF233C]/10">
+              <button onClick={closePackageModal} className="rounded-xl border border-[#EF233C]/30 px-6 py-3 font-semibold text-white transition-colors hover:bg-[#EF233C]/10">
                 Cancel
               </button>
             </div>

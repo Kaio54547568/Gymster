@@ -9,7 +9,7 @@ export function Profile() {
       {(isLoading || errorMessage) && (
         <div className="px-6 pt-6">
           <div className="mx-auto max-w-5xl rounded-2xl border border-white/10 bg-[#181818] p-4 text-sm font-bold text-white/55">
-            {isLoading ? 'Loading profile from Supabase...' : errorMessage}
+            {isLoading ? 'Loading profile...' : errorMessage}
           </div>
         </div>
       )}
@@ -24,6 +24,7 @@ export function Profile() {
         email={profile.email}
         phone={profile.phone}
         initials={profile.initials}
+        avatarUrl={profile.avatarUrl}
       />
     </>
   );

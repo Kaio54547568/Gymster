@@ -1,7 +1,6 @@
 import { supabase } from "./supabaseClient";
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const MEMBER_RENEWAL_REQUESTS_KEY = "gymster_member_renewal_requests";
 
 const packageColumns = `
   package_id,
@@ -39,29 +38,14 @@ function mapMemberPackageRow(row, packageRow = null, trainerName = "") {
     sessionsTotal: row.sessions_total ?? null,
     status: row.status,
     activatedAt: row.activated_at,
+    createdAt: row.created_at,
     source: "supabase",
   };
-}
-
-function canUseStorage() {
-  return typeof window !== "undefined" && Boolean(window.localStorage);
 }
 
 function combineUserName(user, fallback = "Member") {
   const name = [user?.first_name, user?.last_name].filter(Boolean).join(" ").trim();
   return name || fallback;
-}
-
-function readRenewalRequests() {
-  if (!canUseStorage()) return [];
-  const stored = window.localStorage.getItem(MEMBER_RENEWAL_REQUESTS_KEY);
-  return stored ? JSON.parse(stored) : [];
-}
-
-function writeRenewalRequests(requests) {
-  if (canUseStorage()) {
-    window.localStorage.setItem(MEMBER_RENEWAL_REQUESTS_KEY, JSON.stringify(requests));
-  }
 }
 
 async function resolveMemberId(data) {
@@ -135,33 +119,6 @@ async function findMemberIdByUserField(field, value) {
   return findMemberIdByUserId(user.user_id);
 }
 
-async function findDemoMemberId() {
-  const { data: users } = await supabase
-    .from("users")
-    .select("user_id")
-    .eq("role", "member")
-    .eq("account_status", "active")
-    .order("created_at", { ascending: true })
-    .limit(20);
-
-  const userIds = Array.isArray(users) ? users.map((user) => user.user_id).filter(Boolean) : [];
-  if (!userIds.length) return null;
-
-  const { data: member } = await supabase
-    .from("members")
-    .select("member_id")
-    .in("user_id", userIds)
-    .eq("status", "active")
-    .limit(1)
-    .maybeSingle();
-
-  if (member?.member_id) {
-    console.warn("Using demo fallback member because current mock user could not be resolved in Supabase.");
-  }
-
-  return member?.member_id || null;
-}
-
 export async function resolveCurrentMemberId(currentUser) {
   if (!supabase) return null;
 
@@ -181,7 +138,7 @@ export async function resolveCurrentMemberId(currentUser) {
   const memberIdFromUsername = await findMemberIdByUserField("username", username);
   if (memberIdFromUsername) return memberIdFromUsername;
 
-  return findDemoMemberId();
+  return null;
 }
 
 async function loadPackagesById(packageIds) {
@@ -294,8 +251,8 @@ function toCurrentSchemaUpdates(updates) {
 
 export async function createMemberPackage(data) {
   if (!supabase) {
-    const error = new Error("Missing Supabase environment variables.");
-    console.error("[Gymster Supabase] Failed to create member package:", error);
+    const error = new Error("Missing h\u1ec7 th\u1ed1ng environment variables.");
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to create member package:", error);
     return { data: null, error };
   }
 
@@ -316,7 +273,7 @@ export async function createMemberPackage(data) {
   }
 
   if (error) {
-    console.error("[Gymster Supabase] Failed to create member package:", error);
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to create member package:", error);
     return { data: null, error };
   }
 
@@ -325,8 +282,8 @@ export async function createMemberPackage(data) {
 
 export async function updateMemberPackageStatus(memberPackageId, status, extraUpdates = {}) {
   if (!supabase || !memberPackageId) {
-    const error = new Error("Missing Supabase configuration or member package id.");
-    console.error("[Gymster Supabase] Failed to update member package:", error);
+    const error = new Error("Missing h\u1ec7 th\u1ed1ng configuration or member package id.");
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to update member package:", error);
     return { data: null, error };
   }
 
@@ -342,7 +299,7 @@ export async function updateMemberPackageStatus(memberPackageId, status, extraUp
   }
 
   if (error) {
-    console.error("[Gymster Supabase] Failed to update member package:", error);
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to update member package:", error);
     return { data: null, error };
   }
 
@@ -351,15 +308,15 @@ export async function updateMemberPackageStatus(memberPackageId, status, extraUp
 
 export async function updateMemberPackageTrainer(memberPackageId, trainerId) {
   if (!supabase || !memberPackageId) {
-    const error = new Error("Missing Supabase configuration or member package id.");
-    console.error("[Gymster Supabase] Failed to update member package trainer:", error);
+    const error = new Error("Missing h\u1ec7 th\u1ed1ng configuration or member package id.");
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to update member package trainer:", error);
     return { data: null, error };
   }
 
   const { data: row, error } = await updateTargetMemberPackage(memberPackageId, { trainer_id: trainerId });
 
   if (error) {
-    console.error("[Gymster Supabase] Failed to update member package trainer:", error);
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to update member package trainer:", error);
     return { data: null, error };
   }
 
@@ -368,8 +325,8 @@ export async function updateMemberPackageTrainer(memberPackageId, trainerId) {
 
 export async function getCurrentMemberPackage(memberId) {
   if (!supabase || !memberId) {
-    const error = new Error("Missing Supabase configuration or member id.");
-    console.error("[Gymster Supabase] Failed to load current member package:", error);
+    const error = new Error("Missing h\u1ec7 th\u1ed1ng configuration or member id.");
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to load current member package:", error);
     return { data: null, error };
   }
 
@@ -382,7 +339,7 @@ export async function getCurrentMemberPackage(memberId) {
     .maybeSingle();
 
   if (error) {
-    console.error("[Gymster Supabase] Failed to load current member package:", error);
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to load current member package:", error);
     return { data: null, error };
   }
 
@@ -391,8 +348,8 @@ export async function getCurrentMemberPackage(memberId) {
 
 export async function getMemberPackagesForUser(user) {
   if (!supabase) {
-    const error = new Error("Missing Supabase configuration.");
-    console.error("[Gymster Supabase] Failed to load member packages:", error);
+    const error = new Error("Missing h\u1ec7 th\u1ed1ng configuration.");
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to load member packages:", error);
     return { data: [], memberId: null, error };
   }
 
@@ -414,6 +371,8 @@ export async function getMemberPackagesForUser(user) {
       end_date,
       sessions_total,
       sessions_used,
+      used_sessions,
+      remaining_sessions,
       activated_at,
       created_at
     `)
@@ -422,7 +381,7 @@ export async function getMemberPackagesForUser(user) {
     .limit(20);
 
   if (error) {
-    console.error("[Gymster Supabase] Failed to load member packages:", error);
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to load member packages:", error);
     return { data: [], memberId, error };
   }
 
@@ -436,7 +395,7 @@ export async function getMemberPackagesForUser(user) {
 
     return { data: mappedRows, memberId, error: null };
   } catch (packageError) {
-    console.error("[Gymster Supabase] Failed to load package details for member packages:", packageError);
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to load package details for member packages:", packageError);
     return { data: [], memberId, error: packageError };
   }
 }
@@ -454,15 +413,8 @@ export async function getCurrentMemberPackageForUser(user) {
 }
 
 export function createPendingRenewalRequest(request) {
-  // Temporary MVP fallback until the database adds a dedicated renewal_requests table.
-  const nextRequest = {
-    requestId: `REN-${Date.now()}`,
-    status: "pending_staff_approval",
-    createdAt: new Date().toISOString(),
-    ...request,
-  };
-  writeRenewalRequests([nextRequest, ...readRenewalRequests()]);
-  return nextRequest;
+  console.error("[Gymster h\u1ec7 th\u1ed1ng] Renewal requests must be created with createPackageChangeRequest.", request);
+  return null;
 }
 
 function mapPackageChangeRequest(row, packageById = {}, memberById = {}) {
@@ -535,8 +487,8 @@ async function loadPackageChangeLookups(rows) {
 
 export async function createPackageChangeRequest(request) {
   if (!supabase) {
-    const error = new Error("Missing Supabase configuration.");
-    console.error("[Gymster Supabase] Failed to create package change request:", error);
+    const error = new Error("Missing h\u1ec7 th\u1ed1ng configuration.");
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to create package change request:", error);
     return { data: null, error };
   }
 
@@ -548,7 +500,7 @@ export async function createPackageChangeRequest(request) {
 
   if (!memberId) {
     const error = new Error("Unable to resolve member id.");
-    console.error("[Gymster Supabase] Failed to create package change request:", error);
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to create package change request:", error);
     return { data: null, error };
   }
 
@@ -569,7 +521,7 @@ export async function createPackageChangeRequest(request) {
     .single();
 
   if (error) {
-    console.error("[Gymster Supabase] Failed to create package change request:", error);
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to create package change request:", error);
     return { data: null, error };
   }
 
@@ -579,8 +531,8 @@ export async function createPackageChangeRequest(request) {
 
 export async function getPackageChangeRequests() {
   if (!supabase) {
-    const error = new Error("Missing Supabase configuration.");
-    console.error("[Gymster Supabase] Failed to load package change requests:", error);
+    const error = new Error("Missing h\u1ec7 th\u1ed1ng configuration.");
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to load package change requests:", error);
     return { data: [], error };
   }
 
@@ -590,7 +542,7 @@ export async function getPackageChangeRequests() {
     .order("requested_at", { ascending: false });
 
   if (error) {
-    console.error("[Gymster Supabase] Failed to load package change requests:", error);
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to load package change requests:", error);
     return { data: [], error };
   }
 
@@ -603,8 +555,8 @@ export async function getPackageChangeRequests() {
 
 export async function updatePackageChangeRequestStatus(requestId, status, denyReason = "") {
   if (!supabase || !requestId) {
-    const error = new Error("Missing Supabase configuration or request id.");
-    console.error("[Gymster Supabase] Failed to update package change request:", error);
+    const error = new Error("Missing h\u1ec7 th\u1ed1ng configuration or request id.");
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to update package change request:", error);
     return { data: null, error };
   }
 
@@ -622,7 +574,7 @@ export async function updatePackageChangeRequestStatus(requestId, status, denyRe
     .single();
 
   if (error) {
-    console.error("[Gymster Supabase] Failed to update package change request:", error);
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to update package change request:", error);
     return { data: null, error };
   }
 
@@ -631,45 +583,27 @@ export async function updatePackageChangeRequestStatus(requestId, status, denyRe
 }
 
 export function getRenewalRequests() {
-  return readRenewalRequests();
+  return [];
 }
 
 export function updateRenewalRequestStatus(requestId, status, denyReason = "") {
-  const updatedRequests = readRenewalRequests().map((request) => {
-    if (request.requestId !== requestId) return request;
-
-    return {
-      ...request,
-      status,
-      denyReason,
-      reviewedAt: new Date().toISOString(),
-    };
+  console.error("[Gymster h\u1ec7 th\u1ed1ng] Renewal request updates must use updatePackageChangeRequestStatus.", {
+    requestId,
+    status,
+    denyReason,
   });
-
-  writeRenewalRequests(updatedRequests);
-  return updatedRequests.find((request) => request.requestId === requestId) || null;
+  return null;
 }
 
 export function approveRenewalRequest(requestId) {
-  // Temporary MVP fallback until the database adds a dedicated renewal_requests table.
   return updateRenewalRequestStatus(requestId, "approved");
 }
 
 export function denyRenewalRequest(requestId, denyReason = "Denied by staff.") {
-  // Temporary MVP fallback until the database adds a dedicated renewal_requests table.
   return updateRenewalRequestStatus(requestId, "denied", denyReason);
 }
 
 export function createManualRenewalRequest(request) {
-  // Temporary MVP fallback for staff-created renewal actions.
-  const nextRequest = {
-    requestId: `STAFF-REN-${Date.now()}`,
-    status: "approved",
-    source: "staff_manual",
-    createdAt: new Date().toISOString(),
-    ...request,
-  };
-
-  writeRenewalRequests([nextRequest, ...readRenewalRequests()]);
-  return nextRequest;
+  console.error("[Gymster h\u1ec7 th\u1ed1ng] Staff-created package requests must use createPackageChangeRequest.", request);
+  return null;
 }

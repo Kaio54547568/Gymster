@@ -1,5 +1,7 @@
 import { supabase } from "./supabaseClient";
-import { getCurrentUser } from "./authService";
+import { getCurrentUser, isPasswordMatch } from "./authService";
+
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function combineName(row, fallback = "User") {
   const name = [row?.first_name, row?.last_name].filter(Boolean).join(" ").trim();
@@ -88,7 +90,7 @@ async function resolveCurrentStaffUser() {
 }
 
 export async function getStaffMembers() {
-  if (!supabase) return { data: [], error: new Error("Missing Supabase environment variables.") };
+  if (!supabase) return { data: [], error: new Error("Missing h\u1ec7 th\u1ed1ng environment variables.") };
   try {
     const { data: members, error } = await supabase
       .from("members")
@@ -126,13 +128,13 @@ export async function getStaffMembers() {
 
     return { data: mapped, error: null };
   } catch (error) {
-    console.error("[Gymster Supabase] Failed to load staff member list:", error);
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to load staff member list:", error);
     return { data: [], error };
   }
 }
 
 export async function updateStaffMember(memberId, updates) {
-  if (!supabase) return { ok: false, message: "Supabase is not configured." };
+  if (!supabase) return { ok: false, message: "h\u1ec7 th\u1ed1ng is not configured." };
   const { data: member, error: memberError } = await supabase
     .from("members")
     .select("member_id,user_id")
@@ -151,7 +153,7 @@ export async function updateStaffMember(memberId, updates) {
     })
     .eq("user_id", member.user_id);
   if (userError) {
-    console.error("[Gymster Supabase] Failed to update member user:", userError);
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to update member user:", userError);
     return { ok: false, message: "Member could not be updated." };
   }
 
@@ -169,10 +171,10 @@ export async function updateStaffMember(memberId, updates) {
 }
 
 export async function disableStaffMember(memberId, staffPassword) {
-  if (!supabase) return { ok: false, message: "Supabase is not configured." };
+  if (!supabase) return { ok: false, message: "h\u1ec7 th\u1ed1ng is not configured." };
   const staffUser = await resolveCurrentStaffUser();
   const storedPassword = staffUser?.password_hash || "";
-  if (!storedPassword || (storedPassword !== staffPassword && storedPassword !== `demo-only:${staffPassword}`)) {
+  if (!isPasswordMatch(storedPassword, staffPassword)) {
     return { ok: false, message: "Staff password is incorrect." };
   }
 
@@ -193,14 +195,73 @@ export async function disableStaffMember(memberId, staffPassword) {
     .eq("member_id", member.member_id);
 
   if (userError || memberUpdateError) {
-    console.error("[Gymster Supabase] Failed to disable member:", userError || memberUpdateError);
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to disable member:", userError || memberUpdateError);
     return { ok: false, message: "Member could not be disabled." };
   }
   return { ok: true, message: "Member disabled." };
 }
 
+export async function createStaffMember(form) {
+  if (!supabase) return { ok: false, message: "h\u1ec7 th\u1ed1ng is not configured." };
+
+  try {
+    const nameParts = splitName(form.fullName);
+    const email = form.email || `${String(form.phoneNumber || Date.now()).replace(/\D/g, "")}@gymster.local`;
+    const username = form.username || `member_${String(form.phoneNumber || Date.now()).replace(/\D/g, "")}`;
+    const { data: user, error: userError } = await supabase
+      .from("users")
+      .insert({
+        email,
+        username,
+        password_hash: form.password || "",
+        first_name: nameParts.firstName || form.fullName,
+        last_name: nameParts.lastName || "",
+        phone_number: form.phoneNumber || "",
+        date_of_birth: form.dateOfBirth || null,
+        gender: form.gender || "unspecified",
+        role: "member",
+        account_status: "pending_payment",
+        headline: form.note || "",
+      })
+      .select("user_id")
+      .single();
+    if (userError) throw userError;
+
+    const { data: member, error: memberError } = await supabase
+      .from("members")
+      .insert({
+        user_id: user.user_id,
+        member_code: form.idCard || `MB-${Date.now()}`,
+        full_name: form.fullName,
+        phone_number: form.phoneNumber || "",
+        date_of_birth: form.dateOfBirth || null,
+        gender: form.gender || "unspecified",
+        health_notes: form.note || "",
+        join_date: new Date().toISOString().slice(0, 10),
+        status: "pending_payment",
+      })
+      .select("member_id")
+      .single();
+    if (memberError) throw memberError;
+
+    if (form.trainerId && uuidPattern.test(String(form.trainerId))) {
+      await supabase.from("trainer_assignments").insert({
+        trainer_id: form.trainerId,
+        member_id: member.member_id,
+        status: "active",
+        notes: "Assigned by staff during member creation.",
+      });
+    }
+
+    return { ok: true, message: "Member created in h\u1ec7 th\u1ed1ng.", memberId: member.member_id };
+  } catch (error) {
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to create staff member:", error);
+    return { ok: false, message: "Member could not be created in h\u1ec7 th\u1ed1ng." };
+  }
+}
+
 export async function getStaffUsageHistory() {
-  if (!supabase) return { data: [], error: new Error("Missing Supabase environment variables.") };
+  if (!supabase) return { data: [], error: new Error("Missing h\u1ec7 th\u1ed1ng environment variables.") };
   try {
     const { data: rows, error } = await supabase
       .from("member_usage_history")
@@ -236,7 +297,7 @@ export async function getStaffUsageHistory() {
     });
     return { data: mapped, error: null };
   } catch (error) {
-    console.error("[Gymster Supabase] Failed to load staff usage history:", error);
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to load staff usage history:", error);
     return { data: [], error };
   }
 }
@@ -257,7 +318,7 @@ function toDbFeedbackStatus(status, kind) {
 }
 
 export async function getStaffFeedbackItems() {
-  if (!supabase) return { data: [], error: new Error("Missing Supabase environment variables.") };
+  if (!supabase) return { data: [], error: new Error("Missing h\u1ec7 th\u1ed1ng environment variables.") };
   try {
     const [{ data: feedbackRows, error: feedbackError }, { data: complaintRows, error: complaintError }] = await Promise.all([
       supabase.from("service_feedback").select("*").order("created_at", { ascending: false }).limit(100),
@@ -321,20 +382,20 @@ export async function getStaffFeedbackItems() {
 
     return { data: [...feedbackItems, ...complaintItems], error: null };
   } catch (error) {
-    console.error("[Gymster Supabase] Failed to load staff feedback:", error);
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to load staff feedback:", error);
     return { data: [], error };
   }
 }
 
 export async function updateStaffFeedbackItem(item) {
-  if (!supabase) return { ok: false, message: "Supabase is not configured." };
+  if (!supabase) return { ok: false, message: "h\u1ec7 th\u1ed1ng is not configured." };
   const status = toDbFeedbackStatus(item.status, item.kind);
   const payload = item.sourceTable === "complaints"
     ? { status, resolution_note: item.response || "", resolved_at: item.status === "Resolved" ? new Date().toISOString() : null }
     : { status, staff_response: item.response || "", responded_at: new Date().toISOString() };
   const { error } = await supabase.from(item.sourceTable).update(payload).eq(item.sourceTable === "complaints" ? "complaint_id" : "feedback_id", item.sourceId);
   if (error) {
-    console.error("[Gymster Supabase] Failed to update feedback:", error);
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to update feedback:", error);
     return { ok: false, message: "Feedback could not be updated." };
   }
   return { ok: true, message: "Feedback updated." };
@@ -349,7 +410,7 @@ function mapEquipmentStatus(status) {
 }
 
 export async function getStaffEquipmentStatus() {
-  if (!supabase) return { data: { equipment: [], reports: [] }, error: new Error("Missing Supabase environment variables.") };
+  if (!supabase) return { data: { equipment: [], reports: [] }, error: new Error("Missing h\u1ec7 th\u1ed1ng environment variables.") };
   try {
     const [{ data: equipmentRows, error: equipmentError }, { data: roomRows, error: roomError }, { data: reportRows, error: reportError }] = await Promise.all([
       supabase.from("equipment").select("*").order("equipment_code", { ascending: true }),
@@ -385,28 +446,57 @@ export async function getStaffEquipmentStatus() {
     });
     return { data: { equipment, reports }, error: null };
   } catch (error) {
-    console.error("[Gymster Supabase] Failed to load staff equipment status:", error);
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to load staff equipment status:", error);
     return { data: { equipment: [], reports: [] }, error };
   }
 }
 
 export async function createStaffMaintenanceReport(form) {
-  if (!supabase) return { ok: false, message: "Supabase is not configured." };
-  const currentUser = getCurrentUser();
+  if (!supabase) return { ok: false, message: "h\u1ec7 th\u1ed1ng is not configured." };
+  const currentUser = await resolveCurrentStaffUser();
   const equipmentId = form.equipmentUuid || "";
   const payload = {
     equipment_id: equipmentId || null,
     room_id: form.roomId || null,
-    reported_by_user_id: currentUser?.userId || currentUser?.user_id || null,
+    reported_by_user_id: currentUser?.user_id || null,
     issue_title: form.equipmentName ? `${form.equipmentName} issue` : "Equipment issue",
     issue_description: form.issueDescription || "",
     priority: form.priority || "medium",
     status: "submitted",
   };
-  const { error } = await supabase.from("maintenance_reports").insert(payload);
+  const { data, error } = await supabase
+    .from("maintenance_reports")
+    .insert(payload)
+    .select("maintenance_report_id,issue_title")
+    .single();
   if (error) {
-    console.error("[Gymster Supabase] Failed to create maintenance report:", error);
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to create maintenance report:", error);
     return { ok: false, message: "Maintenance report could not be created." };
   }
+
+  if (equipmentId && uuidPattern.test(String(equipmentId))) {
+    await supabase
+      .from("equipment")
+      .update({ status: "broken" })
+      .eq("equipment_id", equipmentId);
+  }
+
+  const { data: adminUsers } = await supabase
+    .from("users")
+    .select("user_id")
+    .in("role", ["admin", "owner"]);
+
+  if (Array.isArray(adminUsers) && adminUsers.length) {
+    await supabase.from("notifications").insert(
+      adminUsers.map((admin) => ({
+        user_id: admin.user_id,
+        notification_type: "system",
+        title: "New maintenance report",
+        message: `${form.equipmentName || data?.issue_title || "Equipment"}: ${form.issueDescription || "New issue reported by staff."}`,
+        is_read: false,
+      })),
+    );
+  }
+
   return { ok: true, message: "Maintenance report submitted." };
 }

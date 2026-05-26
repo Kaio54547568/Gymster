@@ -10,49 +10,6 @@ export const ACCOUNT_STATUSES = {
   Cancelled: "Cancelled",
 };
 
-export const mockPackages = [
-  {
-    id: "PKG-BASIC-3",
-    name: "Basic Gym 3 Months",
-    type: "Gym",
-    duration: "3 months",
-    price: 1500000,
-    description: "Full gym floor access with basic onboarding support.",
-    sessionLimit: "Unlimited gym access",
-    hasPersonalTrainer: false,
-  },
-  {
-    id: "PKG-BASIC-6",
-    name: "Basic Gym 6 Months",
-    type: "Gym",
-    duration: "6 months",
-    price: 2800000,
-    description: "Longer gym access package with monthly body checks.",
-    sessionLimit: "Unlimited gym access",
-    hasPersonalTrainer: false,
-  },
-  {
-    id: "PKG-PT-3",
-    name: "PT Package 3 Months",
-    type: "Personal Training",
-    duration: "3 months",
-    price: 5200000,
-    description: "Guided training plan with fixed weekly PT sessions.",
-    sessionLimit: "24 PT sessions",
-    hasPersonalTrainer: true,
-  },
-  {
-    id: "PKG-VIP-PT-6",
-    name: "VIP PT Package 6 Months",
-    type: "VIP Personal Training",
-    duration: "6 months",
-    price: 9800000,
-    description: "Premium personal training package with priority scheduling.",
-    sessionLimit: "48 PT sessions",
-    hasPersonalTrainer: true,
-  },
-];
-
 export const fixedScheduleOptions = [
   "Monday / Wednesday / Friday, 18:00 - 19:00",
   "Tuesday / Thursday, 19:00 - 20:00",
@@ -77,17 +34,22 @@ function canUseStorage() {
   return typeof window !== "undefined" && Boolean(window.localStorage);
 }
 
+function getCurrentMemberId(currentUser) {
+  return currentUser?.memberId || currentUser?.member_id || null;
+}
+
 export function formatVnd(amount) {
   return `${Number(amount || 0).toLocaleString("vi-VN")} VND`;
 }
 
 export function getOnboardingState() {
   const currentUser = getCurrentUser();
+  const currentMemberId = getCurrentMemberId(currentUser);
 
   if (!canUseStorage()) {
     return {
       ...defaultState,
-      memberId: currentUser?.id || null,
+      memberId: currentMemberId,
       accountStatus: currentUser?.accountStatus || ACCOUNT_STATUSES.Active,
     };
   }
@@ -96,7 +58,7 @@ export function getOnboardingState() {
   if (!stored) {
     const seededState = {
       ...defaultState,
-      memberId: currentUser?.id || null,
+      memberId: currentMemberId,
       accountStatus: currentUser ? currentUser.accountStatus || ACCOUNT_STATUSES.Active : defaultState.accountStatus,
     };
     window.localStorage.setItem(ONBOARDING_STORAGE_KEY, JSON.stringify(seededState));
@@ -104,10 +66,10 @@ export function getOnboardingState() {
   }
 
   const parsed = JSON.parse(stored);
-  if (currentUser?.id && parsed.memberId !== currentUser.id) {
+  if (currentMemberId && parsed.memberId !== currentMemberId) {
     const seededState = {
       ...defaultState,
-      memberId: currentUser.id,
+      memberId: currentMemberId,
       accountStatus: currentUser.accountStatus || ACCOUNT_STATUSES.Active,
     };
     window.localStorage.setItem(ONBOARDING_STORAGE_KEY, JSON.stringify(seededState));
@@ -119,7 +81,7 @@ export function getOnboardingState() {
 
 export function saveOnboardingState(updates) {
   const currentUser = getCurrentUser();
-  const nextState = { ...getOnboardingState(), memberId: currentUser?.id || null, ...updates };
+  const nextState = { ...getOnboardingState(), memberId: getCurrentMemberId(currentUser), ...updates };
 
   if (canUseStorage()) {
     window.localStorage.setItem(ONBOARDING_STORAGE_KEY, JSON.stringify(nextState));
@@ -138,5 +100,16 @@ export function saveOnboardingState(updates) {
 }
 
 export function resetOnboardingState() {
-  return saveOnboardingState(defaultState);
+  const currentUser = getCurrentUser();
+  const nextState = {
+    ...defaultState,
+    memberId: getCurrentMemberId(currentUser),
+    accountStatus: currentUser?.accountStatus || defaultState.accountStatus,
+  };
+
+  if (canUseStorage()) {
+    window.localStorage.setItem(ONBOARDING_STORAGE_KEY, JSON.stringify(nextState));
+  }
+
+  return nextState;
 }

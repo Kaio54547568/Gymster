@@ -42,6 +42,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       userName={profile.fullName || 'Admin'}
       userRole={profile.roleLabel}
       userInitials={profile.initials}
+      userAvatarUrl={profile.avatarUrl}
       onAvatarClick={() => navigate('/admin/profile')}
     >
       {children}

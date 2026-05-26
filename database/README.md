@@ -5,7 +5,7 @@ This folder contains the PostgreSQL-compatible database design files for the Gym
 ## Files
 
 - `schema.sql` - Creates the MVP tables, constraints, foreign keys, indexes, and `updated_at` triggers.
-- `seed.sql` - Inserts demo records for users, employees, trainers, packages, package features, members, member packages, training requests, payments, invoices, workout sessions, notifications, and the extended portal tables.
+- `seed.sql` - Inserts initial records for users, employees, trainers, packages, package features, members, member packages, training requests, payments, invoices, workout sessions, notifications, and the extended portal tables.
 
 ## Scope
 
@@ -24,7 +24,7 @@ The schema covers the core MVP tables:
 - `workout_sessions`
 - `notifications`
 
-It also includes extension tables needed to migrate the remaining portal features away from mock data:
+It also includes extension tables needed to migrate the remaining portal features away from application data:
 
 - `rooms`
 - `equipment`
@@ -113,12 +113,12 @@ Run `schema.sql` before `seed.sql`. The seed file depends on tables, constraints
 
 - This schema creates a public `users` table for the Gymster app data model. It does not configure Supabase Auth or connect to `auth.users` yet.
 - The schema includes compatibility columns used by the current frontend migration, such as `users.first_name`, `users.last_name`, `packages.is_active`, `member_packages.used_sessions`, `member_packages.remaining_sessions`, `payments.payment_date`, `payments.transaction_code`, and `workout_sessions.session_title`.
-- Demo RLS policies are created for frontend-only MVP testing. Replace them with authenticated, role-aware policies before production.
-- Seed passwords are demo-only placeholder strings and must not be used for real authentication.
-- Payment data is mock/demo data only. No real payment provider is integrated.
+- Initial RLS policies are created for frontend-only MVP testing. Replace them with authenticated, role-aware policies before production.
+- Seed passwords are placeholder strings and must not be used for real authentication.
+- Payment rows are application records. No real payment provider is integrated yet.
 - The schema uses text fields with check constraints for statuses so the app can evolve without managing PostgreSQL enum migrations early.
 - Re-running `schema.sql` is designed to be mostly safe because tables and indexes use `if not exists`; trigger definitions are refreshed.
-- Re-running `seed.sql` updates the fixed demo UUID rows through `on conflict`.
+- Re-running `seed.sql` updates the fixed UUID rows through `on conflict`.
 
 ## Suggested Next Step
 

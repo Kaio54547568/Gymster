@@ -25,19 +25,10 @@ interface MaintenanceReport {
   reportedDate?: string;
 }
 
-const fallbackEquipment: Equipment[] = [
-  { equipmentId: 'EQ001', equipmentName: 'Treadmill X12 #1', room: 'Cardio Area', status: 'Active', lastMaintenance: '2026-04-15' },
-  { equipmentId: 'EQ002', equipmentName: 'Treadmill X12 #5', room: 'Cardio Area', status: 'Broken', lastMaintenance: '2026-03-20' },
-  { equipmentId: 'EQ003', equipmentName: 'Bench Press Machine', room: 'Strength Zone A', status: 'Active', lastMaintenance: '2026-04-10' },
-  { equipmentId: 'EQ004', equipmentName: 'Lat Pulldown Machine', room: 'Strength Zone A', status: 'Under Maintenance', lastMaintenance: '2026-05-01' },
-  { equipmentId: 'EQ005', equipmentName: 'Leg Press Machine', room: 'Strength Zone B', status: 'Active', lastMaintenance: '2026-04-25' },
-  { equipmentId: 'EQ006', equipmentName: 'Rowing Machine #3', room: 'Cardio Area', status: 'Replaced', lastMaintenance: '2026-02-10' },
-];
-
 const severityOptions = ['Low', 'Medium', 'High'];
 
 export function EquipmentStatus() {
-  const [equipment, setEquipment] = useState<Equipment[]>(fallbackEquipment);
+  const [equipment, setEquipment] = useState<Equipment[]>([]);
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [showReportModal, setShowReportModal] = useState(false);
   const [reports, setReports] = useState<MaintenanceReport[]>([]);
@@ -55,9 +46,9 @@ export function EquipmentStatus() {
   const loadEquipment = async () => {
     setLoading(true);
     const result = await getStaffEquipmentStatus();
-    if (result.error || !result.data.equipment.length) {
-      setWarning('Some equipment data could not be loaded. Demo data is shown temporarily.');
-      setEquipment(fallbackEquipment);
+    if (result.error) {
+      setWarning('Some equipment data could not be loaded.');
+      setEquipment([]);
       setReports([]);
     } else {
       setWarning('');

@@ -99,7 +99,7 @@ export function Dashboard() {
                   MANAGEMENT DASHBOARD
                 </h1>
                 <p className="text-xl text-white/80 font-medium">Welcome back, Staff • {new Date().toLocaleDateString('vi-VN')}</p>
-                {isLoading && <p className="mt-2 text-sm font-semibold text-white/50">Loading dashboard metrics from Supabase...</p>}
+                {isLoading && <p className="mt-2 text-sm font-semibold text-white/50">Loading dashboard metrics...</p>}
               </div>
             </div>
 

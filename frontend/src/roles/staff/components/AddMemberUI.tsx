@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { UserPlus, AlertCircle, CheckCircle } from 'lucide-react';
-import { getTrainers, isTrainerFull } from '../../../services/trainerService';
+import { fetchTrainersFromSupabase } from '../../../services/trainerApi';
+import { createStaffMember } from '../../../services/staffOperationsApi';
 
 interface MemberDTO {
   fullName: string;
@@ -31,14 +32,23 @@ export function AddMemberUI() {
   const [duplicateWarning, setDuplicateWarning] = useState('');
   const [loading, setLoading] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
-  const trainers = getTrainers();
+  const [trainers, setTrainers] = useState<any[]>([]);
+  const [loadMessage, setLoadMessage] = useState('');
   const availableTrainers = trainers.filter((trainer: any) => trainer.currentActiveMembers < trainer.maxActiveMembers);
-  const selectedTrainerIsFull = Boolean(formData.trainerId && isTrainerFull(formData.trainerId));
+  const selectedTrainer = trainers.find((trainer: any) => trainer.id === formData.trainerId);
+  const selectedTrainerIsFull = Boolean(selectedTrainer && selectedTrainer.currentActiveMembers >= selectedTrainer.maxActiveMembers);
 
-  const existingMembers = [
-    { phoneNumber: '0912345678', idCard: '001234567890' },
-    { phoneNumber: '0987654321', idCard: '098765432100' }
-  ];
+  useEffect(() => {
+    let isMounted = true;
+    fetchTrainersFromSupabase().then(({ data, error }) => {
+      if (!isMounted) return;
+      setTrainers(data);
+      setLoadMessage(error ? 'Trainer data could not be loaded.' : '');
+    });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const validateForm = (): boolean => {
     const newErrors: Partial<MemberDTO> = {};
@@ -78,34 +88,11 @@ export function AddMemberUI() {
     return Object.keys(newErrors).length === 0;
   };
 
-  const checkDuplicate = (): boolean => {
-    const phoneExists = existingMembers.some(m => m.phoneNumber === formData.phoneNumber);
-    const idExists = existingMembers.some(m => m.idCard === formData.idCard);
-
-    if (phoneExists && idExists) {
-      setDuplicateWarning('Phone number and Citizen ID already exist in system');
-      return false;
-    } else if (phoneExists) {
-      setDuplicateWarning('Phone number already exists in system');
-      return false;
-    } else if (idExists) {
-      setDuplicateWarning('Citizen ID already exists in system');
-      return false;
-    }
-
-    setDuplicateWarning('');
-    return true;
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setDuplicateWarning('');
 
     if (!validateForm()) {
-      return;
-    }
-
-    if (!checkDuplicate()) {
       return;
     }
 
@@ -115,16 +102,18 @@ export function AddMemberUI() {
     }
 
     setLoading(true);
-
-    setTimeout(() => {
-      setLoading(false);
+    const result = await createStaffMember(formData);
+    setLoading(false);
+    if (!result.ok) {
+      setDuplicateWarning(result.message);
+      return;
+    }
       setShowSuccess(true);
 
       setTimeout(() => {
         setShowSuccess(false);
         navigate('/staff/members');
       }, 2000);
-    }, 1500);
   };
 
   const handleCancel = () => {
@@ -167,6 +156,11 @@ export function AddMemberUI() {
             <div className="absolute bottom-0 left-0 w-96 h-96 bg-destructive/10 rounded-full blur-3xl"></div>
 
             <form onSubmit={handleSubmit} className="relative z-10 space-y-6">
+              {loadMessage && (
+                <div className="rounded-2xl border border-destructive/40 bg-destructive/10 p-4 text-sm font-bold text-destructive">
+                  {loadMessage}
+                </div>
+              )}
               {/* Duplicate Warning */}
               {duplicateWarning && (
                 <div className="bg-destructive/10 border-2 border-destructive rounded-2xl p-6 flex items-start gap-4 animate-in slide-in-from-top-4 fade-in">

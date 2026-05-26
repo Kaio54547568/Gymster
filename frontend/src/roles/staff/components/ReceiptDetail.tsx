@@ -4,20 +4,6 @@ import { ArrowLeft, FileText, Printer, Download, Mail } from 'lucide-react';
 import { getInvoiceById } from '../../../services/invoiceApi';
 import { getPaymentById } from '../../../services/paymentApi';
 
-const fallbackReceipt = {
-  receiptId: 'RCP12345678',
-  memberId: 'M00123',
-  memberName: 'Nguyen Van A',
-  packageName: 'VIP Elite Package',
-  newStartDate: '2026-02-15',
-  newEndDate: '2026-08-15',
-  amountPaid: 12000000,
-  paymentMethod: 'Bank Transfer',
-  transactionDate: '2026-02-15T10:30:45',
-  staffName: 'Gymster Staff',
-  status: 'Paid',
-};
-
 function formatDate(value: string) {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString('en-GB');
@@ -42,7 +28,19 @@ function formatVnd(value: number) {
 export function ReceiptDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const [receipt, setReceipt] = useState({ ...fallbackReceipt, receiptId: id || fallbackReceipt.receiptId });
+  const [receipt, setReceipt] = useState({
+    receiptId: id || '',
+    memberId: '',
+    memberName: '',
+    packageName: '',
+    newStartDate: '',
+    newEndDate: '',
+    amountPaid: 0,
+    paymentMethod: '',
+    transactionDate: '',
+    staffName: '',
+    status: '',
+  });
   const [loadMessage, setLoadMessage] = useState('');
 
   useEffect(() => {
@@ -61,8 +59,8 @@ export function ReceiptDetail() {
           memberId: invoice.memberId || '-',
           memberName: invoice.memberName || 'Member',
           packageName: invoice.packageName || 'Membership package',
-          newStartDate: invoice.issuedAt || fallbackReceipt.newStartDate,
-          newEndDate: invoice.dueAt || invoice.issuedAt || fallbackReceipt.newEndDate,
+          newStartDate: invoice.issuedAt || '',
+          newEndDate: invoice.dueAt || invoice.issuedAt || '',
           amountPaid: invoice.amount || 0,
           paymentMethod: formatMethod(invoice.paymentMethod || 'invoice'),
           transactionDate: invoice.paidAt || invoice.issuedAt || new Date().toISOString(),
@@ -83,8 +81,8 @@ export function ReceiptDetail() {
           memberId: payment.memberId || '-',
           memberName: payment.memberName || 'Member',
           packageName: payment.packageName || 'Membership package',
-          newStartDate: payment.paymentDate || fallbackReceipt.newStartDate,
-          newEndDate: payment.paymentDate || fallbackReceipt.newEndDate,
+          newStartDate: payment.paymentDate || '',
+          newEndDate: payment.paymentDate || '',
           amountPaid: payment.amount || 0,
           paymentMethod: formatMethod(payment.paymentMethod),
           transactionDate: payment.paymentDate || new Date().toISOString(),
@@ -95,7 +93,7 @@ export function ReceiptDetail() {
         return;
       }
 
-      setLoadMessage('Receipt data could not be loaded from Supabase. Demo receipt data is shown temporarily.');
+      setLoadMessage('Receipt data could not be loaded.');
     }
 
     loadReceipt();

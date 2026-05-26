@@ -1,7 +1,7 @@
 import { Link, useNavigate } from "react-router";
 import { useState } from "react";
 import AuthHero from "../../components/auth/AuthHero";
-import { registerUser, setCurrentUser } from "../../services/authService";
+import { setCurrentUser } from "../../services/authService";
 import { resetOnboardingState } from "../../services/onboardingService";
 import { createPendingMemberAccount } from "../../services/userApi";
 import "./Auth.css";
@@ -114,31 +114,10 @@ function RegisterPage() {
       return;
     }
 
-    const result = registerUser({
-      id: supabaseResult.user.memberId,
-      supabaseUserId: supabaseResult.user.userId,
-      memberId: supabaseResult.user.memberId,
-      fullName: form.fullName.trim(),
-      username: form.username.trim(),
-      email: form.email.trim(),
-      password: form.password,
-      phone: form.phone.trim(),
-      dob: form.dob,
-      gender: form.gender,
-      membership: "pending",
-      role: "Member",
-      accountStatus: "PendingOnboarding",
-    });
-
-    if (!result.ok) {
-      setStatus({ type: "error", message: result.message });
-      return;
-    }
-
-    setCurrentUser(result.user);
+    setCurrentUser(supabaseResult.user);
     resetOnboardingState();
-    setStatus({ type: "success", message: "Account created. Opening membership setup..." });
-    window.setTimeout(() => navigate("/onboarding/status", { replace: true }), 700);
+    setStatus({ type: "success", message: "Account created. Opening member setup..." });
+    window.setTimeout(() => navigate("/member", { replace: true }), 700);
   };
 
   return (

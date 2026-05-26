@@ -3,12 +3,8 @@ import { AlertCircle, CheckCircle, CreditCard, FileText, Plus, Search, X } from 
 import { supabase } from '../../../services/supabaseClient';
 import { fetchPackagesFromSupabase } from '../../../services/packageApi';
 import {
-  approveRenewalRequest,
-  createManualRenewalRequest,
   createPackageChangeRequest,
-  denyRenewalRequest,
   getPackageChangeRequests,
-  getRenewalRequests,
   updatePackageChangeRequestStatus,
 } from '../../../services/memberPackageApi';
 
@@ -47,78 +43,6 @@ type RenewalRequest = {
   denyReason?: string;
   source?: string;
 };
-
-const fallbackPackages: PackageOption[] = [
-  {
-    id: 'PKG001',
-    name: 'Basic Gym 3 Months',
-    packageTypeLabel: 'Gym',
-    durationMonths: 3,
-    price: 850000,
-    sessionLimit: 'Unlimited gym access',
-    hasPersonalTrainer: false,
-  },
-  {
-    id: 'PKG002',
-    name: 'Basic Gym 6 Months',
-    packageTypeLabel: 'Gym',
-    durationMonths: 6,
-    price: 1600000,
-    sessionLimit: 'Unlimited gym access',
-    hasPersonalTrainer: false,
-  },
-  {
-    id: 'PKG003',
-    name: 'PT Package 3 Months',
-    packageTypeLabel: 'Personal Training',
-    durationMonths: 3,
-    price: 3500000,
-    sessionLimit: '24 PT sessions',
-    hasPersonalTrainer: true,
-  },
-];
-
-const fallbackMembers: MemberOption[] = [
-  {
-    id: 'M00123',
-    name: 'Nguyen Van A',
-    email: 'member@gymster.vn',
-    phone: '0912345678',
-    currentPackageName: 'Basic Gym 6 Months',
-  },
-  {
-    id: 'M00124',
-    name: 'Taylor Morgan',
-    email: 'taylor@gymster.vn',
-    phone: '0900000004',
-    currentPackageName: 'Basic Gym 3 Months',
-  },
-  {
-    id: 'M00125',
-    name: 'Jordan Lee',
-    email: 'jordan@gymster.vn',
-    phone: '0900000005',
-    currentPackageName: 'No active package',
-  },
-];
-
-const fallbackRequests: RenewalRequest[] = [
-  {
-    requestId: 'REQ-DEMO-001',
-    memberId: 'M00123',
-    memberName: 'Nguyen Van A',
-    memberEmail: 'member@gymster.vn',
-    currentPackageName: 'Basic Gym 6 Months',
-    packageId: 'PKG003',
-    packageName: 'PT Package 3 Months',
-    amount: 3500000,
-    paymentMethod: 'bank_transfer',
-    requestType: 'upgrade',
-    status: 'pending_staff_approval',
-    createdAt: new Date().toISOString(),
-    source: 'fallback',
-  },
-];
 
 const paymentMethods = [
   { id: 'cash', label: 'Cash' },
@@ -209,7 +133,7 @@ async function fetchMembersFromSupabase(): Promise<MemberOption[]> {
     .limit(100);
 
   if (error || !Array.isArray(data)) {
-    if (error) console.error('[Gymster Supabase] Failed to load members for renewal requests:', error);
+    if (error) console.error('[Gymster h\u1ec7 th\u1ed1ng] Failed to load members for renewal requests:', error);
     return [];
   }
 
@@ -223,9 +147,9 @@ async function fetchMembersFromSupabase(): Promise<MemberOption[]> {
 }
 
 export function RenewPackageUI() {
-  const [requests, setRequests] = useState<RenewalRequest[]>(fallbackRequests);
-  const [packages, setPackages] = useState<PackageOption[]>(fallbackPackages);
-  const [members, setMembers] = useState<MemberOption[]>(fallbackMembers);
+  const [requests, setRequests] = useState<RenewalRequest[]>([]);
+  const [packages, setPackages] = useState<PackageOption[]>([]);
+  const [members, setMembers] = useState<MemberOption[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
@@ -234,21 +158,19 @@ export function RenewPackageUI() {
   const [denyReason, setDenyReason] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
   const [manualForm, setManualForm] = useState({
-    memberId: fallbackMembers[0]?.id || '',
-    packageId: fallbackPackages[0]?.id || '',
+    memberId: '',
+    packageId: '',
     paymentMethod: 'cash',
     requestType: 'renewal',
   });
 
   const loadRequests = async () => {
     const { data, error } = await getPackageChangeRequests();
-    if (!error && data.length) {
+    if (!error) {
       setRequests(data.map(normalizeRequest));
       return;
     }
-
-    const storedRequests = getRenewalRequests().map(normalizeRequest);
-    setRequests(storedRequests.length > 0 ? storedRequests : fallbackRequests);
+    setRequests([]);
   };
 
   useEffect(() => {
@@ -266,14 +188,12 @@ export function RenewPackageUI() {
 
         if (!mounted) return;
 
-        setPackages(packageResult.data.length > 0 ? packageResult.data : fallbackPackages);
-        setMembers(memberResult.length > 0 ? memberResult : fallbackMembers);
+        setPackages(packageResult.data);
+        setMembers(memberResult);
         await loadRequests();
 
         if (packageResult.error) {
-          setErrorMessage('Supabase package loading failed. Showing fallback packages.');
-        } else if (memberResult.length === 0) {
-          setErrorMessage('Member records are using fallback data until member lookup is available.');
+          setErrorMessage('Packages could not be loaded.');
         }
       } finally {
         if (mounted) setIsLoading(false);
@@ -314,21 +234,13 @@ export function RenewPackageUI() {
   }, [requests]);
 
   const handleAccept = async (request: RenewalRequest) => {
-    if (request.source === 'supabase') {
-      await updatePackageChangeRequestStatus(request.requestId, 'approved');
-    } else {
-      approveRenewalRequest(request.requestId);
-    }
+    await updatePackageChangeRequestStatus(request.requestId, 'approved');
     await loadRequests();
   };
 
   const handleDeny = async () => {
     if (!denyTarget) return;
-    if (denyTarget.source === 'supabase') {
-      await updatePackageChangeRequestStatus(denyTarget.requestId, 'denied', denyReason.trim() || 'Denied by staff.');
-    } else {
-      denyRenewalRequest(denyTarget.requestId, denyReason.trim() || 'Denied by staff.');
-    }
+    await updatePackageChangeRequestStatus(denyTarget.requestId, 'denied', denyReason.trim() || 'Denied by staff.');
     setDenyTarget(null);
     setDenyReason('');
     await loadRequests();
@@ -354,7 +266,8 @@ export function RenewPackageUI() {
 
     const { error } = await createPackageChangeRequest(payload);
     if (error) {
-      createManualRenewalRequest(payload);
+      setErrorMessage('Request could not be created.');
+      return;
     }
 
     setShowAddModal(false);
@@ -369,8 +282,7 @@ export function RenewPackageUI() {
             <p className="text-primary text-sm font-black tracking-[0.35em] uppercase mb-3">Staff Review</p>
             <h1 className="text-5xl font-black tracking-tight mb-3">Renewal Requests</h1>
             <p className="text-muted-foreground max-w-3xl">
-              Review member buy, renewal, and upgrade requests. Approved requests remain mock-safe until a dedicated
-              renewal request table is added.
+              Duy?t y?u c?u mua m?i, gia h?n v? n?ng c?p g?i t?p c?a h?i vi?n.
             </p>
           </div>
           <button

@@ -1,4 +1,5 @@
 import { supabase } from "./supabaseClient";
+import { isPasswordMatch } from "./authService";
 
 const roleAliases = {
   admin: ["admin", "owner"],
@@ -266,7 +267,7 @@ async function getRoleExtra(userRow) {
 
 export async function getSupabaseUserProfile(role, currentUser = null) {
   if (!supabase) {
-    return { data: null, error: new Error("Missing Supabase environment variables.") };
+    return { data: null, error: new Error("Missing h\u1ec7 th\u1ed1ng environment variables.") };
   }
 
   try {
@@ -278,15 +279,14 @@ export async function getSupabaseUserProfile(role, currentUser = null) {
         : await findUserByRole(role);
 
     if (!userRow) {
-      console.warn("[Gymster Supabase] No profile row was found. Using current local mock user profile.");
-      return { data: mapLocalProfile(role, currentUser), error: null };
+      return { data: createEmptyUserProfile(role), error: null };
     }
 
     const extra = await getRoleExtra(userRow);
     return { data: mapUserProfile(userRow, extra), error: null };
   } catch (error) {
-    console.error("[Gymster Supabase] Failed to load user profile:", error);
-    return { data: mapLocalProfile(role, currentUser), error: null };
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to load user profile:", error);
+    return { data: createEmptyUserProfile(role), error };
   }
 }
 
@@ -317,7 +317,7 @@ export function createEmptyUserProfile(role) {
 
 export async function updateCurrentUserPassword(currentUser, currentPassword, newPassword) {
   if (!supabase) {
-    return { ok: false, message: "Supabase is not configured." };
+    return { ok: false, message: "h\u1ec7 th\u1ed1ng is not configured." };
   }
 
   const userRow = await findUserByCurrentUser(currentUser);
@@ -326,20 +326,19 @@ export async function updateCurrentUserPassword(currentUser, currentPassword, ne
   }
 
   const storedPassword = userRow.password_hash || "";
-  if (storedPassword && storedPassword !== currentPassword && storedPassword !== `demo-only:${currentPassword}`) {
+  if (storedPassword && !isPasswordMatch(storedPassword, currentPassword)) {
     return { ok: false, message: "Current password is incorrect." };
   }
 
   const { error } = await supabase
     .from("users")
     .update({
-      // Demo only. Production password changes should use Supabase Auth or a backend-owned hash.
-      password_hash: `demo-only:${newPassword}`,
+      password_hash: newPassword,
     })
     .eq("user_id", userRow.user_id);
 
   if (error) {
-    console.error("[Gymster Supabase] Failed to update password:", error);
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to update password:", error);
     return { ok: false, message: "Password could not be updated." };
   }
 
@@ -348,7 +347,7 @@ export async function updateCurrentUserPassword(currentUser, currentPassword, ne
 
 export async function updateCurrentUserContactInfo(currentUser, contactInfo) {
   if (!supabase) {
-    return { ok: false, message: "Supabase is not configured." };
+    return { ok: false, message: "h\u1ec7 th\u1ed1ng is not configured." };
   }
 
   const userRow = await findUserByCurrentUser(currentUser);
@@ -365,7 +364,7 @@ export async function updateCurrentUserContactInfo(currentUser, contactInfo) {
     .eq("user_id", userRow.user_id);
 
   if (error) {
-    console.error("[Gymster Supabase] Failed to update contact info:", error);
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to update contact info:", error);
     return { ok: false, message: error.code === "23505" ? "Email already exists." : "Contact info could not be updated." };
   }
 
@@ -374,7 +373,7 @@ export async function updateCurrentUserContactInfo(currentUser, contactInfo) {
 
 export async function updateCurrentUserProfile(currentUser, profileData) {
   if (!supabase) {
-    return { ok: false, message: "Supabase is not configured." };
+    return { ok: false, message: "h\u1ec7 th\u1ed1ng is not configured." };
   }
 
   const userRow = await findUserByCurrentUser(currentUser);
@@ -393,7 +392,7 @@ export async function updateCurrentUserProfile(currentUser, profileData) {
     .eq("user_id", userRow.user_id);
 
   if (userError) {
-    console.error("[Gymster Supabase] Failed to update profile:", userError);
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to update profile:", userError);
     return { ok: false, message: "Profile could not be updated." };
   }
 
@@ -408,7 +407,7 @@ export async function updateCurrentUserProfile(currentUser, profileData) {
       .eq("user_id", userRow.user_id);
 
     if (trainerError) {
-      console.error("[Gymster Supabase] Failed to update trainer profile:", trainerError);
+      console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to update trainer profile:", trainerError);
       return { ok: false, message: "Trainer profile could not be updated." };
     }
   }
@@ -426,9 +425,75 @@ export async function updateCurrentUserProfile(currentUser, profileData) {
   return { ok: true, message: "Profile updated successfully." };
 }
 
+function getAvatarExtension(file) {
+  const mimeExtension = String(file?.type || "").split("/")[1];
+  const nameExtension = String(file?.name || "").split(".").pop();
+  const extension = (mimeExtension || nameExtension || "jpg").toLowerCase().replace(/[^a-z0-9]/g, "");
+  if (extension === "jpeg") return "jpg";
+  if (extension === "svg+xml") return "svg";
+  return extension || "jpg";
+}
+
+export async function uploadCurrentUserAvatar(currentUser, file) {
+  if (!supabase) {
+    return { ok: false, message: "h\u1ec7 th\u1ed1ng is not configured.", avatarUrl: "" };
+  }
+
+  if (!file) {
+    return { ok: false, message: "Please choose an image.", avatarUrl: "" };
+  }
+
+  if (!String(file.type || "").startsWith("image/")) {
+    return { ok: false, message: "Avatar must be an image file.", avatarUrl: "" };
+  }
+
+  if (file.size > 3 * 1024 * 1024) {
+    return { ok: false, message: "Avatar image must be 3MB or smaller.", avatarUrl: "" };
+  }
+
+  const userRow = await findUserByCurrentUser(currentUser);
+  if (!userRow?.user_id) {
+    return { ok: false, message: "Current user could not be resolved.", avatarUrl: "" };
+  }
+
+  const extension = getAvatarExtension(file);
+  const filePath = `users/${userRow.user_id}-${Date.now()}.${extension}`;
+  const { error: uploadError } = await supabase.storage
+    .from("pics")
+    .upload(filePath, file, {
+      cacheControl: "3600",
+      contentType: file.type || "image/jpeg",
+      upsert: true,
+    });
+
+  if (uploadError) {
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to upload avatar:", uploadError);
+    return { ok: false, message: "Avatar could not be uploaded.", avatarUrl: "" };
+  }
+
+  const { data: publicUrlData } = supabase.storage.from("pics").getPublicUrl(filePath);
+  const avatarUrl = publicUrlData?.publicUrl || "";
+
+  const { error: updateError } = await supabase
+    .from("users")
+    .update({ avatar_url: avatarUrl })
+    .eq("user_id", userRow.user_id);
+
+  if (updateError) {
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to update avatar URL:", updateError);
+    return { ok: false, message: "Avatar uploaded, but profile could not be updated.", avatarUrl };
+  }
+
+  if (normalizeRole(userRow.role) === "trainer") {
+    await supabase.from("trainers").update({ avatar_url: avatarUrl }).eq("user_id", userRow.user_id);
+  }
+
+  return { ok: true, message: "Avatar updated successfully.", avatarUrl };
+}
+
 export async function updateCurrentUserLanguagePreference(currentUser, language) {
   if (!supabase) {
-    return { ok: false, message: "Supabase is not configured." };
+    return { ok: false, message: "h\u1ec7 th\u1ed1ng is not configured." };
   }
 
   const userRow = await findUserByCurrentUser(currentUser);
@@ -443,7 +508,7 @@ export async function updateCurrentUserLanguagePreference(currentUser, language)
     .eq("user_id", userRow.user_id);
 
   if (error) {
-    console.error("[Gymster Supabase] Failed to update language preference:", error);
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to update language preference:", error);
     return { ok: false, message: "Language preference could not be updated." };
   }
 

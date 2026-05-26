@@ -10,8 +10,8 @@ function formatVnd(value) {
   return Number(value || 0).toLocaleString("vi-VN");
 }
 
-function formatCount(value, fallback) {
-  if (typeof value !== "number") return fallback;
+function formatCount(value) {
+  if (typeof value !== "number") return "0";
   return value.toLocaleString("vi-VN");
 }
 
@@ -169,8 +169,8 @@ async function getCount(table, column, filter) {
 
 export async function fetchLandingPageData() {
   if (!supabase) {
-    const error = new Error("Missing Supabase environment variables.");
-    console.error("[Gymster Supabase] Failed to load landing data:", error);
+    const error = new Error("Missing h\u1ec7 th\u1ed1ng environment variables.");
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to load landing data:", error);
     return { data: null, error };
   }
 
@@ -189,7 +189,7 @@ export async function fetchLandingPageData() {
 
   const errors = [packageResponse.error, trainerResponse.error].filter(Boolean);
   if (errors.length) {
-    console.error("[Gymster Supabase] Landing data loaded with fallback warnings:", errors);
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Landing data loaded with warnings:", errors);
   }
 
   return {
@@ -197,10 +197,10 @@ export async function fetchLandingPageData() {
       packages: packageRows.map((row) => mapPackageRow(row, featureMap)),
       trainers: trainerRows.map(mapTrainerRow),
       stats: [
-        [formatCount(memberCount, "5,000+"), "Hội viên"],
-        [formatCount(trainerCount, "50+"), "Huấn luyện viên"],
-        [formatCount(packageCount, "10+"), "Gói tập"],
-        [formatCount(sessionCount, "24/7"), "Buổi tập"],
+        [formatCount(memberCount), "Hội viên"],
+        [formatCount(trainerCount), "Huấn luyện viên"],
+        [formatCount(packageCount), "Gói tập"],
+        [formatCount(sessionCount), "Buổi tập"],
       ],
     },
     error: errors[0] || null,

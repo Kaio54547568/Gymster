@@ -197,8 +197,8 @@ async function insertLegacyPayment(payload) {
 
 export async function createPayment(paymentData) {
   if (!supabase) {
-    const error = new Error("Missing Supabase environment variables.");
-    console.error("[Gymster Supabase] Failed to create payment:", error);
+    const error = new Error("Missing h\u1ec7 th\u1ed1ng environment variables.");
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to create payment:", error);
     return { data: null, error };
   }
 
@@ -227,7 +227,7 @@ export async function createPayment(paymentData) {
   }
 
   if (error) {
-    console.error("[Gymster Supabase] Failed to create payment:", error);
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to create payment:", error);
     return { data: null, error };
   }
 
@@ -237,8 +237,8 @@ export async function createPayment(paymentData) {
 
 export async function getPaymentById(paymentId) {
   if (!supabase) {
-    const error = new Error("Missing Supabase environment variables.");
-    console.error("[Gymster Supabase] Failed to load payment:", error);
+    const error = new Error("Missing h\u1ec7 th\u1ed1ng environment variables.");
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to load payment:", error);
     return { data: null, error };
   }
 
@@ -249,7 +249,7 @@ export async function getPaymentById(paymentId) {
     .maybeSingle();
 
   if (error) {
-    console.error("[Gymster Supabase] Failed to load payment:", error);
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to load payment:", error);
     return { data: null, error };
   }
 
@@ -259,8 +259,8 @@ export async function getPaymentById(paymentId) {
 
 export async function getPaymentsByMemberId(memberId) {
   if (!supabase) {
-    const error = new Error("Missing Supabase environment variables.");
-    console.error("[Gymster Supabase] Failed to load member payments:", error);
+    const error = new Error("Missing h\u1ec7 th\u1ed1ng environment variables.");
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to load member payments:", error);
     return { data: [], error };
   }
 
@@ -275,7 +275,7 @@ export async function getPaymentsByMemberId(memberId) {
     .order("created_at", { ascending: false });
 
   if (error) {
-    console.error("[Gymster Supabase] Failed to load member payments:", error);
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to load member payments:", error);
     return { data: [], error };
   }
 
@@ -284,8 +284,8 @@ export async function getPaymentsByMemberId(memberId) {
 
 export async function getPaymentsForMember(memberLookup) {
   if (!supabase) {
-    const error = new Error("Missing Supabase environment variables.");
-    console.error("[Gymster Supabase] Failed to load member payments:", error);
+    const error = new Error("Missing h\u1ec7 th\u1ed1ng environment variables.");
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to load member payments:", error);
     return { data: [], error };
   }
 
@@ -295,8 +295,8 @@ export async function getPaymentsForMember(memberLookup) {
 
 export async function getAllPayments() {
   if (!supabase) {
-    const error = new Error("Missing Supabase environment variables.");
-    console.error("[Gymster Supabase] Failed to load payments:", error);
+    const error = new Error("Missing h\u1ec7 th\u1ed1ng environment variables.");
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to load payments:", error);
     return { data: [], error };
   }
 
@@ -306,7 +306,7 @@ export async function getAllPayments() {
     .order("created_at", { ascending: false });
 
   if (error) {
-    console.error("[Gymster Supabase] Failed to load payments:", error);
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to load payments:", error);
     return { data: [], error };
   }
 

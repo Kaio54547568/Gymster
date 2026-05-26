@@ -13,6 +13,7 @@ import FeedbackSatisfaction from './screens/FeedbackSatisfaction';
 import PackagesPayments from './screens/PackagesPayments';
 import Settings from './screens/Settings';
 import Profile from './screens/Profile';
+import RoleNotificationsPage from '../shared/RoleNotificationsPage';
 
 export default function App() {
   return (
@@ -31,6 +32,7 @@ export default function App() {
         <Route path="feedback" element={<FeedbackSatisfaction />} />
         <Route path="reports" element={<Navigate to="/admin" replace />} />
         <Route path="packages" element={<PackagesPayments />} />
+        <Route path="notifications" element={<RoleNotificationsPage />} />
         <Route path="settings" element={<Settings />} />
         <Route path="profile" element={<Profile />} />
         <Route path="*" element={<Navigate to="/admin" replace />} />

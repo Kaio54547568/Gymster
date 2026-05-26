@@ -30,10 +30,6 @@ function RoleRoute({ role, children }) {
     return <Navigate to={getUserHome(currentUser)} replace />;
   }
 
-  if (role === "member" && currentUser.accountStatus && currentUser.accountStatus !== "Active") {
-    return <Navigate to="/onboarding/status" replace />;
-  }
-
   return children;
 }
 

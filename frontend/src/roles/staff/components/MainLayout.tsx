@@ -35,6 +35,7 @@ export function MainLayout() {
       userName={profile.fullName || 'Staff'}
       userRole={profile.roleLabel}
       userInitials={profile.initials}
+      userAvatarUrl={profile.avatarUrl}
       onAvatarClick={() => navigate('/staff/profile')}
     >
       <Outlet />

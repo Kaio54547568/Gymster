@@ -156,8 +156,8 @@ async function enrichInvoiceRows(rows) {
 
 export async function getInvoicesForMember(currentUser) {
   if (!supabase) {
-    const error = new Error("Missing Supabase environment variables.");
-    console.error("[Gymster Supabase] Failed to load member invoices:", error);
+    const error = new Error("Missing h\u1ec7 th\u1ed1ng environment variables.");
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to load member invoices:", error);
     return { data: [], error };
   }
 
@@ -174,7 +174,7 @@ export async function getInvoicesForMember(currentUser) {
     .order("issued_at", { ascending: false });
 
   if (error) {
-    console.error("[Gymster Supabase] Failed to load member invoices:", error);
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to load member invoices:", error);
     return { data: [], error };
   }
 
@@ -183,8 +183,8 @@ export async function getInvoicesForMember(currentUser) {
 
 export async function getInvoiceById(invoiceId) {
   if (!supabase) {
-    const error = new Error("Missing Supabase environment variables.");
-    console.error("[Gymster Supabase] Failed to load invoice:", error);
+    const error = new Error("Missing h\u1ec7 th\u1ed1ng environment variables.");
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to load invoice:", error);
     return { data: null, error };
   }
 
@@ -199,7 +199,7 @@ export async function getInvoiceById(invoiceId) {
   const { data, error } = await query.maybeSingle();
 
   if (error) {
-    console.error("[Gymster Supabase] Failed to load invoice:", error);
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to load invoice:", error);
     return { data: null, error };
   }
 
@@ -209,8 +209,8 @@ export async function getInvoiceById(invoiceId) {
 
 export async function getInvoicesForAdmin() {
   if (!supabase) {
-    const error = new Error("Missing Supabase environment variables.");
-    console.error("[Gymster Supabase] Failed to load invoices:", error);
+    const error = new Error("Missing h\u1ec7 th\u1ed1ng environment variables.");
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to load invoices:", error);
     return { data: [], error };
   }
 
@@ -220,7 +220,7 @@ export async function getInvoicesForAdmin() {
     .order("issued_at", { ascending: false });
 
   if (error) {
-    console.error("[Gymster Supabase] Failed to load invoices:", error);
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to load invoices:", error);
     return { data: [], error };
   }
 

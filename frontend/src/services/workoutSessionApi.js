@@ -147,22 +147,6 @@ async function findTrainerIdByUserField(field, value) {
   return findTrainerIdByUserId(user.user_id);
 }
 
-async function findDemoTrainerId() {
-  const { data } = await supabase
-    .from("trainers")
-    .select("trainer_id")
-    .eq("status", "active")
-    .order("created_at", { ascending: true })
-    .limit(1)
-    .maybeSingle();
-
-  if (data?.trainer_id) {
-    console.warn("Using demo fallback trainer because current mock user could not be resolved in Supabase.");
-  }
-
-  return data?.trainer_id || null;
-}
-
 async function resolveCurrentTrainerId(currentUser) {
   if (!supabase) return null;
 
@@ -186,7 +170,7 @@ async function resolveCurrentTrainerId(currentUser) {
   const trainerFromUsername = await findTrainerIdByUserField("username", currentUser?.username);
   if (trainerFromUsername) return trainerFromUsername;
 
-  return findDemoTrainerId();
+  return null;
 }
 
 async function loadMemberNames(memberIds) {
@@ -382,8 +366,8 @@ async function insertCurrentSchemaWorkoutSessions(rows) {
 
 export async function createWorkoutSessionsForSchedule(data) {
   if (!supabase) {
-    const error = new Error("Missing Supabase environment variables.");
-    console.error("[Gymster Supabase] Failed to create workout sessions:", error);
+    const error = new Error("Missing h\u1ec7 th\u1ed1ng environment variables.");
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to create workout sessions:", error);
     return { data: [], error };
   }
 
@@ -409,7 +393,7 @@ export async function createWorkoutSessionsForSchedule(data) {
   }
 
   if (error) {
-    console.error("[Gymster Supabase] Failed to create workout sessions:", error);
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to create workout sessions:", error);
     return { data: rows.map(mapWorkoutSessionRow), error };
   }
 
@@ -421,8 +405,8 @@ export async function createWorkoutSessionsForSchedule(data) {
 
 export async function getWorkoutSessionsForMember(currentUser) {
   if (!supabase) {
-    const error = new Error("Missing Supabase environment variables.");
-    console.error("[Gymster Supabase] Failed to load member workout sessions:", error);
+    const error = new Error("Missing h\u1ec7 th\u1ed1ng environment variables.");
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to load member workout sessions:", error);
     return { data: [], error };
   }
 
@@ -434,7 +418,7 @@ export async function getWorkoutSessionsForMember(currentUser) {
   const { data, error } = await selectWorkoutSessions("member_id", memberId);
 
   if (error) {
-    console.error("[Gymster Supabase] Failed to load member workout sessions:", error);
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to load member workout sessions:", error);
     return { data: [], error };
   }
 
@@ -446,8 +430,8 @@ export async function getWorkoutSessionsForMember(currentUser) {
 
 export async function getWorkoutSessionsForTrainer(currentUser) {
   if (!supabase) {
-    const error = new Error("Missing Supabase environment variables.");
-    console.error("[Gymster Supabase] Failed to load trainer workout sessions:", error);
+    const error = new Error("Missing h\u1ec7 th\u1ed1ng environment variables.");
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to load trainer workout sessions:", error);
     return { data: [], error };
   }
 
@@ -459,7 +443,7 @@ export async function getWorkoutSessionsForTrainer(currentUser) {
   const { data, error } = await selectWorkoutSessions("trainer_id", trainerId);
 
   if (error) {
-    console.error("[Gymster Supabase] Failed to load trainer workout sessions:", error);
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to load trainer workout sessions:", error);
     return { data: [], error };
   }
 
@@ -471,8 +455,8 @@ export async function getWorkoutSessionsForTrainer(currentUser) {
 
 export async function updateWorkoutSessionStatus(sessionId, status) {
   if (!supabase || !sessionId) {
-    const error = new Error("Missing Supabase configuration or workout session id.");
-    console.error("[Gymster Supabase] Failed to update workout session:", error);
+    const error = new Error("Missing h\u1ec7 th\u1ed1ng configuration or workout session id.");
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to update workout session:", error);
     return { data: null, error };
   }
 
@@ -498,7 +482,7 @@ export async function updateWorkoutSessionStatus(sessionId, status) {
     .single();
 
   if (error) {
-    console.error("[Gymster Supabase] Failed to update workout session:", error);
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to update workout session:", error);
     return { data: null, error };
   }
 
@@ -508,8 +492,8 @@ export async function updateWorkoutSessionStatus(sessionId, status) {
 
 export async function requestSessionReschedule(sessionId, requestedStartTime, requestedEndTime, reason = "") {
   if (!supabase || !sessionId) {
-    const error = new Error("Missing Supabase configuration or workout session id.");
-    console.error("[Gymster Supabase] Failed to request workout session reschedule:", error);
+    const error = new Error("Missing h\u1ec7 th\u1ed1ng configuration or workout session id.");
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to request workout session reschedule:", error);
     return { data: null, error };
   }
 
@@ -536,7 +520,7 @@ export async function requestSessionReschedule(sessionId, requestedStartTime, re
     .single();
 
   if (error) {
-    console.error("[Gymster Supabase] Failed to request workout session reschedule:", error);
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to request workout session reschedule:", error);
     return { data: null, error };
   }
 

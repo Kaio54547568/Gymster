@@ -247,8 +247,8 @@ async function selectTrainingRequests(filters = {}) {
 
 export async function createTrainingRequest(request) {
   if (!supabase) {
-    const error = new Error("Missing Supabase environment variables.");
-    console.error("[Gymster Supabase] Failed to create training request:", error);
+    const error = new Error("Missing h\u1ec7 th\u1ed1ng environment variables.");
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to create training request:", error);
     return { data: null, error };
   }
 
@@ -266,7 +266,7 @@ export async function createTrainingRequest(request) {
   const { data, error } = await insertTrainingRequest(payload);
 
   if (error) {
-    console.error("[Gymster Supabase] Failed to create training request:", error);
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to create training request:", error);
     return { data: null, error };
   }
 
@@ -275,8 +275,8 @@ export async function createTrainingRequest(request) {
 
 export async function getTrainingRequestsForTrainer(trainerLookup) {
   if (!supabase) {
-    const error = new Error("Missing Supabase environment variables.");
-    console.error("[Gymster Supabase] Failed to load trainer training requests:", error);
+    const error = new Error("Missing h\u1ec7 th\u1ed1ng environment variables.");
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to load trainer training requests:", error);
     return { data: [], error };
   }
 
@@ -284,7 +284,7 @@ export async function getTrainingRequestsForTrainer(trainerLookup) {
   const { data, error } = await selectTrainingRequests({ trainerId });
 
   if (error) {
-    console.error("[Gymster Supabase] Failed to load trainer training requests:", error);
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to load trainer training requests:", error);
     return { data: [], error };
   }
 
@@ -296,8 +296,8 @@ export async function getTrainingRequestsForTrainer(trainerLookup) {
 
 export async function getTrainingRequestsForMember(memberLookup) {
   if (!supabase) {
-    const error = new Error("Missing Supabase environment variables.");
-    console.error("[Gymster Supabase] Failed to load member training requests:", error);
+    const error = new Error("Missing h\u1ec7 th\u1ed1ng environment variables.");
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to load member training requests:", error);
     return { data: [], error };
   }
 
@@ -309,7 +309,7 @@ export async function getTrainingRequestsForMember(memberLookup) {
   const { data, error } = await selectTrainingRequests({ memberId });
 
   if (error) {
-    console.error("[Gymster Supabase] Failed to load member training requests:", error);
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to load member training requests:", error);
     return { data: [], error };
   }
 
@@ -321,8 +321,8 @@ export async function getTrainingRequestsForMember(memberLookup) {
 
 export async function getTrainingRequestById(requestId) {
   if (!supabase) {
-    const error = new Error("Missing Supabase environment variables.");
-    console.error("[Gymster Supabase] Failed to load training request:", error);
+    const error = new Error("Missing h\u1ec7 th\u1ed1ng environment variables.");
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to load training request:", error);
     return { data: null, error };
   }
 
@@ -333,7 +333,7 @@ export async function getTrainingRequestById(requestId) {
   }
 
   if (error) {
-    console.error("[Gymster Supabase] Failed to load training request:", error);
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to load training request:", error);
     return { data: null, error };
   }
 
@@ -342,8 +342,8 @@ export async function getTrainingRequestById(requestId) {
 
 export async function updateTrainingRequestStatus(requestId, status, declineReason = "") {
   if (!supabase) {
-    const error = new Error("Missing Supabase environment variables.");
-    console.error("[Gymster Supabase] Failed to update training request:", error);
+    const error = new Error("Missing h\u1ec7 th\u1ed1ng environment variables.");
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to update training request:", error);
     return { data: null, error };
   }
 
@@ -372,7 +372,7 @@ export async function updateTrainingRequestStatus(requestId, status, declineReas
   }
 
   if (error) {
-    console.error("[Gymster Supabase] Failed to update training request:", error);
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to update training request:", error);
     return { data: null, error };
   }
 

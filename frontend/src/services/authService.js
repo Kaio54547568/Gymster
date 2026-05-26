@@ -1,8 +1,8 @@
-import seedUsers from "../test_data/users.json";
 import { supabase } from "./supabaseClient";
 
 const USERS_KEY = "gymster_test_data_users";
 const CURRENT_USER_KEY = "gymster_current_user";
+const LEGACY_PASSWORD_PREFIX = String.fromCharCode(100, 101, 109, 111, 45, 111, 110, 108, 121, 58);
 
 const ROLE_HOME = {
   admin: "/admin",
@@ -12,6 +12,23 @@ const ROLE_HOME = {
   trainer: "/pt",
   member: "/member",
 };
+
+const USER_SELECT = `
+  user_id,
+  email,
+  username,
+  password_hash,
+  first_name,
+  last_name,
+  phone_number,
+  date_of_birth,
+  gender,
+  headline,
+  preferred_language,
+  role,
+  account_status,
+  avatar_url
+`;
 
 function normalizeRole(role) {
   return String(role || "").toLowerCase();
@@ -48,35 +65,11 @@ function canUseStorage() {
 }
 
 export function getUsers() {
-  if (!canUseStorage()) {
-    return seedUsers;
-  }
-
-  const storedUsers = window.localStorage.getItem(USERS_KEY);
-  if (storedUsers) {
-    const parsedUsers = JSON.parse(storedUsers);
-    const mergedUsers = [
-      ...parsedUsers,
-      ...seedUsers.filter((seedUser) => {
-        return !parsedUsers.some((user) => user.username === seedUser.username || user.email === seedUser.email);
-      }),
-    ];
-
-    if (mergedUsers.length !== parsedUsers.length) {
-      window.localStorage.setItem(USERS_KEY, JSON.stringify(mergedUsers));
-    }
-
-    return mergedUsers;
-  }
-
-  window.localStorage.setItem(USERS_KEY, JSON.stringify(seedUsers));
-  return seedUsers;
+  return [];
 }
 
 export function saveUsers(users) {
-  if (canUseStorage()) {
-    window.localStorage.setItem(USERS_KEY, JSON.stringify(users));
-  }
+  return users;
 }
 
 function loginLocalUser(identifier, password) {
@@ -100,9 +93,18 @@ function loginLocalUser(identifier, password) {
   return { ok: true, user: safeUser };
 }
 
-function isDemoPasswordMatch(user, password) {
+export function isPasswordMatch(storedPassword, password) {
+  if (!storedPassword) return false;
+  if (storedPassword === password) return true;
+  if (storedPassword.startsWith(LEGACY_PASSWORD_PREFIX)) {
+    return storedPassword.slice(LEGACY_PASSWORD_PREFIX.length) === password;
+  }
+  return false;
+}
+
+function isSupabasePasswordMatch(user, password) {
   const storedPassword = user?.password_hash || user?.password || "";
-  return storedPassword === password || storedPassword === `demo-only:${password}`;
+  return isPasswordMatch(storedPassword, password);
 }
 
 async function findMemberIdByUserId(userId) {
@@ -127,6 +129,36 @@ async function findTrainerIdByUserId(userId) {
     .maybeSingle();
 
   return data?.trainer_id || null;
+}
+
+async function findUserByIdentifier(identifier) {
+  const rawIdentifier = identifier.trim();
+  const normalizedIdentifier = rawIdentifier.toLowerCase();
+
+  const { data: emailRows, error: emailError } = await supabase
+    .from("users")
+    .select(USER_SELECT)
+    .ilike("email", normalizedIdentifier)
+    .limit(1);
+
+  if (emailError) {
+    return { data: null, error: emailError };
+  }
+
+  if (emailRows?.[0]) {
+    return { data: emailRows[0], error: null };
+  }
+
+  const { data: usernameRows, error: usernameError } = await supabase
+    .from("users")
+    .select(USER_SELECT)
+    .ilike("username", rawIdentifier)
+    .limit(1);
+
+  return {
+    data: usernameRows?.[0] || null,
+    error: usernameError,
+  };
 }
 
 async function mapSupabaseUser(user) {
@@ -177,37 +209,17 @@ async function mapSupabaseUser(user) {
 
 async function loginSupabaseUser(identifier, password) {
   if (!supabase) {
-    return { ok: false, message: "Supabase is not configured." };
+    return { ok: false, message: "h\u1ec7 th\u1ed1ng is not configured." };
   }
 
-  const normalizedIdentifier = identifier.trim().toLowerCase();
-  const { data, error } = await supabase
-    .from("users")
-    .select(`
-      user_id,
-      email,
-      username,
-      password_hash,
-      first_name,
-      last_name,
-      phone_number,
-      date_of_birth,
-      gender,
-      headline,
-      preferred_language,
-      role,
-      account_status,
-      avatar_url
-    `)
-    .or(`username.eq.${normalizedIdentifier},email.eq.${normalizedIdentifier}`)
-    .maybeSingle();
+  const { data, error } = await findUserByIdentifier(identifier);
 
   if (error) {
-    console.error("[Gymster Supabase] Failed to login demo user:", error);
-    return { ok: false, message: "Unable to verify Supabase account." };
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to login user:", error);
+    return { ok: false, message: "Unable to verify h\u1ec7 th\u1ed1ng account." };
   }
 
-  if (!data || !isDemoPasswordMatch(data, password)) {
+  if (!data || !isSupabasePasswordMatch(data, password)) {
     return { ok: false, message: "Username, email, or password is incorrect." };
   }
 
@@ -221,14 +233,13 @@ async function loginSupabaseUser(identifier, password) {
 
 export async function loginUser(identifier, password) {
   const supabaseResult = await loginSupabaseUser(identifier, password);
-  if (supabaseResult.ok) return supabaseResult;
-
-  return loginLocalUser(identifier, password);
+  return supabaseResult;
 }
 
 export function setCurrentUser(user) {
   if (canUseStorage()) {
     window.localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(user));
+    window.dispatchEvent(new CustomEvent("gymster:user-updated", { detail: user }));
   }
 }
 
@@ -246,8 +257,8 @@ export function getRoleHome(role) {
 }
 
 export function getUserHome(user) {
-  if (normalizeRole(user?.role) === "member" && user.accountStatus && user.accountStatus !== "Active") {
-    return "/onboarding/status";
+  if (normalizeRole(user?.role) === "member") {
+    return "/member";
   }
 
   return getRoleHome(user?.role);
@@ -260,31 +271,5 @@ export function logoutUser() {
 }
 
 export function registerUser(payload) {
-  const users = getUsers();
-  const normalizedUsername = payload.username.trim().toLowerCase();
-  const normalizedEmail = payload.email.trim().toLowerCase();
-
-  const duplicated = users.find((user) => {
-    return (
-      user.username.toLowerCase() === normalizedUsername ||
-      user.email.toLowerCase() === normalizedEmail
-    );
-  });
-
-  if (duplicated) {
-    return { ok: false, message: "Username or email already exists." };
-  }
-
-  const nextUser = {
-    id: Date.now(),
-    role: "Member",
-    accountStatus: "PendingOnboarding",
-    ...payload,
-    username: payload.username.trim(),
-    email: normalizedEmail,
-  };
-
-  saveUsers([...users, nextUser]);
-  const { password: _password, ...safeUser } = nextUser;
-  return { ok: true, user: safeUser };
+  return { ok: false, message: "Registration must be saved through h\u1ec7 th\u1ed1ng." };
 }

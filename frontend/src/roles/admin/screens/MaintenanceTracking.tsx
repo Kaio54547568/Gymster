@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { CheckCircle, Clock, Wrench } from 'lucide-react';
 import { getMaintenanceReports, updateMaintenanceReport } from '../../../services/maintenanceService';
 
@@ -20,30 +20,56 @@ const getSeverityColor = (severity: string) => {
 };
 
 export default function MaintenanceTracking() {
-  const [reports, setReports] = useState(getMaintenanceReports());
+  const [reports, setReports] = useState<any[]>([]);
   const [statusFilter, setStatusFilter] = useState('All');
-  const [selectedReportId, setSelectedReportId] = useState(reports[0]?.id || '');
+  const [selectedReportId, setSelectedReportId] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [warning, setWarning] = useState('');
   const selectedReport = reports.find((report) => report.id === selectedReportId) || reports[0];
 
   const filteredReports = useMemo(() => {
     return statusFilter === 'All' ? reports : reports.filter((report) => report.status === statusFilter);
   }, [reports, statusFilter]);
 
-  const refreshReports = () => setReports(getMaintenanceReports());
-
-  const handleStatusChange = (id: string, status: MaintenanceStatus) => {
-    updateMaintenanceReport(id, { status });
-    refreshReports();
+  const refreshReports = async () => {
+    setLoading(true);
+    const result = await getMaintenanceReports();
+    if (result.error) {
+      setWarning(result.error.message || 'Maintenance reports could not be loaded.');
+      setReports([]);
+    } else {
+      setWarning('');
+      setReports(result.data);
+      setSelectedReportId((current) => current || result.data[0]?.id || '');
+    }
+    setLoading(false);
   };
 
-  const handleNoteChange = (id: string, maintenanceNote: string) => {
-    updateMaintenanceReport(id, { maintenanceNote });
-    refreshReports();
+  useEffect(() => {
+    void refreshReports();
+  }, []);
+
+  const handleStatusChange = async (id: string, status: MaintenanceStatus) => {
+    setReports((current) => current.map((report) => (report.id === id ? { ...report, status } : report)));
+    const result = await updateMaintenanceReport(id, { status });
+    if (!result.ok) setWarning(result.message);
+    await refreshReports();
   };
 
-  const markFixed = (id: string) => {
-    updateMaintenanceReport(id, { status: 'Fixed', maintenanceNote: 'Equipment has been repaired, tested, and returned to service.' });
-    refreshReports();
+  const handleNoteDraftChange = (id: string, maintenanceNote: string) => {
+    setReports((current) => current.map((report) => (report.id === id ? { ...report, maintenanceNote } : report)));
+  };
+
+  const handleNoteSave = async (id: string, maintenanceNote: string) => {
+    const result = await updateMaintenanceReport(id, { maintenanceNote });
+    if (!result.ok) setWarning(result.message);
+    await refreshReports();
+  };
+
+  const markFixed = async (id: string) => {
+    const result = await updateMaintenanceReport(id, { status: 'Fixed', maintenanceNote: 'Equipment has been repaired, tested, and returned to service.' });
+    if (!result.ok) setWarning(result.message);
+    await refreshReports();
   };
 
   return (
@@ -52,6 +78,8 @@ export default function MaintenanceTracking() {
         <h1 className="bebas mb-2 text-5xl tracking-wider text-white">MAINTENANCE TRACKING</h1>
         <p className="text-[#A1A1AA]">View, process, update, and close equipment maintenance reports.</p>
       </div>
+      {warning && <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm font-semibold text-amber-200">{warning}</div>}
+      {loading && <div className="rounded-xl border border-[#EF233C]/20 bg-[#0c1014] px-4 py-3 text-sm font-semibold text-[#A1A1AA]">Loading maintenance reports...</div>}
 
       <div className="grid gap-4 md:grid-cols-4">
         {[
@@ -101,7 +129,7 @@ export default function MaintenanceTracking() {
             <tbody>
               {filteredReports.map((report) => (
                 <tr key={report.id} className="border-b border-[#EF233C]/10 transition-colors hover:bg-[#EF233C]/5">
-                  <td className="px-4 py-4 font-semibold text-white">{report.id}</td>
+                  <td className="px-4 py-4 font-semibold text-white">{report.reportCode || report.id}</td>
                   <td className="px-4 py-4 text-[#EF233C]">{report.equipmentName}</td>
                   <td className="px-4 py-4 text-[#A1A1AA]">{report.room}</td>
                   <td className="max-w-xs px-4 py-4 text-white">{report.issueDescription}</td>
@@ -122,7 +150,8 @@ export default function MaintenanceTracking() {
                   <td className="px-4 py-4">
                     <input
                       value={report.maintenanceNote}
-                      onChange={(event) => handleNoteChange(report.id, event.target.value)}
+                      onChange={(event) => handleNoteDraftChange(report.id, event.target.value)}
+                      onBlur={(event) => handleNoteSave(report.id, event.target.value)}
                       placeholder="Add maintenance note..."
                       className="min-w-64 rounded-lg border border-[#EF233C]/20 bg-[#050607] px-3 py-2 text-sm text-white outline-none focus:border-[#EF233C]"
                     />

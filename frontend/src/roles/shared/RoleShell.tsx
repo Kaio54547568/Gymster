@@ -19,6 +19,7 @@ import {
 import { logoutUser } from '../../services/authService';
 import { useAppearance } from './AppearanceContext';
 import { useRoleTranslationEffect } from './LanguageContext';
+import { useRoleNotifications, type RoleNotification } from './notificationStore';
 
 export type RoleShellItem = {
   id: string;
@@ -30,16 +31,6 @@ export type RoleShellItem = {
   badge?: number;
 };
 
-export type RoleNotification = {
-  id: string;
-  title: string;
-  message: string;
-  time: string;
-  type?: 'success' | 'warning' | 'error' | 'info';
-  read?: boolean;
-  detail?: string;
-};
-
 type RoleShellProps = {
   children: ReactNode;
   menuItems: RoleShellItem[];
@@ -48,6 +39,7 @@ type RoleShellProps = {
   userName: string;
   userRole: string;
   userInitials?: string;
+  userAvatarUrl?: string;
   notificationCount?: number;
   notifications?: RoleNotification[];
   onAvatarClick?: () => void;
@@ -62,6 +54,7 @@ export default function RoleShell({
   userName,
   userRole,
   userInitials,
+  userAvatarUrl,
   notificationCount,
   notifications,
   onAvatarClick,
@@ -74,47 +67,39 @@ export default function RoleShell({
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [notificationOpen, setNotificationOpen] = useState(false);
+  const [notificationFilter, setNotificationFilter] = useState<'all' | 'unread'>('all');
   const [selectedNotification, setSelectedNotification] = useState<RoleNotification | null>(null);
-  const [notificationItems, setNotificationItems] = useState<RoleNotification[]>(
-    notifications ?? [
-      {
-        id: 'SYS001',
-        type: 'warning',
-        title: 'Membership Expiring Soon',
-        message: '15 members have packages expiring within 7 days',
-        time: '08:00 · 6/5/2026',
-        read: false,
-        detail: 'Danh sách hội viên sắp hết hạn cần được kiểm tra và liên hệ gia hạn trong hôm nay.',
-      },
-      {
-        id: 'SYS002',
-        type: 'success',
-        title: 'Payment Completed',
-        message: 'Nguyễn Hoàng Anh renewed VIP Elite package - 12,000,000 VND',
-        time: '07:30 · 6/5/2026',
-        read: false,
-        detail: 'Giao dịch đã hoàn tất. Biên lai đã sẵn sàng trong hệ thống thanh toán.',
-      },
-      {
-        id: 'SYS003',
-        type: 'error',
-        title: 'Failed Renewal',
-        message: 'Trần Minh Đức renewal failed - Payment declined',
-        time: '18:45 · 5/5/2026',
-        read: true,
-        detail: 'Thanh toán bị từ chối bởi cổng thanh toán. Nhân viên cần liên hệ hội viên để cập nhật phương thức.',
-      },
-    ],
-  );
+  const {
+    notifications: notificationItems,
+    unreadCount,
+    markNotificationRead,
+    markAllNotificationsRead,
+  } = useRoleNotifications(notifications);
   const currentTime = new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
   const currentDate = new Date().toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' });
-  const unreadCount = notificationItems.filter((item) => !item.read).length;
   const shownNotificationCount = notificationCount ?? unreadCount;
+  const filteredNotificationItems =
+    notificationFilter === 'unread' ? notificationItems.filter((item) => !item.read) : notificationItems;
   useRoleTranslationEffect(shellRef);
 
   const logout = () => {
     logoutUser();
     navigate('/login', { replace: true });
+  };
+
+  const isMenuItemActive = (item: RoleShellItem) => {
+    if (typeof item.active === 'boolean') return item.active;
+    if (!item.path) return false;
+
+    const normalizedPath = item.path.replace(/\/+$/, '') || '/';
+    const currentPath = location.pathname.replace(/\/+$/, '') || '/';
+    const roleRoot = currentPath.split('/').filter(Boolean)[0];
+
+    if (normalizedPath === `/${roleRoot}`) {
+      return currentPath === normalizedPath;
+    }
+
+    return currentPath === normalizedPath || currentPath.startsWith(`${normalizedPath}/`);
   };
 
   const renderMenuContent = (item: RoleShellItem, isActive: boolean) => {
@@ -138,17 +123,19 @@ export default function RoleShell({
     );
   };
 
-  const markNotificationRead = (id: string) => {
-    setNotificationItems((current) => current.map((item) => (item.id === id ? { ...item, read: true } : item)));
-  };
-
-  const markAllNotificationsRead = () => {
-    setNotificationItems((current) => current.map((item) => ({ ...item, read: true })));
-  };
-
   const openNotificationDetail = (item: RoleNotification) => {
     markNotificationRead(item.id);
     setSelectedNotification({ ...item, read: true });
+  };
+
+  const openAllNotifications = () => {
+    setNotificationOpen(false);
+    setNotificationFilter('all');
+
+    const roleBase = location.pathname.split('/').filter(Boolean)[0];
+    if (roleBase && ['admin', 'staff', 'member'].includes(roleBase)) {
+      navigate(`/${roleBase}/notifications`);
+    }
   };
 
   const notificationIcon = (type: RoleNotification['type']) => {
@@ -213,14 +200,7 @@ export default function RoleShell({
 
         <nav className="role-sidebar-scroll flex-1 overflow-y-auto py-8 px-4">
           {menuItems.map((item) => {
-            const isActive =
-              item.active ??
-              Boolean(
-                item.path &&
-                  (item.path === '/member'
-                    ? location.pathname === item.path
-                    : location.pathname === item.path || location.pathname.startsWith(`${item.path}/`)),
-              );
+            const isActive = isMenuItemActive(item);
 
             const className = `w-full flex items-center gap-4 px-5 py-4 rounded-2xl mb-3 transition-all duration-300 group relative overflow-hidden text-left ${
               isActive
@@ -296,11 +276,27 @@ export default function RoleShell({
                     </button>
                   </div>
                   <div className="flex gap-2 px-5 pb-3">
-                    <span className="rounded-full bg-[#EF233C]/20 px-3 py-1 text-sm font-semibold text-[#EF233C]">Tất cả</span>
-                    <span className="rounded-full px-3 py-1 text-sm font-semibold text-white/70">Chưa đọc</span>
+                    <button
+                      type="button"
+                      onClick={() => setNotificationFilter('all')}
+                      className={`rounded-full px-3 py-1 text-sm font-semibold transition-colors ${
+                        notificationFilter === 'all' ? 'bg-[#EF233C]/20 text-[#EF233C]' : 'text-white/70 hover:bg-white/5 hover:text-white'
+                      }`}
+                    >
+                      Tất cả
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setNotificationFilter('unread')}
+                      className={`rounded-full px-3 py-1 text-sm font-semibold transition-colors ${
+                        notificationFilter === 'unread' ? 'bg-[#EF233C]/20 text-[#EF233C]' : 'text-white/70 hover:bg-white/5 hover:text-white'
+                      }`}
+                    >
+                      Chưa đọc
+                    </button>
                   </div>
                   <div className="role-sidebar-scroll max-h-[500px] overflow-y-auto px-3 pb-3">
-                    {notificationItems.map((item) => (
+                    {filteredNotificationItems.length > 0 ? filteredNotificationItems.map((item) => (
                       <div
                         key={item.id}
                         className={`group relative flex gap-3 rounded-2xl px-3 py-3 transition-colors hover:bg-white/5 ${item.read ? 'opacity-70' : 'opacity-100'}`}
@@ -322,16 +318,27 @@ export default function RoleShell({
                         {!item.read && <span className="mt-6 h-2.5 w-2.5 shrink-0 rounded-full bg-[#EF233C]" />}
                         <button
                           type="button"
-                          onClick={() => openNotificationDetail(item)}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            markNotificationRead(item.id);
+                          }}
                           className="absolute bottom-2 right-3 rounded-full px-2 py-1 text-[11px] font-semibold text-[#EF233C] opacity-0 transition-opacity hover:bg-[#EF233C]/10 group-hover:opacity-100"
                         >
                           Mark as read
                         </button>
                       </div>
-                    ))}
+                    )) : (
+                      <div className="px-4 py-10 text-center text-sm font-semibold text-white/50">
+                        Không có thông báo chưa đọc.
+                      </div>
+                    )}
                   </div>
                   <div className="border-t border-white/10 p-4">
-                    <button type="button" className="w-full rounded-2xl bg-white/10 px-4 py-3 text-sm font-bold text-white transition-colors hover:bg-[#EF233C]/20">
+                    <button
+                      type="button"
+                      onClick={openAllNotifications}
+                      className="w-full rounded-2xl bg-white/10 px-4 py-3 text-sm font-bold text-white transition-colors hover:bg-[#EF233C]/20"
+                    >
                       See all
                     </button>
                   </div>
@@ -349,7 +356,9 @@ export default function RoleShell({
                 <p className="text-xs text-white/50">{userRole}</p>
               </div>
               <div className="w-12 h-12 bg-gradient-to-br from-[#EF233C] via-[#FF2D2D] to-[#990000] rounded-2xl flex items-center justify-center shadow-glow-red text-white font-bold">
-                {userInitials ? userInitials : <User className="w-6 h-6 text-white" />}
+                {userAvatarUrl ? (
+                  <img src={userAvatarUrl} alt={`${userName} avatar`} className="h-full w-full rounded-2xl object-cover" />
+                ) : userInitials ? userInitials : <User className="w-6 h-6 text-white" />}
               </div>
             </button>
           </div>
