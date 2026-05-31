@@ -64,6 +64,19 @@ function canUseStorage() {
   return typeof window !== "undefined" && Boolean(window.localStorage);
 }
 
+function notifyCurrentUserChanged(user) {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("gymster:user-updated", { detail: user }));
+  }
+}
+
+function persistCurrentUser(user) {
+  if (canUseStorage()) {
+    window.localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(user));
+    notifyCurrentUserChanged(user);
+  }
+}
+
 export function getUsers() {
   return [];
 }
@@ -86,9 +99,7 @@ function loginLocalUser(identifier, password) {
   }
 
   const { password: _password, ...safeUser } = user;
-  if (canUseStorage()) {
-    window.localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(safeUser));
-  }
+  persistCurrentUser(safeUser);
 
   return { ok: true, user: safeUser };
 }
@@ -224,9 +235,7 @@ async function loginSupabaseUser(identifier, password) {
   }
 
   const safeUser = await mapSupabaseUser(data);
-  if (canUseStorage()) {
-    window.localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(safeUser));
-  }
+  persistCurrentUser(safeUser);
 
   return { ok: true, user: safeUser };
 }
@@ -237,10 +246,7 @@ export async function loginUser(identifier, password) {
 }
 
 export function setCurrentUser(user) {
-  if (canUseStorage()) {
-    window.localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(user));
-    window.dispatchEvent(new CustomEvent("gymster:user-updated", { detail: user }));
-  }
+  persistCurrentUser(user);
 }
 
 export function getCurrentUser() {
@@ -249,7 +255,14 @@ export function getCurrentUser() {
   }
 
   const storedUser = window.localStorage.getItem(CURRENT_USER_KEY);
-  return storedUser ? JSON.parse(storedUser) : null;
+  if (!storedUser) return null;
+
+  try {
+    return JSON.parse(storedUser);
+  } catch (error) {
+    window.localStorage.removeItem(CURRENT_USER_KEY);
+    return null;
+  }
 }
 
 export function getRoleHome(role) {
@@ -267,6 +280,7 @@ export function getUserHome(user) {
 export function logoutUser() {
   if (canUseStorage()) {
     window.localStorage.removeItem(CURRENT_USER_KEY);
+    notifyCurrentUserChanged(null);
   }
 }
 
