@@ -30,6 +30,28 @@ function splitFullName(fullName) {
   return { firstName: parts[0], lastName: parts.slice(1).join(" ") };
 }
 
+function getRegistrationNameParts(registrationData) {
+  const firstName = String(registrationData.firstName || "").trim();
+  const lastName = String(registrationData.lastName || "").trim();
+
+  if (firstName || lastName) {
+    return { firstName, lastName };
+  }
+
+  return splitFullName(registrationData.fullName);
+}
+
+function getRegistrationFullName(registrationData) {
+  return [registrationData.firstName, registrationData.lastName]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean)
+    .join(" ") || String(registrationData.fullName || "").trim();
+}
+
+function isValidUsername(username) {
+  return /^[A-Za-z0-9][A-Za-z0-9._-]{4,28}[A-Za-z0-9]$/.test(username);
+}
+
 async function ensureEmailIsAvailable(email) {
   const { data, error } = await supabase
     .from("users")
@@ -71,7 +93,7 @@ async function insertTargetMember(userRow, registrationData) {
     .from("members")
     .insert({
       user_id: userRow.user_id,
-      full_name: registrationData.fullName,
+      full_name: getRegistrationFullName(registrationData),
       phone_number: registrationData.phone,
       date_of_birth: registrationData.dob,
       gender: registrationData.gender,
@@ -101,8 +123,16 @@ export async function createPendingMemberAccount(registrationData) {
   }
 
   const email = registrationData.email.trim().toLowerCase();
-  const username = registrationData.username.trim().toLowerCase();
-  const nameParts = splitFullName(registrationData.fullName);
+  const username = registrationData.username.trim();
+  const nameParts = getRegistrationNameParts(registrationData);
+
+  if (!isValidUsername(username)) {
+    return {
+      ok: false,
+      message: "Username must be 6-30 characters, use only A-Z, a-z, 0-9, _, ., -, and cannot start or end with _, ., or -.",
+    };
+  }
+
   const emailCheck = await ensureEmailIsAvailable(email);
 
   if (!emailCheck.ok) {
