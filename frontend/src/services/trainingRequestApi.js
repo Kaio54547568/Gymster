@@ -19,6 +19,66 @@ function getTrainerName(row) {
   return combineUserName(row?.trainers?.users, row?.trainers?.employees?.full_name || row?.trainers?.trainer_code || row?.trainer_id || "Trainer");
 }
 
+async function createTrainerSelectionNotification(row) {
+  if (!row?.member_id || !row?.trainer_id) return;
+
+  try {
+    const [{ data: member }, { data: trainer }] = await Promise.all([
+      supabase
+        .from("members")
+        .select("user_id")
+        .eq("member_id", row.member_id)
+        .maybeSingle(),
+      supabase
+        .from("trainers")
+        .select("trainer_code,full_name,specialty,rating,user_id,employee_id")
+        .eq("trainer_id", row.trainer_id)
+        .maybeSingle(),
+    ]);
+
+    if (!member?.user_id) return;
+
+    let trainerName = trainer?.full_name || trainer?.trainer_code || "PT";
+    let trainerEmail = "";
+
+    if (trainer?.user_id) {
+      const { data: trainerUser } = await supabase
+        .from("users")
+        .select("first_name,last_name,email")
+        .eq("user_id", trainer.user_id)
+        .maybeSingle();
+      trainerName = combineUserName(trainerUser, trainerName);
+      trainerEmail = trainerUser?.email || "";
+    } else if (trainer?.employee_id) {
+      const { data: employee } = await supabase
+        .from("employees")
+        .select("full_name,email")
+        .eq("employee_id", trainer.employee_id)
+        .maybeSingle();
+      trainerName = employee?.full_name || trainerName;
+      trainerEmail = employee?.email || "";
+    }
+
+    const parts = [
+      `PT: ${trainerName}`,
+      trainer?.specialty ? `Chuyên môn: ${trainer.specialty}` : "",
+      trainer?.rating ? `Đánh giá: ${trainer.rating}/5` : "",
+      row.requested_schedule ? `Lịch đăng ký: ${row.requested_schedule}` : "",
+      trainerEmail ? `Liên hệ: ${trainerEmail}` : "",
+    ].filter(Boolean);
+
+    await supabase.from("notifications").insert({
+      user_id: member.user_id,
+      notification_type: "system",
+      title: "Thông tin PT của bạn",
+      message: parts.join(" | "),
+      is_read: false,
+    });
+  } catch (error) {
+    console.error("[Gymster hệ thống] Failed to create trainer selection notification:", error);
+  }
+}
+
 export function getTrainingRequestStatusLabel(status) {
   const normalized = String(status || "").toLowerCase();
   const labels = {
@@ -270,6 +330,8 @@ export async function createTrainingRequest(request) {
     return { data: null, error };
   }
 
+  await createTrainerSelectionNotification(data);
+
   return { data: mapTrainingRequestRow(data), error: null };
 }
 
@@ -374,6 +436,10 @@ export async function updateTrainingRequestStatus(requestId, status, declineReas
   if (error) {
     console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to update training request:", error);
     return { data: null, error };
+  }
+
+  if (["accepted", "approved"].includes(String(status || "").toLowerCase())) {
+    await createTrainerSelectionNotification(data);
   }
 
   return { data: mapTrainingRequestRow(data), error: null };

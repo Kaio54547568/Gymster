@@ -1,9 +1,21 @@
 .auth-page {
   min-height: 100vh;
   display: flex;
-  background: #0d0d0d;
-  color: #ffffff;
+  background: var(--bg-secondary);
+  color: var(--text);
   font-family: "Segoe UI", Arial, "Helvetica Neue", Helvetica, sans-serif;
+}
+
+.auth-theme-toggle {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 20;
+}
+
+[data-theme="light"] {
+  /* Auth uses image overlays, so these fixed alpha stops preserve brand contrast over photos. */
+  --auth-hero-overlay: linear-gradient(150deg, rgba(255, 255, 255, 0.34) 0%, rgba(225, 29, 46, 0.1) 48%, rgba(17, 24, 39, 0.5) 100%);
 }
 
 .auth-hero {
@@ -18,7 +30,7 @@
 .auth-hero-bg {
   position: absolute;
   inset: 0;
-  background: #000;
+  background: var(--bg);
 }
 
 .auth-hero-bg img {
@@ -36,13 +48,13 @@
 }
 
 .auth-hero-bg::before {
-  background: linear-gradient(150deg, rgba(0, 0, 0, 0.86) 0%, rgba(153, 0, 0, 0.14) 55%, rgba(0, 0, 0, 0.92) 100%);
+  background: var(--auth-hero-overlay, linear-gradient(150deg, rgba(0, 0, 0, 0.86) 0%, rgba(153, 0, 0, 0.14) 55%, rgba(0, 0, 0, 0.92) 100%));
 }
 
 .auth-hero-bg::after {
   background:
-    linear-gradient(to right, rgba(0, 0, 0, 0.12), rgba(0, 0, 0, 0.68)),
-    linear-gradient(to top, rgba(153, 0, 0, 0.42), transparent 34%);
+    linear-gradient(to right, transparent, color-mix(in srgb, var(--bg) 68%, transparent)),
+    linear-gradient(to top, color-mix(in srgb, var(--primary-dark) 42%, transparent), transparent 34%);
 }
 
 .auth-particles {
@@ -56,8 +68,8 @@
   width: 2px;
   height: 2px;
   border-radius: 999px;
-  background: rgba(255, 59, 59, 0.55);
-  box-shadow: 0 0 12px rgba(255, 59, 59, 0.8);
+  background: color-mix(in srgb, var(--primary) 55%, transparent);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--primary) 80%, transparent);
 }
 
 .auth-particles span:nth-child(1) { left: 18%; top: 14%; }
@@ -84,7 +96,7 @@
   gap: 12px;
   border: 0;
   background: transparent;
-  color: #fff;
+  color: var(--primary-foreground);
   padding: 0;
 }
 
@@ -93,8 +105,8 @@
 .card-icon {
   display: grid;
   place-items: center;
-  background: linear-gradient(135deg, #ff3b3b, #990000);
-  box-shadow: 0 0 22px rgba(255, 59, 59, 0.48);
+  background: var(--gradient-primary);
+  box-shadow: var(--shadow-red);
 }
 
 .forge-brand-icon {
@@ -113,7 +125,7 @@
 
 .forge-brand-sub {
   margin-top: 6px;
-  color: #ff3b3b;
+  color: var(--primary);
   font-size: 12px;
   font-weight: 800;
   letter-spacing: 0.25em;
@@ -125,7 +137,7 @@
   align-items: center;
   gap: 12px;
   margin-bottom: 24px;
-  color: #ff3b3b;
+  color: var(--primary);
   font-size: 12px;
   font-weight: 800;
   letter-spacing: 0.3em;
@@ -136,30 +148,30 @@
   content: "";
   width: 40px;
   height: 2px;
-  background: #ff3b3b;
+  background: var(--primary);
 }
 
 .auth-hero-title {
   margin: 0;
-  color: #fff;
+  color: var(--primary-foreground);
   font-family: "Segoe UI", Arial, "Helvetica Neue", Helvetica, sans-serif;
   font-size: clamp(58px, 5.5vw, 92px);
   font-weight: 900;
   letter-spacing: 0;
   line-height: 0.94;
   text-transform: uppercase;
-  text-shadow: 0 0 80px rgba(255, 59, 59, 0.3);
+  text-shadow: 0 0 80px color-mix(in srgb, var(--primary) 30%, transparent);
 }
 
 .auth-hero-title span {
   display: block;
-  color: #ff3b3b;
-  text-shadow: 0 0 50px rgba(255, 59, 59, 0.9);
+  color: var(--primary);
+  text-shadow: 0 0 50px color-mix(in srgb, var(--primary) 70%, transparent);
 }
 
 .hero-subtitle {
   margin: 20px 0 0;
-  color: #d1d5db;
+  color: var(--text-secondary);
   font-size: 17px;
   font-weight: 400;
   letter-spacing: 0.04em;
@@ -173,7 +185,7 @@
 
 .hero-stats strong {
   display: block;
-  color: #ff3b3b;
+  color: var(--primary);
   font-family: "Segoe UI", Arial, "Helvetica Neue", Helvetica, sans-serif;
   font-size: 28px;
   letter-spacing: 0;
@@ -182,7 +194,7 @@
 .hero-stats span {
   display: block;
   margin-top: 4px;
-  color: #6b7280;
+  color: var(--text-muted);
   font-size: 12px;
   letter-spacing: 0.16em;
   text-transform: uppercase;
@@ -192,7 +204,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  color: #6b7280;
+  color: var(--text-muted);
   font-size: 13px;
   letter-spacing: 0.03em;
 }
@@ -223,7 +235,7 @@
   margin-bottom: 36px;
   border: 0;
   background: transparent;
-  color: #fff;
+  color: var(--text);
   padding: 0;
 }
 
@@ -242,10 +254,10 @@
 
 .auth-card {
   padding: 32px;
-  border: 1px solid rgba(255, 255, 255, 0.07);
+  border: 1px solid var(--border);
   border-radius: 16px;
-  background: rgba(255, 255, 255, 0.025);
-  box-shadow: 0 30px 70px rgba(0, 0, 0, 0.6);
+  background: color-mix(in srgb, var(--card) 92%, transparent);
+  box-shadow: var(--shadow-panel);
   backdrop-filter: blur(24px);
 }
 
@@ -258,10 +270,10 @@
   width: 56px;
   height: 56px;
   margin: 0 auto 22px;
-  border: 1px solid rgba(255, 59, 59, 0.28);
+  border: 1px solid color-mix(in srgb, var(--primary) 28%, transparent);
   border-radius: 18px;
-  background: linear-gradient(135deg, rgba(255, 59, 59, 0.18), rgba(153, 0, 0, 0.12));
-  color: #ff3b3b;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--primary) 18%, transparent), color-mix(in srgb, var(--primary-dark) 12%, transparent));
+  color: var(--primary);
   font-size: 24px;
 }
 
@@ -278,13 +290,13 @@
 
 .card-head p {
   margin: 0;
-  color: #9ca3af;
+  color: var(--text-secondary);
   font-size: 14px;
 }
 
 .form-section-title {
   margin: 0 0 18px;
-  color: #ff3b3b;
+  color: var(--primary);
   font-size: 13px;
   font-weight: 800;
   letter-spacing: 0.18em;
@@ -308,7 +320,7 @@
 }
 
 .form-field label {
-  color: #9ca3af;
+  color: var(--text-secondary);
   font-size: 12px;
   font-weight: 800;
   letter-spacing: 0.12em;
@@ -319,11 +331,11 @@
 .form-field select {
   width: 100%;
   min-height: 48px;
-  border: 1px solid rgba(255, 255, 255, 0.07);
+  border: 1px solid var(--border);
   border-radius: 10px;
   outline: none;
-  background: rgba(255, 255, 255, 0.04);
-  color: #fff;
+  background: var(--input-bg);
+  color: var(--text);
   font-size: 14px;
   padding: 0 14px;
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
@@ -344,7 +356,7 @@
   position: absolute;
   top: 50%;
   transform: translateY(-50%);
-  color: #4b5563;
+  color: var(--primary);
   font-size: 16px;
 }
 
@@ -363,17 +375,18 @@
 }
 
 .form-field input::placeholder {
-  color: #4b5563;
+  color: color-mix(in srgb, var(--text-muted) 78%, transparent);
 }
 
 .form-field select option {
-  color: #111827;
+  color: var(--text);
+  background: var(--popover);
 }
 
 .form-field input:focus,
 .form-field select:focus {
-  border-color: rgba(255, 59, 59, 0.7);
-  box-shadow: 0 0 18px rgba(255, 59, 59, 0.12);
+  border-color: color-mix(in srgb, var(--primary) 70%, transparent);
+  box-shadow: 0 0 18px color-mix(in srgb, var(--primary) 12%, transparent);
 }
 
 .form-row {
@@ -387,7 +400,7 @@
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  color: #9ca3af;
+  color: var(--text-secondary);
   font-size: 14px;
   line-height: 1.45;
 }
@@ -395,7 +408,7 @@
 .check-field input {
   width: 16px;
   height: 16px;
-  accent-color: #ff3b3b;
+  accent-color: var(--primary);
 }
 
 .text-link,
@@ -403,7 +416,7 @@
   border: 0;
   padding: 0;
   background: transparent;
-  color: #ff3b3b;
+  color: var(--primary);
   font-size: 14px;
   font-weight: 800;
 }
@@ -413,9 +426,9 @@
   min-height: 58px;
   border: 0;
   border-radius: 12px;
-  background: linear-gradient(135deg, #ff3b3b, #990000);
-  box-shadow: 0 0 30px rgba(255, 59, 59, 0.4);
-  color: #fff;
+  background: var(--gradient-primary);
+  box-shadow: var(--shadow-red);
+  color: var(--primary-foreground);
   font-family: "Segoe UI", Arial, "Helvetica Neue", Helvetica, sans-serif;
   font-size: 18px;
   font-weight: 900;
@@ -439,15 +452,15 @@
 }
 
 .auth-message.error {
-  border: 1px solid rgba(255, 59, 59, 0.36);
-  background: rgba(255, 59, 59, 0.1);
-  color: #ff9a9a;
+  border: 1px solid color-mix(in srgb, var(--danger) 36%, transparent);
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  color: var(--danger);
 }
 
 .auth-message.success {
-  border: 1px solid rgba(34, 197, 94, 0.34);
-  background: rgba(34, 197, 94, 0.1);
-  color: #86efac;
+  border: 1px solid color-mix(in srgb, var(--success) 34%, transparent);
+  background: color-mix(in srgb, var(--success) 10%, transparent);
+  color: var(--success);
 }
 
 .divider {
@@ -455,7 +468,7 @@
   align-items: center;
   gap: 12px;
   margin: 20px 0;
-  color: #4b5563;
+  color: var(--text-muted);
   font-size: 12px;
 }
 
@@ -464,7 +477,7 @@
   content: "";
   flex: 1;
   height: 1px;
-  background: rgba(255, 255, 255, 0.07);
+  background: var(--line);
 }
 
 .social-grid {
@@ -475,22 +488,22 @@
 
 .social-btn {
   min-height: 42px;
-  border: 1px solid rgba(255, 255, 255, 0.07);
+  border: 1px solid var(--border);
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.03);
-  color: #9ca3af;
+  background: color-mix(in srgb, var(--surface-2) 60%, transparent);
+  color: var(--text-secondary);
   font-weight: 700;
   transition: border-color 0.2s ease, color 0.2s ease;
 }
 
 .social-btn:hover {
-  border-color: rgba(255, 59, 59, 0.32);
-  color: #fff;
+  border-color: color-mix(in srgb, var(--primary) 32%, transparent);
+  color: var(--text);
 }
 
 .switch-text {
   margin: 20px 0 0;
-  color: #6b7280;
+  color: var(--text-muted);
   font-size: 14px;
   text-align: center;
 }
@@ -501,12 +514,12 @@
   margin: 24px auto 0;
   border: 0;
   background: transparent;
-  color: #4b5563;
+  color: var(--primary);
   font-size: 14px;
 }
 
 .back-home:hover {
-  color: #fff;
+  color: var(--primary-dark);
 }
 
 .package-divider {
@@ -514,7 +527,7 @@
   align-items: center;
   gap: 14px;
   margin: 32px 0 22px;
-  color: #ff3b3b;
+  color: var(--primary);
   font-size: 12px;
   font-weight: 800;
   letter-spacing: 0.18em;
@@ -526,7 +539,7 @@
   content: "";
   flex: 1;
   height: 1px;
-  background: rgba(255, 59, 59, 0.18);
+  background: color-mix(in srgb, var(--primary) 18%, transparent);
 }
 
 .package-grid,
@@ -540,10 +553,10 @@
 .trainer-card {
   position: relative;
   min-height: 238px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border);
   border-radius: 14px;
-  background: rgba(255, 255, 255, 0.025);
-  color: #fff;
+  background: color-mix(in srgb, var(--card) 92%, transparent);
+  color: var(--text);
   padding: 22px;
   text-align: left;
   transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
@@ -556,9 +569,9 @@
 
 .package-card.active,
 .trainer-card.active {
-  border-color: rgba(255, 59, 59, 0.55);
-  background: linear-gradient(145deg, rgba(255, 59, 59, 0.14), rgba(153, 0, 0, 0.08));
-  box-shadow: 0 0 35px rgba(255, 59, 59, 0.2);
+  border-color: color-mix(in srgb, var(--primary) 55%, transparent);
+  background: linear-gradient(145deg, color-mix(in srgb, var(--primary) 14%, transparent), color-mix(in srgb, var(--primary-dark) 8%, transparent));
+  box-shadow: var(--shadow-red);
 }
 
 .package-badge {
@@ -568,9 +581,9 @@
   transform: translateX(-50%);
   white-space: nowrap;
   border-radius: 999px;
-  background: linear-gradient(90deg, #ff3b3b, #990000);
-  box-shadow: 0 0 12px rgba(255, 59, 59, 0.5);
-  color: #fff;
+  background: var(--gradient-primary);
+  box-shadow: var(--shadow-red);
+  color: var(--primary-foreground);
   padding: 5px 11px;
   font-size: 9px;
   font-weight: 900;
@@ -580,12 +593,12 @@
 .pkg-top {
   display: flex;
   justify-content: space-between;
-  color: #4b5563;
+  color: var(--text-muted);
   margin-bottom: 18px;
 }
 
 .package-card.active .pkg-top {
-  color: #ff3b3b;
+  color: var(--primary);
 }
 
 .pkg-check {
@@ -595,22 +608,22 @@
   display: grid;
   place-items: center;
   border-radius: 999px;
-  background: #ff3b3b;
-  color: #fff;
+  background: var(--primary);
+  color: var(--primary-foreground);
   font-size: 10px;
   font-weight: 900;
 }
 
 .package-card h3 {
   margin: 0 0 8px;
-  color: #6b7280;
+  color: var(--text-muted);
   font-family: "Segoe UI", Arial, "Helvetica Neue", Helvetica, sans-serif;
   font-size: 13px;
   letter-spacing: 0.14em;
 }
 
 .package-card.active h3 {
-  color: #ff3b3b;
+  color: var(--primary);
 }
 
 .pkg-price {
@@ -623,13 +636,13 @@
 
 .pkg-price span {
   margin-left: 3px;
-  color: #6b7280;
+  color: var(--text-muted);
   font-family: "Segoe UI", Arial, "Helvetica Neue", Helvetica, sans-serif;
   font-size: 12px;
 }
 
 .pkg-duration {
-  color: #6b7280;
+  color: var(--text-muted);
   font-size: 12px;
   margin-bottom: 14px;
 }
@@ -645,13 +658,13 @@
 .pkg-features li {
   display: flex;
   gap: 7px;
-  color: #6b7280;
+  color: var(--text-muted);
   font-size: 12px;
   line-height: 1.25;
 }
 
 .package-card.active .pkg-features li {
-  color: #d1d5db;
+  color: var(--text-secondary);
 }
 
 .vip-section {
@@ -668,13 +681,13 @@
   height: 64px;
   margin: 0 auto 12px;
   overflow: hidden;
-  border: 2px solid rgba(255, 255, 255, 0.08);
+  border: 2px solid var(--border);
   border-radius: 999px;
 }
 
 .trainer-card.active .trainer-avatar {
-  border-color: #ff3b3b;
-  box-shadow: 0 0 20px rgba(255, 59, 59, 0.45);
+  border-color: var(--primary);
+  box-shadow: var(--shadow-red);
 }
 
 .trainer-avatar img {
@@ -691,45 +704,43 @@
 .trainer-meta,
 .trainer-small {
   margin-top: 5px;
-  color: #6b7280;
+  color: var(--text-muted);
   font-size: 11px;
 }
 
 .rating {
   margin-top: 8px;
-  color: #ff3b3b;
+  color: var(--primary);
   font-size: 11px;
 }
 
 .register-submit-card {
   margin-top: 22px;
   padding: 26px;
-  border: 1px solid rgba(255, 255, 255, 0.055);
+  border: 1px solid var(--border);
   border-radius: 16px;
-  background: rgba(255, 255, 255, 0.02);
+  background: color-mix(in srgb, var(--card) 90%, transparent);
 }
 
 .landing-info {
-  background:
-    radial-gradient(circle at 18% 0%, rgba(255, 59, 59, 0.12), transparent 28%),
-    linear-gradient(180deg, #0d0d0d 0%, #080808 100%);
-  color: #fff;
+  background: var(--gradient-hero);
+  color: var(--text);
   font-family: "Segoe UI", Arial, "Helvetica Neue", Helvetica, sans-serif;
 }
 
 .landing-band {
   padding: 88px 24px;
-  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  border-top: 1px solid var(--border);
 }
 
 .landing-band.muted {
-  background: rgba(255, 255, 255, 0.025);
+  background: color-mix(in srgb, var(--surface-2) 52%, transparent);
 }
 
 .about-band {
   background:
-    linear-gradient(90deg, rgba(255, 59, 59, 0.08), transparent 45%),
-    rgba(255, 255, 255, 0.015);
+    linear-gradient(90deg, color-mix(in srgb, var(--primary) 8%, transparent), transparent 45%),
+    color-mix(in srgb, var(--surface-2) 42%, transparent);
 }
 
 .landing-container {
@@ -746,7 +757,7 @@
 
 .landing-section-head p {
   margin: 0 0 14px;
-  color: #ff3b3b;
+  color: var(--primary);
   font-size: 12px;
   font-weight: 900;
   letter-spacing: 0.22em;
@@ -766,7 +777,7 @@
 .landing-copy {
   display: block;
   margin-top: 18px;
-  color: #b9c0cc;
+  color: var(--text-secondary);
   font-size: 16px;
   line-height: 1.8;
 }
@@ -792,10 +803,10 @@
 .landing-card,
 .step-card,
 .faq-item {
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--border);
   border-radius: 14px;
-  background: rgba(255, 255, 255, 0.035);
-  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.24);
+  background: color-mix(in srgb, var(--card) 94%, transparent);
+  box-shadow: var(--shadow-panel);
 }
 
 .landing-card {
@@ -806,7 +817,7 @@
 .landing-card h3,
 .step-card h3 {
   margin: 0 0 12px;
-  color: #fff;
+  color: var(--text);
   font-size: 18px;
   font-weight: 900;
 }
@@ -815,7 +826,7 @@
 .step-card p,
 .faq-item p {
   margin: 0;
-  color: #aeb6c4;
+  color: var(--text-secondary);
   font-size: 15px;
   line-height: 1.75;
 }
@@ -838,8 +849,8 @@
   place-items: center;
   margin-bottom: 18px;
   border-radius: 12px;
-  background: linear-gradient(135deg, #ff3b3b, #990000);
-  box-shadow: 0 0 22px rgba(255, 59, 59, 0.38);
+  background: var(--gradient-primary);
+  box-shadow: var(--shadow-red);
 }
 
 .benefit-list {
@@ -853,10 +864,10 @@
 .benefit-list li {
   position: relative;
   padding: 18px 18px 18px 42px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--border);
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.035);
-  color: #d8dde6;
+  background: color-mix(in srgb, var(--card) 94%, transparent);
+  color: var(--text-secondary);
   line-height: 1.55;
 }
 
@@ -868,8 +879,8 @@
   width: 8px;
   height: 8px;
   border-radius: 999px;
-  background: #ff3b3b;
-  box-shadow: 0 0 14px rgba(255, 59, 59, 0.7);
+  background: var(--primary);
+  box-shadow: var(--shadow-red);
 }
 
 .faq-list {
@@ -886,7 +897,7 @@
 .faq-item summary {
   cursor: pointer;
   padding: 20px 0;
-  color: #fff;
+  color: var(--text);
   font-weight: 900;
 }
 
@@ -896,8 +907,8 @@
 
 .landing-footer {
   padding: 64px 24px;
-  border-top: 1px solid rgba(255, 59, 59, 0.2);
-  background: linear-gradient(135deg, rgba(255, 59, 59, 0.16), rgba(0, 0, 0, 0.9));
+  border-top: 1px solid color-mix(in srgb, var(--primary) 20%, transparent);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--primary) 16%, transparent), color-mix(in srgb, var(--bg) 90%, transparent));
 }
 
 .footer-inner {
@@ -909,7 +920,7 @@
 
 .footer-brand {
   margin: 0 0 12px;
-  color: #ff3b3b;
+  color: var(--primary);
   font-weight: 900;
   letter-spacing: 0.24em;
 }
@@ -933,16 +944,16 @@
   justify-content: center;
   min-height: 46px;
   padding: 0 20px;
-  border: 1px solid rgba(255, 255, 255, 0.16);
+  border: 1px solid var(--border);
   border-radius: 10px;
-  color: #fff;
+  color: var(--text);
   font-weight: 900;
 }
 
 .footer-btn.primary {
   border-color: transparent;
-  background: linear-gradient(135deg, #ff3b3b, #990000);
-  box-shadow: 0 0 24px rgba(255, 59, 59, 0.3);
+  background: var(--gradient-primary);
+  box-shadow: var(--shadow-red);
 }
 
 @media (max-width: 1120px) {

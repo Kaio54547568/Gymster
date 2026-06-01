@@ -1,5 +1,6 @@
 import { Outlet, useNavigate } from 'react-router';
 import {
+  CalendarCheck,
   Dumbbell,
   History,
   LayoutDashboard,
@@ -16,6 +17,7 @@ const menuItems: RoleShellItem[] = [
   { id: 'dashboard', path: '/staff/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
   { id: 'add-member', path: '/staff/add-member', icon: UserPlus, label: 'Add Member' },
   { id: 'members', path: '/staff/members', icon: Users, label: 'Member List' },
+  { id: 'check-in', path: '/staff/check-in', icon: CalendarCheck, label: 'Daily Check-in' },
   { id: 'renew-package', path: '/staff/renew-package', icon: RefreshCw, label: 'Renew Package' },
   { id: 'history', path: '/staff/history', icon: History, label: 'Usage History' },
   { id: 'feedback', path: '/staff/feedback', icon: MessageSquare, label: 'Feedback Management' },

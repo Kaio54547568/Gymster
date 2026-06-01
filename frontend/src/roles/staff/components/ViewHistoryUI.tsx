@@ -26,7 +26,7 @@ const COPY = {
     eyebrow: 'Member Activity',
     titleA: 'USAGE',
     titleB: 'HISTORY',
-    subtitle: 'Tra c?u l?ch s? d?ng d?ch v?, bu?i t?p, PT v? l??t v?o ph?ng t?p.',
+    subtitle: 'Search member check-ins, service usage, workout sessions, and PT activity.',
     criteria: 'Search Criteria',
     memberLabel: 'Member',
     keyword: 'Enter member name, ID, phone, or service type...',

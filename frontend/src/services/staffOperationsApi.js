@@ -201,6 +201,130 @@ export async function disableStaffMember(memberId, staffPassword) {
   return { ok: true, message: "Member disabled." };
 }
 
+async function fetchLatestActivePackage(memberId) {
+  const { data, error } = await supabase
+    .from("member_packages")
+    .select("member_package_id,member_id,package_id,status,end_date,sessions_total,sessions_used,used_sessions,remaining_sessions,created_at")
+    .eq("member_id", memberId)
+    .order("created_at", { ascending: false })
+    .limit(20);
+
+  if (error) throw error;
+
+  return (data || []).find((item) => item.status === "active") || data?.[0] || null;
+}
+
+function getCheckInBounds(value = new Date()) {
+  const base = typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)
+    ? new Date(`${value}T00:00:00`)
+    : new Date(value);
+  const start = Number.isNaN(base.getTime()) ? new Date() : base;
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(start);
+  end.setDate(end.getDate() + 1);
+  return { start, end };
+}
+
+export async function getStaffCheckInsForDate(dateValue) {
+  if (!supabase) return { data: [], error: new Error("Hệ thống chưa được cấu hình.") };
+
+  try {
+    const { start, end } = getCheckInBounds(dateValue);
+    const { data, error } = await supabase
+      .from("member_usage_history")
+      .select("*")
+      .eq("usage_type", "check_in")
+      .gte("usage_date", start.toISOString())
+      .lt("usage_date", end.toISOString())
+      .order("usage_date", { ascending: false });
+
+    if (error) throw error;
+
+    return {
+      data: (data || []).map((row) => ({
+        id: row.usage_id || row.history_id || row.id,
+        memberId: row.member_id,
+        memberPackageId: row.member_package_id,
+        usageType: row.usage_type,
+        usageDate: row.usage_date,
+        description: row.description || "",
+        createdAt: row.created_at,
+      })),
+      error: null,
+    };
+  } catch (error) {
+    console.error("[Gymster hệ thống] Failed to load staff check-ins:", error);
+    return { data: [], error };
+  }
+}
+
+export async function checkInStaffMember(memberId, dateValue = new Date()) {
+  if (!supabase) return { ok: false, code: "system_not_configured", message: "Hệ thống chưa được cấu hình." };
+
+  try {
+    const memberPackage = await fetchLatestActivePackage(memberId);
+    const { start, end } = getCheckInBounds(dateValue);
+    const checkInAt = new Date(start);
+    checkInAt.setHours(12, 0, 0, 0);
+    const today = new Date();
+    const endDate = memberPackage?.end_date ? new Date(memberPackage.end_date) : null;
+
+    if (!memberPackage || memberPackage.status !== "active" || (endDate && endDate < today)) {
+      return { ok: false, code: "no_active_package", message: "Hội viên chưa có gói tập còn hiệu lực để check-in." };
+    }
+
+    const { data: existing, error: existingError } = await supabase
+      .from("member_usage_history")
+      .select("usage_id,history_id,id")
+      .eq("member_id", memberId)
+      .eq("usage_type", "check_in")
+      .gte("usage_date", start.toISOString())
+      .lt("usage_date", end.toISOString())
+      .limit(1);
+    if (existingError) throw existingError;
+
+    if (existing?.length) {
+      return { ok: true, alreadyChecked: true, code: "already_checked", message: "Hội viên đã được check-in trong ngày này." };
+    }
+
+    const { error: historyError } = await supabase.from("member_usage_history").insert({
+      member_id: memberId,
+      member_package_id: memberPackage.member_package_id,
+      usage_type: "check_in",
+      usage_date: checkInAt.toISOString(),
+      description: "Staff check-in tại phòng tập.",
+    });
+    if (historyError) throw historyError;
+
+    const currentUsed = Number(memberPackage.used_sessions ?? memberPackage.sessions_used ?? 0);
+    const nextUsed = currentUsed + 1;
+    const currentRemaining = memberPackage.remaining_sessions;
+    const updatePayload = {
+      used_sessions: nextUsed,
+      sessions_used: nextUsed,
+      remaining_sessions: Number.isFinite(Number(currentRemaining)) ? Math.max(0, Number(currentRemaining) - 1) : currentRemaining,
+    };
+
+    const { error: updateError } = await supabase
+      .from("member_packages")
+      .update(updatePayload)
+      .eq("member_package_id", memberPackage.member_package_id);
+
+    if (updateError) {
+      const { error: fallbackError } = await supabase
+        .from("member_packages")
+        .update({ sessions_used: nextUsed })
+        .eq("member_package_id", memberPackage.member_package_id);
+      if (fallbackError) throw fallbackError;
+    }
+
+    return { ok: true, code: "check_in_success", message: "Check-in thành công. Lịch sử và số buổi tập đã được cập nhật." };
+  } catch (error) {
+    console.error("[Gymster hệ thống] Failed to check in member:", error);
+    return { ok: false, code: "check_in_failed", message: "Không thể check-in hội viên." };
+  }
+}
+
 export async function createStaffMember(form) {
   if (!supabase) return { ok: false, message: "h\u1ec7 th\u1ed1ng is not configured." };
 
@@ -436,6 +560,7 @@ export async function getStaffEquipmentStatus() {
       const item = equipmentById[report.equipment_id] || {};
       return {
         id: report.maintenance_report_id,
+        equipmentUuid: report.equipment_id || "",
         equipmentName: item.equipment_name || report.issue_title || "Equipment",
         room: roomsById[report.room_id] || roomsById[item.room_id] || "Unassigned",
         issueDescription: report.issue_description || report.issue_title || "",
@@ -499,4 +624,54 @@ export async function createStaffMaintenanceReport(form) {
   }
 
   return { ok: true, message: "Maintenance report submitted." };
+}
+
+export async function markStaffEquipmentMaintained({ equipmentUuid, reportId }) {
+  if (!supabase) return { ok: false, message: "Hệ thống chưa được cấu hình." };
+
+  try {
+    const completedAt = new Date().toISOString();
+    let resolvedEquipmentId = equipmentUuid || "";
+
+    if (!resolvedEquipmentId && reportId) {
+      const { data: report } = await supabase
+        .from("maintenance_reports")
+        .select("equipment_id")
+        .eq("maintenance_report_id", reportId)
+        .maybeSingle();
+      resolvedEquipmentId = report?.equipment_id || "";
+    }
+
+    if (reportId) {
+      const { error: reportError } = await supabase
+        .from("maintenance_reports")
+        .update({ status: "resolved", resolved_at: completedAt })
+        .eq("maintenance_report_id", reportId);
+      if (reportError) throw reportError;
+    }
+
+    if (resolvedEquipmentId && uuidPattern.test(String(resolvedEquipmentId))) {
+      const { error: equipmentError } = await supabase
+        .from("equipment")
+        .update({
+          status: "active",
+          last_maintenance_date: completedAt.slice(0, 10),
+        })
+        .eq("equipment_id", resolvedEquipmentId);
+      if (equipmentError) throw equipmentError;
+
+      await supabase.from("maintenance_records").insert({
+        maintenance_report_id: reportId || null,
+        equipment_id: resolvedEquipmentId,
+        maintenance_type: "repair",
+        description: "Staff marked maintenance as completed.",
+        completed_at: completedAt,
+      });
+    }
+
+    return { ok: true, message: "Thiết bị đã được cập nhật trạng thái hoạt động." };
+  } catch (error) {
+    console.error("[Gymster hệ thống] Failed to mark equipment maintained:", error);
+    return { ok: false, message: "Không thể cập nhật trạng thái bảo trì." };
+  }
 }

@@ -1,6 +1,7 @@
 import { Link, useNavigate } from "react-router";
 import { useState } from "react";
 import AuthHero from "../../components/auth/AuthHero";
+import ThemeToggle from "../../components/theme/ThemeToggle";
 import { getUserHome, loginUser } from "../../services/authService";
 import "./Auth.css";
 
@@ -35,6 +36,7 @@ function LoginPage() {
 
   return (
     <main className="auth-page">
+      <ThemeToggle className="auth-theme-toggle" />
       <AuthHero />
 
       <section className="auth-main">

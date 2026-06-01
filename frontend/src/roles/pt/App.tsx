@@ -5,7 +5,7 @@ import {
   X, ChevronRight, TrendingUp, Clock, Award,
   Activity, ArrowLeft, CheckCircle, AlertTriangle,
   User, Phone, Mail, Lock, Camera, Star,
-  Info, Zap, Target, Globe
+  Info, Zap, Target, Globe, Wrench
 } from "lucide-react";
 import {
   AreaChart, Area, BarChart, Bar, LineChart, Line,
@@ -14,6 +14,7 @@ import {
 } from "recharts";
 import RoleShell, { type RoleShellItem } from "../shared/RoleShell";
 import AccountSettings from "../shared/AccountSettings";
+import { useAppearance } from "../shared/AppearanceContext";
 import { useLanguage, type AppLanguage } from "../shared/LanguageContext";
 import { useSupabaseUserProfile } from "../shared/useSupabaseUserProfile";
 import { getCurrentUser, setCurrentUser } from "../../services/authService";
@@ -28,6 +29,7 @@ import {
 } from "../../services/workoutSessionApi";
 import { updateCurrentUserProfile, uploadCurrentUserAvatar } from "../../services/userProfileApi";
 import { fetchPtPortalData } from "../../services/ptDataApi";
+import { createStaffMaintenanceReport, getStaffEquipmentStatus } from "../../services/staffOperationsApi";
 
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // TYPES
@@ -38,6 +40,7 @@ type Screen =
   | "member-detail"
   | "schedule"
   | "workout"
+  | "equipment-report"
   | "evaluation"
   | "meal-plan"
   | "settings"
@@ -302,6 +305,7 @@ const NAV_ITEMS = [
   { id: "trainees", label: "Manage Trainees", icon: Users },
   { id: "schedule", label: "Schedule & Progress", icon: CalendarDays },
   { id: "workout", label: "Workout Guidance", icon: Dumbbell },
+  { id: "equipment-report", label: "Equipment Reports", icon: Wrench },
   { id: "evaluation", label: "Progress Evaluation", icon: BarChart2 },
   { id: "meal-plan", label: "Meal Plans", icon: Target },
   { id: "settings", label: "Settings", icon: Settings },
@@ -376,7 +380,7 @@ function TopNavbar({ onNavigate }: { onNavigate: (s: Screen) => void }) {
         />
       </div>
       <div className="flex items-center gap-3 ml-auto">
-        <span className="text-[#555] text-xs hidden lg:block">Thá»© Ba, 06/05/2025</span>
+        <span className="text-[#555] text-xs hidden lg:block">Thứ Ba, 06/05/2025</span>
         <button
           onClick={() => onNavigate("notifications")}
           className="relative size-8 bg-[#1a1a1a] border border-white/8 rounded-lg flex items-center justify-center text-[#666] hover:text-white hover:border-white/15 transition-all"
@@ -403,12 +407,12 @@ function DashboardScreen({ onNavigate, onViewMember }: { onNavigate: (s: Screen)
   const todayLabel = new Date().toLocaleDateString("en-GB");
   const todaySch = SCHEDULES.filter(s => s.trainingDate === todayLabel);
   const stats = [
-    { icon: Users, label: "Tá»•ng há»c viĂªn", value: "5", sub: "+1 thĂ¡ng nĂ y" },
-    { icon: CalendarDays, label: "Buá»•i hĂ´m nay", value: "4", sub: "3 lá»‹ch táº­p" },
-    { icon: Clock, label: "Sáº¯p tá»›i", value: "2", sub: "Trong 2 giá»" },
-    { icon: CheckCircle, label: "ÄĂ£ hoĂ n thĂ nh", value: "2", sub: "HĂ´m nay" },
-    { icon: TrendingUp, label: "TB Tiáº¿n Ä‘á»™", value: "72%", sub: "Táº¥t cáº£ HV" },
-    { icon: AlertTriangle, label: "Cáº§n Ä‘Ă¡nh giĂ¡", value: "3", sub: "Äang chá»", alert: true },
+    { icon: Users, label: "Tổng học viên", value: "5", sub: "+1 tháng này" },
+    { icon: CalendarDays, label: "Buổi hôm nay", value: "4", sub: "3 lịch tập" },
+    { icon: Clock, label: "Sắp tới", value: "2", sub: "Trong 2 giờ" },
+    { icon: CheckCircle, label: "Đã hoàn thành", value: "2", sub: "Hôm nay" },
+    { icon: TrendingUp, label: "TB Tiến độ", value: "72%", sub: "Tất cả HV" },
+    { icon: AlertTriangle, label: "Cần đánh giá", value: "3", sub: "Đang chờ", alert: true },
   ];
 
   return (
@@ -417,7 +421,7 @@ function DashboardScreen({ onNavigate, onViewMember }: { onNavigate: (s: Screen)
         <h1 className="text-4xl text-white tracking-[0.08em]" style={{ fontFamily: "'Bebas Neue', sans-serif" }}>
           TRAINER DASHBOARD
         </h1>
-        <p className="text-[#555] text-sm mt-1">ChĂ o buá»•i sĂ¡ng, <span className="text-[#BDBDBD]">{TRAINER.name}</span> â€” ChĂºc báº¡n cĂ³ ngĂ y táº­p luyá»‡n hiá»‡u quáº£!</p>
+        <p className="text-[#555] text-sm mt-1">Chào buổi sáng, <span className="text-[#BDBDBD]">{TRAINER.name}</span> — Chúc bạn có ngày tập luyện hiệu quả!</p>
       </div>
 
       {/* Stats */}
@@ -441,7 +445,7 @@ function DashboardScreen({ onNavigate, onViewMember }: { onNavigate: (s: Screen)
         <div className="lg:col-span-2 bg-[#181818] border border-white/5 rounded-xl p-5">
           <div className="flex items-center justify-between mb-5">
             <h3 className="text-white font-semibold text-sm">Weekly Sessions</h3>
-            <span className="text-[#555] text-xs">Tuáº§n 05â€“11/05/2025</span>
+            <span className="text-[#555] text-xs">Tuần 05–11/05/2025</span>
           </div>
           <ResponsiveContainer width="100%" height={190}>
             <AreaChart data={WEEKLY_SESSIONS}>
@@ -455,13 +459,13 @@ function DashboardScreen({ onNavigate, onViewMember }: { onNavigate: (s: Screen)
               <XAxis dataKey="day" tick={{ fill: "#666", fontSize: 11 }} axisLine={false} tickLine={false} />
               <YAxis tick={{ fill: "#666", fontSize: 11 }} axisLine={false} tickLine={false} />
               <Tooltip contentStyle={tooltipStyle} />
-              <Area type="monotone" dataKey="sessions" stroke="#FF3B3B" strokeWidth={2} fill="url(#grad1)" name="Buá»•i táº­p" />
+              <Area type="monotone" dataKey="sessions" stroke="#FF3B3B" strokeWidth={2} fill="url(#grad1)" name="Buổi tập" />
             </AreaChart>
           </ResponsiveContainer>
         </div>
 
         <div className="bg-[#181818] border border-white/5 rounded-xl p-5">
-          <h3 className="text-white font-semibold text-sm mb-4">Tá»· lá»‡ tham dá»±</h3>
+          <h3 className="text-white font-semibold text-sm mb-4">Tỷ lệ tham dự</h3>
           <ResponsiveContainer width="100%" height={170}>
             <PieChart>
               <Pie data={ATTENDANCE_DATA} cx="50%" cy="50%" innerRadius={52} outerRadius={70} paddingAngle={3} dataKey="value">
@@ -484,42 +488,18 @@ function DashboardScreen({ onNavigate, onViewMember }: { onNavigate: (s: Screen)
         </div>
       </div>
 
-      {/* Progress + Quick Actions */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div className="lg:col-span-2 bg-[#181818] border border-white/5 rounded-xl p-5">
-          <h3 className="text-white font-semibold text-sm mb-5">Tiáº¿n Ä‘á»™ há»c viĂªn</h3>
+      {/* Progress */}
+      <div className="bg-[#181818] border border-white/5 rounded-xl p-5">
+          <h3 className="text-white font-semibold text-sm mb-5">Tiến độ học viên</h3>
           <ResponsiveContainer width="100%" height={185}>
             <BarChart data={PROGRESS_CHART} layout="vertical">
               <CartesianGrid strokeDasharray="3 3" stroke="#1f1f1f" horizontal={false} />
               <XAxis type="number" tick={{ fill: "#666", fontSize: 11 }} axisLine={false} tickLine={false} domain={[0, 100]} tickFormatter={v => `${v}%`} />
               <YAxis type="category" dataKey="name" tick={{ fill: "#999", fontSize: 11 }} axisLine={false} tickLine={false} width={76} />
-              <Tooltip contentStyle={tooltipStyle} formatter={(v) => [`${v}%`, "Tiáº¿n Ä‘á»™"]} />
-              <Bar dataKey="progress" fill="#FF3B3B" radius={[0, 4, 4, 0]} name="Tiáº¿n Ä‘á»™" />
+              <Tooltip contentStyle={tooltipStyle} formatter={(v) => [`${v}%`, "Tiến độ"]} />
+              <Bar dataKey="progress" fill="#FF3B3B" radius={[0, 4, 4, 0]} name="Tiến độ" />
             </BarChart>
           </ResponsiveContainer>
-        </div>
-
-        <div className="bg-[#181818] border border-white/5 rounded-xl p-5">
-          <h3 className="text-white font-semibold text-sm mb-4">Thao tĂ¡c nhanh</h3>
-          <div className="space-y-2">
-            {[
-              { icon: Plus, label: "Add Trainee", screen: "trainees" as Screen },
-              { icon: Dumbbell, label: "Create Workout Plan", screen: "workout" as Screen },
-              { icon: Activity, label: "Update Progress", screen: "schedule" as Screen },
-              { icon: Award, label: "Evaluate Member", screen: "evaluation" as Screen },
-            ].map(({ icon: Icon, label, screen }) => (
-              <button
-                key={label}
-                onClick={() => onNavigate(screen)}
-                className="w-full flex items-center gap-3 px-3 py-2.5 bg-[#222] hover:bg-[#FF3B3B]/8 border border-white/5 hover:border-[#FF3B3B]/20 rounded-lg text-sm text-[#BDBDBD] hover:text-[#FF3B3B] transition-all"
-              >
-                <Icon className="size-3.5" />
-                <span className="font-medium">{label}</span>
-                <ChevronRight className="size-3.5 ml-auto" />
-              </button>
-            ))}
-          </div>
-        </div>
       </div>
 
       {/* Today's Schedule */}
@@ -600,7 +580,7 @@ function TrainingRequestsPanel({ showToast }: { showToast: (msg: string) => void
     if (request.source === "supabase") {
       const { error } = await updateTrainingRequestStatus(request.requestId || request.id, "accepted", "");
       if (error) {
-        showToast("C?p nh?t th?t b?i. Y?u c?u ch?a ???c thay ??i.");
+        showToast("Cập nhật thất bại. Yêu cầu chưa được thay đổi.");
         return;
       }
 
@@ -621,7 +601,7 @@ function TrainingRequestsPanel({ showToast }: { showToast: (msg: string) => void
     if (declineTarget.source === "supabase") {
       const { error } = await updateTrainingRequestStatus(declineTarget.requestId || declineTarget.id, "declined", nextDeclineReason);
       if (error) {
-        showToast("C?p nh?t th?t b?i. Y?u c?u ch?a ???c thay ??i.");
+        showToast("Cập nhật thất bại. Yêu cầu chưa được thay đổi.");
       } else {
         await loadRequests();
         showToast("Request declined and member notified.");
@@ -708,17 +688,17 @@ function ManageTraineesScreen({
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-4xl text-white tracking-[0.08em]" style={{ fontFamily: "'Bebas Neue', sans-serif" }}>MANAGE TRAINEES</h1>
-          <p className="text-[#555] text-xs mt-1">ManageTraineeListScreen Â· ManageTraineeListController</p>
+          <p className="text-[#555] text-xs mt-1">ManageTraineeListScreen · ManageTraineeListController</p>
         </div>
         <PrimaryBtn icon={Plus} label="Add Trainee" onClick={onAddTrainee} />
       </div>
 
       <div className="grid grid-cols-4 gap-3">
         {[
-          { label: "Tá»•ng phĂ¢n cĂ´ng", value: ASSIGNMENTS.length, color: "text-white" },
-          { label: "Äang hoáº¡t Ä‘á»™ng", value: countBy("Active"), color: "text-emerald-400" },
-          { label: "Táº¡m dá»«ng", value: countBy("Paused"), color: "text-amber-400" },
-          { label: "HoĂ n thĂ nh", value: countBy("Completed"), color: "text-[#666]" },
+          { label: "Tổng phân công", value: ASSIGNMENTS.length, color: "text-white" },
+          { label: "Đang hoạt động", value: countBy("Active"), color: "text-emerald-400" },
+          { label: "Tạm dừng", value: countBy("Paused"), color: "text-amber-400" },
+          { label: "Hoàn thành", value: countBy("Completed"), color: "text-[#666]" },
         ].map(stat => (
           <div key={stat.label} className="bg-[#181818] border border-white/5 rounded-xl p-4 text-center">
             <div className={`text-2xl font-bold ${stat.color}`}>{stat.value}</div>
@@ -733,7 +713,7 @@ function ManageTraineesScreen({
           <input
             value={search}
             onChange={e => setSearch(e.target.value)}
-            placeholder="TĂ¬m theo tĂªn, sá»‘ Ä‘iá»‡n thoáº¡i, mĂ£ há»c viĂªn..."
+            placeholder="Tìm theo tên, số điện thoại, mã học viên..."
             className="w-full bg-[#181818] border border-white/8 text-white placeholder-[#555] text-sm pl-9 pr-4 py-2.5 rounded-lg focus:outline-none focus:border-[#FF3B3B]/40 transition-colors"
           />
         </div>
@@ -755,7 +735,7 @@ function ManageTraineesScreen({
           <table className="w-full">
             <thead>
               <tr className="border-b border-white/5">
-                {["Há»c viĂªn", "MĂ£ HV", "GĂ³i táº­p", "NgĂ y PH", "Tráº¡ng thĂ¡i", "Buá»•i cĂ²n", "Tiáº¿n Ä‘á»™", ""].map(h => (
+                {["Học viên", "Mã HV", "Gói tập", "Ngày PH", "Trạng thái", "Buổi còn", "Tiến độ", ""].map(h => (
                   <th key={h} className="text-left text-[#444] text-[10px] font-bold uppercase tracking-widest px-4 py-3">{h}</th>
                 ))}
               </tr>
@@ -811,7 +791,7 @@ function ManageTraineesScreen({
         {filtered.length === 0 && (
           <div className="text-center py-16">
             <Users className="size-10 mx-auto mb-3 text-[#333]" />
-            <p className="text-[#555] text-sm">KhĂ´ng tĂ¬m tháº¥y há»c viĂªn nĂ o</p>
+            <p className="text-[#555] text-sm">Không tìm thấy học viên nào</p>
           </div>
         )}
       </div>
@@ -845,10 +825,10 @@ function MemberDetailScreen({
   const assignedMealPlan = INITIAL_MEAL_PLANS.find(plan => plan.assignedMemberId === memberId && plan.status === "Assigned");
 
   const tabs = [
-    { id: "overview", label: "Tá»•ng quan" },
-    { id: "schedule", label: "Lá»‹ch táº­p" },
-    { id: "progress", label: "Tiáº¿n Ä‘á»™" },
-    { id: "evaluation", label: "ÄĂ¡nh giĂ¡" },
+    { id: "overview", label: "Tổng quan" },
+    { id: "schedule", label: "Lịch tập" },
+    { id: "progress", label: "Tiến độ" },
+    { id: "evaluation", label: "Đánh giá" },
     { id: "medical", label: "Medical History" },
   ];
 
@@ -860,7 +840,7 @@ function MemberDetailScreen({
         </button>
         <div>
           <h1 className="text-4xl text-white tracking-[0.08em]" style={{ fontFamily: "'Bebas Neue', sans-serif" }}>MEMBER DETAIL</h1>
-          <p className="text-[#555] text-xs">Chi tiáº¿t há»c viĂªn â€” TrainerAssignment #{a?.assignmentId}</p>
+          <p className="text-[#555] text-xs">Chi tiết học viên — TrainerAssignment #{a?.assignmentId}</p>
         </div>
       </div>
 
@@ -872,16 +852,16 @@ function MemberDetailScreen({
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h2 className="text-white text-xl font-bold">{m.name}</h2>
-                <p className="text-[#555] text-sm mt-0.5">{m.id} Â· {m.package}</p>
+                <p className="text-[#555] text-sm mt-0.5">{m.id} · {m.package}</p>
               </div>
               {a && <Badge status={a.status} />}
             </div>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
               {[
-                { icon: User, label: "Tuá»•i", value: `${m.age} tuá»•i` },
-                { icon: Phone, label: "Äiá»‡n thoáº¡i", value: m.phone },
+                { icon: User, label: "Tuổi", value: `${m.age} tuổi` },
+                { icon: Phone, label: "Điện thoại", value: m.phone },
                 { icon: Mail, label: "Email", value: m.email },
-                { icon: CalendarDays, label: "NgĂ y tham gia", value: m.joinDate },
+                { icon: CalendarDays, label: "Ngày tham gia", value: m.joinDate },
               ].map(({ icon: Icon, label, value }) => (
                 <div key={label} className="flex items-center gap-2">
                   <Icon className="size-3.5 text-[#555] shrink-0" />
@@ -895,32 +875,24 @@ function MemberDetailScreen({
             {a && (
               <div className="mt-4 flex items-center gap-6">
                 <div>
-                  <div className="text-[#555] text-xs mb-1">Tiáº¿n Ä‘á»™ tá»•ng thá»ƒ</div>
+                  <div className="text-[#555] text-xs mb-1">Tiến độ tổng thể</div>
                   <div className="flex items-center gap-3">
                     <div className="w-40"><Bar2 value={a.progress} /></div>
                     <span className="text-white text-sm font-bold">{a.progress}%</span>
                   </div>
                 </div>
                 <div>
-                  <div className="text-[#555] text-xs">Buá»•i cĂ²n láº¡i</div>
+                  <div className="text-[#555] text-xs">Buổi còn lại</div>
                   <div className="text-white text-sm font-bold mt-1">{a.sessionsRemaining}/{a.totalSessions}</div>
                 </div>
                 <div>
-                  <div className="text-[#555] text-xs">NgĂ y phĂ¢n cĂ´ng</div>
+                  <div className="text-[#555] text-xs">Ngày phân công</div>
                   <div className="text-white text-sm font-bold mt-1">{a.assignmentDate}</div>
                 </div>
               </div>
             )}
           </div>
         </div>
-      </div>
-
-      {/* Quick actions */}
-      <div className="flex gap-3 flex-wrap">
-        <PrimaryBtn icon={Plus} label="Add Schedule" small onClick={() => { onNavigate("schedule"); }} />
-        <PrimaryBtn icon={Dumbbell} label="Create Workout" small onClick={() => { onNavigate("workout"); }} />
-        <GhostBtn icon={Activity} label="Update Progress" small onClick={() => { onNavigate("schedule"); }} />
-        <GhostBtn icon={Award} label="Evaluate" small onClick={() => { onNavigate("evaluation"); }} />
       </div>
 
       {/* Tabs */}
@@ -939,7 +911,7 @@ function MemberDetailScreen({
       {/* Tab content */}
       {tab === "overview" && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <SectionCard title="Má»¥c tiĂªu táº­p luyá»‡n">
+          <SectionCard title="Mục tiêu tập luyện">
             <div className="space-y-3">
               {memberGoals.length > 0 ? memberGoals.map(g => (
                 <div key={g.goalId} className="bg-[#222] rounded-lg p-3">
@@ -947,16 +919,16 @@ function MemberDetailScreen({
                     <div className="text-white text-xs font-semibold">{g.goalName}</div>
                     <Badge status={g.status} />
                   </div>
-                  <div className="text-[#555] text-xs mb-2">{g.targetValue} Â· Háº¡n: {g.deadline}</div>
+                  <div className="text-[#555] text-xs mb-2">{g.targetValue} · Hạn: {g.deadline}</div>
                   <div className="flex items-center gap-2">
                     <div className="flex-1"><Bar2 value={g.progress} /></div>
                     <span className="text-white text-xs font-bold">{g.progress}%</span>
                   </div>
                 </div>
-              )) : <p className="text-[#555] text-xs">ChÆ°a cĂ³ má»¥c tiĂªu nĂ o</p>}
+              )) : <p className="text-[#555] text-xs">Chưa có mục tiêu nào</p>}
             </div>
           </SectionCard>
-          <SectionCard title="Chá»‰ sá»‘ cÆ¡ thá»ƒ">
+          <SectionCard title="Chỉ số cơ thể">
             {memberMetrics.length > 0 ? (
               <ResponsiveContainer width="100%" height={180}>
                 <LineChart data={memberMetrics}>
@@ -964,17 +936,17 @@ function MemberDetailScreen({
                   <XAxis dataKey="measuredDate" tick={{ fill: "#555", fontSize: 10 }} axisLine={false} tickLine={false} />
                   <YAxis tick={{ fill: "#555", fontSize: 10 }} axisLine={false} tickLine={false} />
                   <Tooltip contentStyle={tooltipStyle} />
-                  <Line type="monotone" dataKey="weight" stroke="#FF3B3B" strokeWidth={2} dot={{ fill: "#FF3B3B", r: 3 }} name="CĂ¢n náº·ng (kg)" />
-                  <Line type="monotone" dataKey="bodyFatRate" stroke="#FF7B7B" strokeWidth={1.5} dot={{ fill: "#FF7B7B", r: 2 }} name="Má»¡ cÆ¡ thá»ƒ (%)" />
+                  <Line type="monotone" dataKey="weight" stroke="#FF3B3B" strokeWidth={2} dot={{ fill: "#FF3B3B", r: 3 }} name="Cân nặng (kg)" />
+                  <Line type="monotone" dataKey="bodyFatRate" stroke="#FF7B7B" strokeWidth={1.5} dot={{ fill: "#FF7B7B", r: 2 }} name="Mỡ cơ thể (%)" />
                 </LineChart>
               </ResponsiveContainer>
-            ) : <p className="text-[#555] text-xs">ChÆ°a cĂ³ dá»¯ liá»‡u</p>}
+            ) : <p className="text-[#555] text-xs">Chưa có dữ liệu</p>}
           </SectionCard>
         </div>
       )}
 
       {tab === "schedule" && (
-        <SectionCard title="Lá»‹ch táº­p">
+        <SectionCard title="Lịch tập">
           <div className="space-y-2">
             {memberSchedules.map(s => (
               <div key={s.scheduleId} className="flex items-center gap-4 bg-[#222] rounded-lg p-3">
@@ -983,7 +955,7 @@ function MemberDetailScreen({
                 </div>
                 <div className="flex-1">
                   <div className="text-white text-xs font-medium">{s.exerciseType}</div>
-                  <div className="text-[#555] text-xs">{s.trainingDate} Â· {s.duration} phĂºt Â· {s.scheduleId}</div>
+                  <div className="text-[#555] text-xs">{s.trainingDate} · {s.duration} phút · {s.scheduleId}</div>
                 </div>
                 <Badge status={s.status} />
               </div>
@@ -993,12 +965,12 @@ function MemberDetailScreen({
       )}
 
       {tab === "progress" && (
-        <SectionCard title="Há»“ sÆ¡ tiáº¿n Ä‘á»™ (ProgressRecord)">
+        <SectionCard title="Hồ sơ tiến độ (ProgressRecord)">
           <div className="space-y-3">
             {memberRecords.map(r => (
               <div key={r.progressId} className="bg-[#222] rounded-lg p-3">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-[#555] text-xs">{r.recordedDate} Â· {r.progressId}</span>
+                  <span className="text-[#555] text-xs">{r.recordedDate} · {r.progressId}</span>
                   <div className="flex items-center gap-2">
                     <div className="w-20"><Bar2 value={r.completionLevel} /></div>
                     <span className="text-white text-xs font-bold">{r.completionLevel}%</span>
@@ -1012,12 +984,12 @@ function MemberDetailScreen({
       )}
 
       {tab === "evaluation" && (
-        <SectionCard title="Lá»‹ch sá»­ Ä‘Ă¡nh giĂ¡ (ProgressEvaluation)">
+        <SectionCard title="Lịch sử đánh giá (ProgressEvaluation)">
           <div className="space-y-4">
             {memberEvals.map(e => (
               <div key={e.evaluationId} className="bg-[#222] rounded-lg p-4">
                 <div className="flex items-center justify-between mb-3">
-                  <span className="text-[#555] text-xs">{e.evaluationDate} Â· {e.evaluationId}</span>
+                  <span className="text-[#555] text-xs">{e.evaluationDate} · {e.evaluationId}</span>
                   <div className="flex gap-0.5">
                     {Array.from({ length: 5 }).map((_, i) => (
                       <Star key={i} className={`size-3 ${i < e.rating ? "text-amber-400" : "text-[#333]"}`} fill={i < e.rating ? "currentColor" : "none"} />
@@ -1026,13 +998,13 @@ function MemberDetailScreen({
                 </div>
                 <p className="text-[#BDBDBD] text-xs mb-2">{e.overallComment}</p>
                 <div className="grid grid-cols-2 gap-2 text-xs">
-                  <div><span className="text-emerald-400 font-semibold">Äiá»ƒm máº¡nh:</span><span className="text-[#BDBDBD] ml-1">{e.strengths}</span></div>
-                  <div><span className="text-amber-400 font-semibold">Cáº§n cáº£i thiá»‡n:</span><span className="text-[#BDBDBD] ml-1">{e.improvements}</span></div>
+                  <div><span className="text-emerald-400 font-semibold">Điểm mạnh:</span><span className="text-[#BDBDBD] ml-1">{e.strengths}</span></div>
+                  <div><span className="text-amber-400 font-semibold">Cần cải thiện:</span><span className="text-[#BDBDBD] ml-1">{e.improvements}</span></div>
                 </div>
-                <div className="mt-2 text-xs"><span className="text-[#FF3B3B] font-semibold">Khuyáº¿n nghá»‹:</span><span className="text-[#BDBDBD] ml-1">{e.recommendation}</span></div>
+                <div className="mt-2 text-xs"><span className="text-[#FF3B3B] font-semibold">Khuyến nghị:</span><span className="text-[#BDBDBD] ml-1">{e.recommendation}</span></div>
               </div>
             ))}
-            {memberEvals.length === 0 && <p className="text-[#555] text-xs">ChÆ°a cĂ³ Ä‘Ă¡nh giĂ¡ nĂ o</p>}
+            {memberEvals.length === 0 && <p className="text-[#555] text-xs">Chưa có đánh giá nào</p>}
           </div>
         </SectionCard>
       )}
@@ -1182,7 +1154,7 @@ function ScheduleProgressScreen({
 
         if (error) {
           setSessions(SCHEDULES);
-          setSessionLoadMessage("Some workout sessions could not be loaded. Vui l?ng th? l?i sau.");
+          setSessionLoadMessage("Some workout sessions could not be loaded. Vui lòng thử lại sau.");
         } else if (data.length) {
           setSessions(data.map(mapWorkoutSessionToTrainingSchedule));
           setSessionLoadMessage("");
@@ -1196,7 +1168,7 @@ function ScheduleProgressScreen({
       .catch(() => {
         if (!isMounted) return;
         setSessions(SCHEDULES);
-        setSessionLoadMessage("Some workout sessions could not be loaded. Vui l?ng th? l?i sau.");
+        setSessionLoadMessage("Some workout sessions could not be loaded. Vui lòng thử lại sau.");
         setIsLoadingSessions(false);
       });
 
@@ -1390,9 +1362,9 @@ function ScheduleProgressScreen({
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function WorkoutGuidanceScreen({ showToast }: { showToast: (msg: string) => void }) {
   const [selectedMember, setSelectedMember] = useState("MEM001");
-  const [goal, setGoal] = useState("TÄƒng sá»©c máº¡nh vĂ  khá»‘i lÆ°á»£ng cÆ¡ báº¯p pháº§n thĂ¢n trĂªn");
+  const [goal, setGoal] = useState("Tăng sức mạnh và khối lượng cơ bắp phần thân trên");
   const [intensity, setIntensity] = useState("High");
-  const [techniqueNote, setTechniqueNote] = useState("ChĂº Ă½ giá»¯ lÆ°ng tháº³ng trong Squat vĂ  Deadlift. Thá»Ÿ ra khi nĂ¢ng táº¡, thá»Ÿ vĂ o khi háº¡ xuá»‘ng. Khá»Ÿi Ä‘á»™ng ká»¹ trÆ°á»›c khi vĂ o bĂ i chĂ­nh.");
+  const [techniqueNote, setTechniqueNote] = useState("Chú ý giữ lưng thẳng trong Squat và Deadlift. Thở ra khi nâng tạ, thở vào khi hạ xuống. Khởi động kỹ trước khi vào bài chính.");
   const [exercises, setExercises] = useState<Exercise[]>(INITIAL_EXERCISES);
   const [showResult, setShowResult] = useState(false);
 
@@ -1401,7 +1373,7 @@ function WorkoutGuidanceScreen({ showToast }: { showToast: (msg: string) => void
       exerciseId: `EX${Date.now()}`,
       exerciseName: "Lat Pulldown",
       sets: 3, reps: 12, restTime: 60,
-      difficulty: "Trung bĂ¬nh", muscleGroup: "LÆ°ng",
+      difficulty: "Trung bình", muscleGroup: "Lưng",
       instruction: "Pull the bar down toward your chest and keep your back straight.",
     };
     setExercises(prev => [...prev, e]);
@@ -1419,7 +1391,7 @@ function WorkoutGuidanceScreen({ showToast }: { showToast: (msg: string) => void
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-4xl text-white tracking-[0.08em]" style={{ fontFamily: "'Bebas Neue', sans-serif" }}>WORKOUT GUIDANCE</h1>
-          <p className="text-[#555] text-xs mt-1">WorkoutGuidanceScreen Â· WorkoutGuidanceController</p>
+          <p className="text-[#555] text-xs mt-1">WorkoutGuidanceScreen · WorkoutGuidanceController</p>
         </div>
         <div className="flex gap-2">
           <GhostBtn label="View Result" small onClick={() => setShowResult(true)} />
@@ -1430,10 +1402,10 @@ function WorkoutGuidanceScreen({ showToast }: { showToast: (msg: string) => void
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-5">
         {/* Left: Config panel */}
         <div className="lg:col-span-2 space-y-4">
-          <SectionCard title="Cáº¥u hĂ¬nh WorkoutGuidance">
+          <SectionCard title="Cấu hình WorkoutGuidance">
             <div className="space-y-4">
               <div>
-                <label className="block text-xs font-semibold text-[#BDBDBD] mb-1.5 uppercase tracking-wide">Há»c viĂªn (Member)</label>
+                <label className="block text-xs font-semibold text-[#BDBDBD] mb-1.5 uppercase tracking-wide">Học viên (Member)</label>
                 <select
                   value={selectedMember}
                   onChange={e => setSelectedMember(e.target.value)}
@@ -1447,7 +1419,7 @@ function WorkoutGuidanceScreen({ showToast }: { showToast: (msg: string) => void
                 {m && (
                   <div className="flex items-center gap-2 mt-2 px-2">
                     <Avatar initials={m.avatar} size="sm" />
-                    <div className="text-xs text-[#555]">{m.package} Â· {m.phone}</div>
+                    <div className="text-xs text-[#555]">{m.package} · {m.phone}</div>
                   </div>
                 )}
               </div>
@@ -1465,19 +1437,19 @@ function WorkoutGuidanceScreen({ showToast }: { showToast: (msg: string) => void
           <div className="bg-[#181818] border border-white/5 rounded-xl p-4">
             <div className="text-xs text-[#555] space-y-1.5">
               <div className="flex items-center justify-between">
-                <span>Tá»•ng bĂ i táº­p</span>
+                <span>Tổng bài tập</span>
                 <span className="text-white font-semibold">{exercises.length}</span>
               </div>
               <div className="flex items-center justify-between">
-                <span>Tá»•ng sets</span>
+                <span>Tổng sets</span>
                 <span className="text-white font-semibold">{exercises.reduce((s, e) => s + e.sets, 0)}</span>
               </div>
               <div className="flex items-center justify-between">
-                <span>Thá»i gian nghá»‰ TB</span>
+                <span>Thời gian nghỉ TB</span>
                 <span className="text-white font-semibold">{Math.round(exercises.reduce((s, e) => s + e.restTime, 0) / exercises.length)}s</span>
               </div>
               <div className="flex items-center justify-between">
-                <span>CÆ°á»ng Ä‘á»™</span>
+                <span>Cường độ</span>
                 <span className={`font-semibold ${intensity === "High" || intensity === "Very High" ? "text-[#FF3B3B]" : "text-amber-400"}`}>{intensity}</span>
               </div>
             </div>
@@ -1524,7 +1496,7 @@ function WorkoutGuidanceScreen({ showToast }: { showToast: (msg: string) => void
               </div>
               <div className="grid grid-cols-2 gap-3 mb-3">
                 <div>
-                  <div className="text-[#555] text-xs mb-1">NhĂ³m cÆ¡</div>
+                  <div className="text-[#555] text-xs mb-1">Nhóm cơ</div>
                   <input
                     value={ex.muscleGroup}
                     onChange={e => updateEx(ex.exerciseId, "muscleGroup", e.target.value)}
@@ -1532,7 +1504,7 @@ function WorkoutGuidanceScreen({ showToast }: { showToast: (msg: string) => void
                   />
                 </div>
                 <div>
-                  <div className="text-[#555] text-xs mb-1">Äá»™ khĂ³</div>
+                  <div className="text-[#555] text-xs mb-1">Độ khó</div>
                   <select
                     value={ex.difficulty}
                     onChange={e => updateEx(ex.exerciseId, "difficulty", e.target.value)}
@@ -1543,7 +1515,7 @@ function WorkoutGuidanceScreen({ showToast }: { showToast: (msg: string) => void
                 </div>
               </div>
               <div>
-                <div className="text-[#555] text-xs mb-1">HÆ°á»›ng dáº«n ká»¹ thuáº­t</div>
+                <div className="text-[#555] text-xs mb-1">Hướng dẫn kỹ thuật</div>
                 <input
                   value={ex.instruction}
                   onChange={e => updateEx(ex.exerciseId, "instruction", e.target.value)}
@@ -1568,10 +1540,10 @@ function WorkoutGuidanceScreen({ showToast }: { showToast: (msg: string) => void
 function ProgressEvaluationScreen({ showToast }: { showToast: (msg: string) => void }) {
   const [selectedMember, setSelectedMember] = useState("MEM001");
   const [evalDate, setEvalDate] = useState("06/05/2025");
-  const [comment, setComment] = useState("Há»c viĂªn cĂ³ sá»± tiáº¿n bá»™ tá»‘t trong giai Ä‘oáº¡n nĂ y.");
-  const [strengths, setStrengths] = useState("KiĂªn trĂ¬, ká»¹ thuáº­t tá»‘t, nhiá»‡t tĂ¬nh");
-  const [improvements, setImprovements] = useState("Cáº§n cáº£i thiá»‡n cháº¿ Ä‘á»™ nghá»‰ ngÆ¡i vĂ  dinh dÆ°á»¡ng");
-  const [recommendation, setRecommendation] = useState("TÄƒng cÆ°á»ng cardio, chĂº Ă½ cháº¿ Ä‘á»™ Äƒn");
+  const [comment, setComment] = useState("Học viên có sự tiến bộ tốt trong giai đoạn này.");
+  const [strengths, setStrengths] = useState("Kiên trì, kỹ thuật tốt, nhiệt tình");
+  const [improvements, setImprovements] = useState("Cần cải thiện chế độ nghỉ ngơi và dinh dưỡng");
+  const [recommendation, setRecommendation] = useState("Tăng cường cardio, chú ý chế độ ăn");
   const [rating, setRating] = useState(4);
   const [showSuccess, setShowSuccess] = useState(false);
 
@@ -1582,7 +1554,7 @@ function ProgressEvaluationScreen({ showToast }: { showToast: (msg: string) => v
 
   const handleSave = () => {
     setShowSuccess(true);
-    showToast("ÄĂ£ lÆ°u Ä‘Ă¡nh giĂ¡ thĂ nh cĂ´ng!");
+    showToast("Đã lưu đánh giá thành công!");
     setTimeout(() => setShowSuccess(false), 2500);
   };
 
@@ -1590,7 +1562,7 @@ function ProgressEvaluationScreen({ showToast }: { showToast: (msg: string) => v
     <div className="space-y-5 pb-6">
       <div>
         <h1 className="text-4xl text-white tracking-[0.08em]" style={{ fontFamily: "'Bebas Neue', sans-serif" }}>PROGRESS EVALUATION</h1>
-        <p className="text-[#555] text-xs mt-1">ProgressEvaluationScreen Â· ProgressEvaluationController</p>
+        <p className="text-[#555] text-xs mt-1">ProgressEvaluationScreen · ProgressEvaluationController</p>
       </div>
 
       {/* Member selector */}
@@ -1611,8 +1583,8 @@ function ProgressEvaluationScreen({ showToast }: { showToast: (msg: string) => v
               <Avatar initials={m.avatar} size="md" />
               <div>
                 <div className="text-white font-semibold text-sm">{m.name}</div>
-                <div className="text-[#555] text-xs">{m.package} Â· {m.id}</div>
-                <div className="text-[#555] text-xs">{m.age} tuá»•i Â· {m.gender}</div>
+                <div className="text-[#555] text-xs">{m.package} · {m.id}</div>
+                <div className="text-[#555] text-xs">{m.age} tuổi · {m.gender}</div>
               </div>
             </div>
           )}
@@ -1622,7 +1594,7 @@ function ProgressEvaluationScreen({ showToast }: { showToast: (msg: string) => v
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         {/* Left: Goals + Records */}
         <div className="space-y-4">
-          <SectionCard title="Má»¥c tiĂªu (TrainingGoal)">
+          <SectionCard title="Mục tiêu (TrainingGoal)">
             <div className="space-y-3">
               {goals.map(g => (
                 <div key={g.goalId} className="bg-[#222] rounded-lg p-3">
@@ -1635,14 +1607,14 @@ function ProgressEvaluationScreen({ showToast }: { showToast: (msg: string) => v
                     <div className="flex-1"><Bar2 value={g.progress} /></div>
                     <span className="text-white text-xs font-bold">{g.progress}%</span>
                   </div>
-                  <div className="text-[#555] text-xs mt-1">Háº¡n: {g.deadline}</div>
+                  <div className="text-[#555] text-xs mt-1">Hạn: {g.deadline}</div>
                 </div>
               ))}
-              {goals.length === 0 && <p className="text-[#555] text-xs">ChÆ°a cĂ³ má»¥c tiĂªu</p>}
+              {goals.length === 0 && <p className="text-[#555] text-xs">Chưa có mục tiêu</p>}
             </div>
           </SectionCard>
 
-          <SectionCard title="Tiáº¿n Ä‘á»™ gáº§n Ä‘Ă¢y (ProgressRecord)">
+          <SectionCard title="Tiến độ gần đây (ProgressRecord)">
             <div className="space-y-2">
               {records.map(r => (
                 <div key={r.progressId} className="bg-[#222] rounded-lg p-2.5">
@@ -1654,7 +1626,7 @@ function ProgressEvaluationScreen({ showToast }: { showToast: (msg: string) => v
                   <p className="text-[#BDBDBD] text-xs truncate">{r.note}</p>
                 </div>
               ))}
-              {records.length === 0 && <p className="text-[#555] text-xs">ChÆ°a cĂ³ dá»¯ liá»‡u</p>}
+              {records.length === 0 && <p className="text-[#555] text-xs">Chưa có dữ liệu</p>}
             </div>
           </SectionCard>
         </div>
@@ -1664,7 +1636,7 @@ function ProgressEvaluationScreen({ showToast }: { showToast: (msg: string) => v
           {metrics.length > 0 ? (
             <>
               <div className="bg-[#181818] border border-white/5 rounded-xl p-5">
-                <h3 className="text-white font-semibold text-sm mb-4">Xu hÆ°á»›ng cĂ¢n náº·ng (kg) â€” BodyMetric</h3>
+                <h3 className="text-white font-semibold text-sm mb-4">Xu hướng cân nặng (kg) — BodyMetric</h3>
                 <ResponsiveContainer width="100%" height={160}>
                   <LineChart data={metrics}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#1f1f1f" />
@@ -1676,7 +1648,7 @@ function ProgressEvaluationScreen({ showToast }: { showToast: (msg: string) => v
                 </ResponsiveContainer>
               </div>
               <div className="bg-[#181818] border border-white/5 rounded-xl p-5">
-                <h3 className="text-white font-semibold text-sm mb-4">Tá»· lá»‡ má»¡ cÆ¡ thá»ƒ (%) â€” BodyMetric</h3>
+                <h3 className="text-white font-semibold text-sm mb-4">Tỷ lệ mỡ cơ thể (%) — BodyMetric</h3>
                 <ResponsiveContainer width="100%" height={160}>
                   <LineChart data={metrics}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#1f1f1f" />
@@ -1691,7 +1663,7 @@ function ProgressEvaluationScreen({ showToast }: { showToast: (msg: string) => v
           ) : (
             <div className="bg-[#181818] border border-white/5 rounded-xl p-12 text-center">
               <Activity className="size-10 mx-auto mb-3 text-[#333]" />
-              <p className="text-[#555] text-sm">ChÆ°a cĂ³ dá»¯ liá»‡u chá»‰ sá»‘ cÆ¡ thá»ƒ</p>
+              <p className="text-[#555] text-sm">Chưa có dữ liệu chỉ số cơ thể</p>
             </div>
           )}
         </div>
@@ -1704,13 +1676,13 @@ function ProgressEvaluationScreen({ showToast }: { showToast: (msg: string) => v
             </div>
             <div className="p-5 space-y-4">
               <Input label="Evaluation Date" value={evalDate} onChange={setEvalDate} placeholder="dd/mm/yyyy" />
-              <Textarea label="Nháº­n xĂ©t tá»•ng quan (OverallComment)" value={comment} onChange={setComment} rows={2} />
-              <Textarea label="Äiá»ƒm máº¡nh (Strengths)" value={strengths} onChange={setStrengths} rows={2} />
-              <Textarea label="Cáº§n cáº£i thiá»‡n (Improvements)" value={improvements} onChange={setImprovements} rows={2} />
-              <Textarea label="Khuyáº¿n nghá»‹ (Recommendation)" value={recommendation} onChange={setRecommendation} rows={2} />
+              <Textarea label="Nhận xét tổng quan (OverallComment)" value={comment} onChange={setComment} rows={2} />
+              <Textarea label="Điểm mạnh (Strengths)" value={strengths} onChange={setStrengths} rows={2} />
+              <Textarea label="Cần cải thiện (Improvements)" value={improvements} onChange={setImprovements} rows={2} />
+              <Textarea label="Khuyến nghị (Recommendation)" value={recommendation} onChange={setRecommendation} rows={2} />
 
               <div>
-                <label className="block text-xs font-semibold text-[#BDBDBD] mb-2 uppercase tracking-wide">ÄĂ¡nh giĂ¡ (Rating)</label>
+                <label className="block text-xs font-semibold text-[#BDBDBD] mb-2 uppercase tracking-wide">Đánh giá (Rating)</label>
                 <div className="flex gap-2">
                   {[1, 2, 3, 4, 5].map(n => (
                     <button
@@ -1723,7 +1695,7 @@ function ProgressEvaluationScreen({ showToast }: { showToast: (msg: string) => v
                   ))}
                 </div>
                 <div className="flex justify-between mt-1 px-1">
-                  <span className="text-[#555] text-xs">KĂ©m</span>
+                  <span className="text-[#555] text-xs">Kém</span>
                   <span className="text-[#555] text-xs">Excellent</span>
                 </div>
               </div>
@@ -1745,8 +1717,8 @@ function ProgressEvaluationScreen({ showToast }: { showToast: (msg: string) => v
             <div className="size-14 bg-emerald-500/15 rounded-full flex items-center justify-center mx-auto mb-4">
               <CheckCircle className="size-8 text-emerald-400" />
             </div>
-            <h3 className="text-white font-bold text-lg mb-2">ÄĂ¡nh giĂ¡ Ä‘Ă£ Ä‘Æ°á»£c lÆ°u!</h3>
-            <p className="text-[#BDBDBD] text-sm">ÄĂ¡nh giĂ¡ tiáº¿n Ä‘á»™ cho <strong>{m?.name}</strong> Ä‘Ă£ Ä‘Æ°á»£c táº¡o thĂ nh cĂ´ng.</p>
+            <h3 className="text-white font-bold text-lg mb-2">Đánh giá đã được lưu!</h3>
+            <p className="text-[#BDBDBD] text-sm">Đánh giá tiến độ cho <strong>{m?.name}</strong> đã được tạo thành công.</p>
           </div>
         </div>
       )}
@@ -1782,7 +1754,7 @@ function NotificationsScreen() {
       <div className="flex items-start justify-between">
         <div>
           <h1 className="text-4xl text-white tracking-[0.08em]" style={{ fontFamily: "'Bebas Neue', sans-serif" }}>NOTIFICATIONS</h1>
-          <p className="text-[#555] text-xs mt-1">{unreadCount} thĂ´ng bĂ¡o chÆ°a Ä‘á»c</p>
+          <p className="text-[#555] text-xs mt-1">{unreadCount} thông báo chưa đọc</p>
         </div>
         {unreadCount > 0 && (
           <button onClick={markAllRead} className="text-[#FF3B3B] text-xs font-medium hover:underline">Mark all as read</button>
@@ -2103,7 +2075,7 @@ function ProfileScreen({ showToast }: { showToast: (msg: string) => void }) {
               <Target className="size-6 text-[#555]" />
             </div>
             <p className="text-[#555] text-sm">Drag and drop a file or click to upload</p>
-            <p className="text-[#444] text-xs mt-1">PDF, JPG, PNG â€” Max 10MB</p>
+            <p className="text-[#444] text-xs mt-1">PDF, JPG, PNG — Max 10MB</p>
           </div>
           <div className="mt-3 flex items-center gap-3 bg-[#222] rounded-lg p-3">
             <div className="size-8 bg-[#FF3B3B]/15 rounded-lg flex items-center justify-center">
@@ -2111,7 +2083,7 @@ function ProfileScreen({ showToast }: { showToast: (msg: string) => void }) {
             </div>
             <div className="flex-1">
               <div className="text-white text-xs font-semibold">ISSA Certified PT.pdf</div>
-              <div className="text-[#555] text-xs">Uploaded: 01/01/2024 Â· 2.3 MB</div>
+              <div className="text-[#555] text-xs">Uploaded: 01/01/2024 · 2.3 MB</div>
             </div>
             {editing && (
               <button type="button" className="text-[#555] hover:text-red-400 transition-colors">
@@ -2153,7 +2125,7 @@ function SettingsScreen({ showToast, darkMode, setDarkMode }: { showToast: (msg:
     <div className="space-y-5 pb-6 max-w-4xl">
       <div>
         <h1 className="text-4xl text-white tracking-[0.08em]" style={{ fontFamily: "'Bebas Neue', sans-serif" }}>SETTINGS</h1>
-        <p className="text-[#555] text-xs mt-1">CĂ i Ä‘áº·t tĂ i khoáº£n huáº¥n luyá»‡n viĂªn</p>
+        <p className="text-[#555] text-xs mt-1">Cài đặt tài khoản huấn luyện viên</p>
       </div>
 
       {/* Notifications */}
@@ -2189,9 +2161,9 @@ function SettingsScreen({ showToast, darkMode, setDarkMode }: { showToast: (msg:
         </div>
         <div className="p-5">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <Input label="Current Password" value={currentPw} onChange={setCurrentPw} type="password" placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢" />
-            <Input label="New Password" value={newPw} onChange={setNewPw} type="password" placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢" />
-            <Input label="Confirm New Password" value={confirmPw} onChange={setConfirmPw} type="password" placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢" />
+            <Input label="Current Password" value={currentPw} onChange={setCurrentPw} type="password" placeholder="••••••••" />
+            <Input label="New Password" value={newPw} onChange={setNewPw} type="password" placeholder="••••••••" />
+            <Input label="Confirm New Password" value={confirmPw} onChange={setConfirmPw} type="password" placeholder="••••••••" />
           </div>
           <div className="mt-4">
             <GhostBtn label="Update Password" onClick={() => showToast("Password updated successfully!")} />
@@ -2208,7 +2180,7 @@ function SettingsScreen({ showToast, darkMode, setDarkMode }: { showToast: (msg:
         <div className="p-5 flex items-center justify-between rounded-xl">
           <div>
             <div className="text-white text-sm font-semibold">Dark mode</div>
-            <div className="text-[#555] text-xs mt-1">Off sáº½ chuyá»ƒn giao diá»‡n sang ná»n tráº¯ng, chá»§ Ä‘áº¡o xanh dÆ°Æ¡ng.</div>
+            <div className="text-[#555] text-xs mt-1">Off sẽ chuyển giao diện sang nền trắng, chủ đạo xanh dương.</div>
           </div>
           <button type="button" onClick={() => setDarkMode(!darkMode)} className={`relative h-8 w-16 shrink-0 rounded-full transition-all ${darkMode ? "bg-[#FF3B3B]" : "bg-[#2563EB]"}`}>
             <span className={`absolute left-1 top-1 h-6 w-6 rounded-full bg-white transition-transform ${darkMode ? "translate-x-8" : "translate-x-0"}`} />
@@ -2225,7 +2197,7 @@ function SettingsScreen({ showToast, darkMode, setDarkMode }: { showToast: (msg:
         <div className="grid grid-cols-1 gap-3 p-5 sm:grid-cols-2">
           {[
             { code: "en", name: "English", helper: "Use English across the system" },
-            { code: "vi", name: "Tiáº¿ng Viá»‡t", helper: "Sá»­ dá»¥ng tiáº¿ng Viá»‡t cho toĂ n há»‡ thá»‘ng" },
+            { code: "vi", name: "Tiếng Việt", helper: "Sử dụng tiếng Việt cho toàn hệ thống" },
           ].map((item) => (
             <button
               key={item.code}
@@ -2318,13 +2290,13 @@ function ConfirmModal({ title, message, onClose, onConfirm, danger }: {
 function AddTraineeModal({ onClose, onConfirm }: { onClose: () => void; onConfirm: () => void }) {
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState("");
-  const [pkg, setPkg] = useState("Premium 3 thĂ¡ng");
+  const [pkg, setPkg] = useState("Premium 3 tháng");
 
   return (
     <ModalOverlay onClose={onClose}>
       <div className="bg-[#181818] border border-white/10 rounded-2xl w-full max-w-md">
         <div className="flex items-center justify-between px-5 py-4 border-b border-white/5">
-          <h3 className="text-white font-bold text-sm">Add New Trainee â€” TrainerAssignment</h3>
+          <h3 className="text-white font-bold text-sm">Add New Trainee — TrainerAssignment</h3>
           <button onClick={onClose} className="text-[#555] hover:text-white transition-colors"><X className="size-4" /></button>
         </div>
         <div className="p-5 space-y-4">
@@ -2347,7 +2319,7 @@ function AddTraineeModal({ onClose, onConfirm }: { onClose: () => void; onConfir
                 <Avatar initials={m.avatar} size="sm" />
                 <div className="flex-1 min-w-0">
                   <div className="text-white text-xs font-semibold">{m.name}</div>
-                  <div className="text-[#555] text-xs">{m.id} Â· {m.phone}</div>
+                  <div className="text-[#555] text-xs">{m.id} · {m.phone}</div>
                 </div>
                 {selectedId === m.id && <CheckCircle className="size-4 text-[#FF3B3B] shrink-0" />}
               </button>
@@ -2404,7 +2376,7 @@ function AddScheduleModal({ onClose, onConfirm }: { onClose: () => void; onConfi
     <ModalOverlay onClose={onClose}>
       <div className="bg-[#181818] border border-white/10 rounded-2xl w-full max-w-md">
         <div className="flex items-center justify-between px-5 py-4 border-b border-white/5">
-          <h3 className="text-white font-bold text-sm">Add Schedule â€” TrainingSchedule</h3>
+          <h3 className="text-white font-bold text-sm">Add Schedule — TrainingSchedule</h3>
           <button onClick={onClose} className="text-[#555] hover:text-white transition-colors"><X className="size-4" /></button>
         </div>
         <div className="p-5 space-y-4">
@@ -2443,7 +2415,7 @@ function ProgressRecordModal({ onClose, onConfirm }: { onClose: () => void; onCo
     <ModalOverlay onClose={onClose}>
       <div className="bg-[#181818] border border-white/10 rounded-2xl w-full max-w-md">
         <div className="flex items-center justify-between px-5 py-4 border-b border-white/5">
-          <h3 className="text-white font-bold text-sm">Update Progress â€” ProgressRecord</h3>
+          <h3 className="text-white font-bold text-sm">Update Progress — ProgressRecord</h3>
           <button onClick={onClose} className="text-[#555] hover:text-white transition-colors"><X className="size-4" /></button>
         </div>
         <div className="p-5 space-y-4">
@@ -2457,13 +2429,13 @@ function ProgressRecordModal({ onClose, onConfirm }: { onClose: () => void; onCo
             <label className="block text-xs font-semibold text-[#BDBDBD] mb-1.5 uppercase tracking-wide">Training Session (TrainingSchedule)</label>
             <select value={scheduleId} onChange={e => setScheduleId(e.target.value)} className="w-full bg-[#222] border border-white/10 text-white text-sm px-3 py-2.5 rounded-lg focus:outline-none focus:border-[#FF3B3B]/60 transition-colors">
               {SCHEDULES.filter(s => s.memberId === memberId).map(s => (
-                <option key={s.scheduleId} value={s.scheduleId}>{s.scheduleId} â€” {s.trainingDate} {s.trainingTime} Â· {s.exerciseType}</option>
+                <option key={s.scheduleId} value={s.scheduleId}>{s.scheduleId} — {s.trainingDate} {s.trainingTime} · {s.exerciseType}</option>
               ))}
             </select>
           </div>
           <Input label="Recorded Date (RecordedDate)" value={date} onChange={setDate} />
           <div>
-            <label className="block text-xs font-semibold text-[#BDBDBD] mb-2 uppercase tracking-wide">Completion Level (CompletionLevel) â€” {level}%</label>
+            <label className="block text-xs font-semibold text-[#BDBDBD] mb-2 uppercase tracking-wide">Completion Level (CompletionLevel) — {level}%</label>
             <input
               type="range" min={0} max={100} value={level}
               onChange={e => setLevel(Number(e.target.value))}
@@ -2493,14 +2465,14 @@ function WorkoutResultModal({ exercises, goal, intensity, member, onClose }: {
     <ModalOverlay onClose={onClose}>
       <div className="bg-[#181818] border border-white/10 rounded-2xl w-full max-w-lg max-h-[80vh] overflow-y-auto">
         <div className="flex items-center justify-between px-5 py-4 border-b border-white/5 sticky top-0 bg-[#181818]">
-          <h3 className="text-white font-bold text-sm">Workout Plan â€” {member?.name}</h3>
+          <h3 className="text-white font-bold text-sm">Workout Plan — {member?.name}</h3>
           <button onClick={onClose} className="text-[#555] hover:text-white transition-colors"><X className="size-4" /></button>
         </div>
         <div className="p-5 space-y-4">
           <div className="bg-[#FF3B3B]/8 border border-[#FF3B3B]/20 rounded-xl p-4">
-            <div className="text-[#FF3B3B] text-xs font-bold uppercase tracking-widest mb-1">Má»¥c tiĂªu</div>
+            <div className="text-[#FF3B3B] text-xs font-bold uppercase tracking-widest mb-1">Mục tiêu</div>
             <div className="text-white text-sm font-semibold">{goal}</div>
-            <div className="text-[#BDBDBD] text-xs mt-1">CÆ°á»ng Ä‘á»™: <span className="text-[#FF3B3B] font-semibold">{intensity}</span></div>
+            <div className="text-[#BDBDBD] text-xs mt-1">Cường độ: <span className="text-[#FF3B3B] font-semibold">{intensity}</span></div>
           </div>
           <div className="space-y-2">
             {exercises.map((ex, idx) => (
@@ -2549,6 +2521,129 @@ function Toast({ message, onDone }: { message: string; onDone: () => void }) {
   );
 }
 
+function EquipmentReportScreen({ showToast }: { showToast: (msg: string) => void }) {
+  const [equipment, setEquipment] = useState<Array<{ equipmentUuid?: string; equipmentName: string; room: string }>>([]);
+  const [form, setForm] = useState({
+    equipmentName: "",
+    equipmentUuid: "",
+    room: "",
+    roomId: "",
+    issueDescription: "",
+    severity: "Medium",
+  });
+  const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    let isMounted = true;
+
+    getStaffEquipmentStatus().then(({ data, error }) => {
+      if (!isMounted) return;
+      setEquipment(error ? [] : data.equipment);
+      setMessage(error ? "Equipment data could not be loaded." : "");
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const selectEquipment = (equipmentName: string) => {
+    const item = equipment.find((entry) => entry.equipmentName === equipmentName);
+    setForm((current) => ({
+      ...current,
+      equipmentName,
+      equipmentUuid: item?.equipmentUuid || "",
+      room: item?.room || current.room,
+    }));
+  };
+
+  const submitReport = async () => {
+    if (!form.equipmentName || !form.room || !form.issueDescription.trim()) return;
+
+    const result = await createStaffMaintenanceReport({
+      ...form,
+      priority: form.severity.toLowerCase(),
+    });
+
+    if (!result.ok) {
+      setMessage(result.message);
+      return;
+    }
+
+    setForm({
+      equipmentName: "",
+      equipmentUuid: "",
+      room: "",
+      roomId: "",
+      issueDescription: "",
+      severity: "Medium",
+    });
+    setMessage("");
+    showToast("Equipment report submitted.");
+  };
+
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+        <div>
+          <h1 className="text-white text-2xl font-bold">Equipment Reports</h1>
+          <p className="text-[#777] text-sm mt-1">Report broken or unsafe equipment directly from the PT portal.</p>
+        </div>
+        <div className="rounded-xl border border-[#FF3B3B]/20 bg-[#FF3B3B]/10 px-4 py-3 text-xs font-semibold text-[#FF6B6B]">
+          Reports are sent to staff and admin maintenance queues.
+        </div>
+      </div>
+
+      {message && <div className="rounded-xl border border-amber-400/20 bg-amber-400/10 p-3 text-sm font-bold text-amber-300">{message}</div>}
+
+      <SectionCard title="New Equipment Report">
+        <div className="grid gap-4 md:grid-cols-2">
+          <div>
+            <label className="block text-xs font-semibold text-[#BDBDBD] mb-1.5 uppercase tracking-wide">Equipment</label>
+            <select
+              value={form.equipmentName}
+              onChange={(event) => selectEquipment(event.target.value)}
+              className="w-full bg-[#222] border border-white/10 text-white text-sm px-3 py-2.5 rounded-lg focus:outline-none focus:border-[#FF3B3B]/60 transition-colors"
+            >
+              <option value="">Select equipment...</option>
+              {equipment.map((item) => (
+                <option key={`${item.equipmentUuid}-${item.equipmentName}`} value={item.equipmentName}>
+                  {item.equipmentName}
+                </option>
+              ))}
+            </select>
+          </div>
+          <Input label="Room / location" value={form.room} onChange={(room) => setForm((current) => ({ ...current, room }))} />
+          <Select label="Severity" value={form.severity} onChange={(severity) => setForm((current) => ({ ...current, severity }))} options={["Low", "Medium", "High", "Urgent"]} />
+          <div className="md:col-span-2">
+            <Textarea label="Issue description" value={form.issueDescription} onChange={(issueDescription) => setForm((current) => ({ ...current, issueDescription }))} rows={5} />
+          </div>
+        </div>
+        <div className="mt-5 flex justify-end">
+          <PrimaryBtn label="Submit Report" icon={AlertTriangle} onClick={submitReport} />
+        </div>
+      </SectionCard>
+
+      <SectionCard title="Equipment Directory">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {equipment.slice(0, 9).map((item) => (
+            <button
+              key={`${item.equipmentUuid}-${item.equipmentName}-card`}
+              type="button"
+              onClick={() => selectEquipment(item.equipmentName)}
+              className="rounded-xl border border-white/8 bg-[#222] p-4 text-left transition hover:border-[#FF3B3B]/40"
+            >
+              <div className="text-sm font-bold text-white">{item.equipmentName}</div>
+              <div className="mt-1 text-xs text-[#777]">{item.room}</div>
+            </button>
+          ))}
+          {!equipment.length && <p className="text-sm text-[#777]">No equipment records available.</p>}
+        </div>
+      </SectionCard>
+    </div>
+  );
+}
+
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // APP ROOT
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -2560,7 +2655,7 @@ export default function App() {
   const [showAddSchedule, setShowAddSchedule] = useState(false);
   const [showProgressModal, setShowProgressModal] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
-  const [darkMode, setDarkMode] = useState(true);
+  const { darkMode, setDarkMode } = useAppearance();
   const [, setPtDataVersion] = useState(0);
   const [ptDataMessage, setPtDataMessage] = useState("");
   const { profile } = useSupabaseUserProfile('trainer');
@@ -2649,6 +2744,7 @@ export default function App() {
             />
           )}
           {screen === "workout" && <WorkoutGuidanceScreen showToast={showToast} />}
+          {screen === "equipment-report" && <EquipmentReportScreen showToast={showToast} />}
           {screen === "evaluation" && <ProgressEvaluationScreen showToast={showToast} />}
           {screen === "meal-plan" && <MealPlanScreen showToast={showToast} />}
           {screen === "profile" && <ProfileScreen showToast={showToast} />}

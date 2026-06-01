@@ -16,6 +16,7 @@ import {
   X,
   type LucideIcon,
 } from 'lucide-react';
+import ThemeToggle from '../../components/theme/ThemeToggle';
 import { logoutUser } from '../../services/authService';
 import { useAppearance } from './AppearanceContext';
 import { useRoleTranslationEffect } from './LanguageContext';
@@ -58,11 +59,12 @@ export default function RoleShell({
   notificationCount,
   notifications,
   onAvatarClick,
-  darkMode = true,
+  darkMode,
 }: RoleShellProps) {
   const shellRef = useRef<HTMLDivElement>(null);
   const appearance = useAppearance();
   const shellDarkMode = darkMode ?? appearance.darkMode;
+  const shellThemeClass = shellDarkMode ? 'gymster-dark' : 'gymster-light';
   const location = useLocation();
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -157,7 +159,7 @@ export default function RoleShell({
   );
 
   return (
-    <div ref={shellRef} className={`gymster-shell ${shellDarkMode ? 'gymster-dark' : 'gymster-light'} flex h-screen bg-gradient-to-br from-[#050607] via-[#0a0b0d] to-[#050607] overflow-hidden relative`}>
+    <div ref={shellRef} className={`gymster-shell ${shellThemeClass} flex h-screen bg-gradient-to-br from-[#050607] via-[#0a0b0d] to-[#050607] overflow-hidden relative`}>
       <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1534438327276-14e5300c3a48?w=1920&h=1080&fit=crop')] bg-cover bg-center opacity-[0.03] pointer-events-none" />
       <div className="absolute inset-0 bg-gradient-to-br from-[#EF233C]/5 via-transparent to-[#990000]/5 pointer-events-none" />
 
@@ -257,6 +259,8 @@ export default function RoleShell({
               </div>
             </div>
 
+            <ThemeToggle />
+
             <div className="relative z-[90]">
               <button
                 type="button"
@@ -339,7 +343,7 @@ export default function RoleShell({
                       onClick={openAllNotifications}
                       className="w-full rounded-2xl bg-white/10 px-4 py-3 text-sm font-bold text-white transition-colors hover:bg-[#EF233C]/20"
                     >
-                      See all
+                      Xem tất cả
                     </button>
                   </div>
                 </div>
