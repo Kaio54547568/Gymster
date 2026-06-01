@@ -1,7 +1,7 @@
 [
   {
     "id": 1,
-    "username": "admin",
+    "username": "admin01",
     "email": "admin@gymster.local",
     "password": "Admin@123",
     "fullName": "Quản trị viên Gymster",
@@ -13,7 +13,7 @@
   },
   {
     "id": 2,
-    "username": "staff",
+    "username": "staff00",
     "email": "staff@gymster.local",
     "password": "Staff@123",
     "fullName": "Nhân viên Gymster",
@@ -25,7 +25,7 @@
   },
   {
     "id": 3,
-    "username": "pt",
+    "username": "trainer00",
     "email": "pt@gymster.local",
     "password": "Pt@123",
     "fullName": "Huấn luyện viên Gymster",
@@ -37,7 +37,7 @@
   },
   {
     "id": 4,
-    "username": "member",
+    "username": "member00",
     "email": "member@gymster.local",
     "password": "Member@123",
     "fullName": "Hội viên Gymster",

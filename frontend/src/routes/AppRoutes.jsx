@@ -1,15 +1,19 @@
-import { Navigate, Route, Routes } from "react-router";
+import { Navigate, Route, Routes, useLocation } from "react-router";
 import { useEffect, useState } from "react";
 import LandingPage from "../pages/Landing/LandingPage";
 import LoginPage from "../pages/Auth/LoginPage";
 import RegisterPage from "../pages/Auth/RegisterPage";
+import AuthCallbackPage from "../pages/Auth/AuthCallbackPage";
+import SocialProfilePage from "../pages/Auth/SocialProfilePage";
 import AdminApp from "../roles/admin/App";
 import StaffApp from "../roles/staff/App";
 import PtApp from "../roles/pt/App";
 import MemberApp from "../roles/member/App";
 import {
+  CURRENT_SESSION_KEY,
   getCurrentUser,
   getUserHome,
+  refreshCurrentSession,
 } from "../services/authService";
 import {
   MemberOnboardingRoute,
@@ -53,6 +57,7 @@ function FallbackRoute({ currentUser }) {
 
 function AppRoutes() {
   const [currentUser, setCurrentUserState] = useState(() => getCurrentUser());
+  const location = useLocation();
 
   useEffect(() => {
     const syncCurrentUser = () => {
@@ -60,7 +65,7 @@ function AppRoutes() {
     };
 
     const handleStorage = (event) => {
-      if (!event.key || event.key === "gymster_current_user") {
+      if (!event.key || event.key === "gymster_current_user" || event.key === CURRENT_SESSION_KEY) {
         syncCurrentUser();
       }
     };
@@ -71,6 +76,41 @@ function AppRoutes() {
     return () => {
       window.removeEventListener("gymster:user-updated", syncCurrentUser);
       window.removeEventListener("storage", handleStorage);
+    };
+  }, []);
+
+  useEffect(() => {
+    setCurrentUserState(refreshCurrentSession());
+  }, [location.pathname]);
+
+  useEffect(() => {
+    let lastRefreshAt = 0;
+
+    const refreshActiveSession = () => {
+      const now = Date.now();
+      if (now - lastRefreshAt < 60 * 1000) return;
+
+      lastRefreshAt = now;
+      setCurrentUserState(refreshCurrentSession());
+    };
+
+    const refreshWhenVisible = () => {
+      if (!document.hidden) {
+        refreshActiveSession();
+      }
+    };
+
+    refreshActiveSession();
+    window.addEventListener("focus", refreshActiveSession);
+    window.addEventListener("pointerdown", refreshActiveSession);
+    window.addEventListener("keydown", refreshActiveSession);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+
+    return () => {
+      window.removeEventListener("focus", refreshActiveSession);
+      window.removeEventListener("pointerdown", refreshActiveSession);
+      window.removeEventListener("keydown", refreshActiveSession);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
   }, []);
 
@@ -100,6 +140,8 @@ function AppRoutes() {
           </PublicRoute>
         }
       />
+      <Route path="/auth/callback" element={<AuthCallbackPage />} />
+      <Route path="/auth/complete-profile" element={<SocialProfilePage />} />
       <Route
         path="/onboarding/status"
         element={

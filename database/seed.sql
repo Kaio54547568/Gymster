@@ -60,11 +60,11 @@ insert into public.users (
   avatar_url,
   last_login_at
 ) values
-  ('00000000-0000-4000-8000-000000000001', 'owner@gymster.local', 'owner', 'Owner@123', 'Minh', 'Tran', '0901000001', date '1984-04-12', 'male', 'owner', 'Owns business strategy, revenue targets, and operating standards for Gymster District 1.', 'vi', 'active', null, now() - interval '2 hours'),
-  ('00000000-0000-4000-8000-000000000002', 'admin@gymster.local', 'admin', 'Admin@123', 'Linh', 'Pham', '0901000002', date '1988-08-09', 'female', 'admin', 'Manages packages, payroll, reports, and staff performance across the club.', 'vi', 'active', null, now() - interval '1 hour'),
-  ('00000000-0000-4000-8000-000000000003', 'staff@gymster.local', 'staff', 'Staff@123', 'An', 'Nguyen', '0901000003', date '1994-02-20', 'female', 'staff', 'Handles front desk operations, memberships, payments, and member support.', 'vi', 'active', null, now() - interval '35 minutes'),
-  ('00000000-0000-4000-8000-000000000004', 'trainer@gymster.local', 'trainer', 'Trainer@123', 'Khoa', 'Le', '0901000004', date '1990-11-03', 'male', 'trainer', 'Strength coach focused on safe progression, form, and sustainable habits.', 'vi', 'active', null, now() - interval '20 minutes'),
-  ('00000000-0000-4000-8000-000000000005', 'member@gymster.local', 'member', 'Member@123', 'Mai', 'Do', '0901000005', date '1998-05-18', 'female', 'member', 'Active PT member training for strength, posture, and better weekly consistency.', 'vi', 'active', null, now() - interval '10 minutes');
+  ('00000000-0000-4000-8000-000000000001', 'owner@gymster.local', 'owner01', 'Owner@123', 'Minh', 'Tran', '0901000001', date '1984-04-12', 'male', 'owner', 'Owns business strategy, revenue targets, and operating standards for Gymster District 1.', 'vi', 'active', null, now() - interval '2 hours'),
+  ('00000000-0000-4000-8000-000000000002', 'admin@gymster.local', 'admin01', 'Admin@123', 'Linh', 'Pham', '0901000002', date '1988-08-09', 'female', 'admin', 'Manages packages, payroll, reports, and staff performance across the club.', 'vi', 'active', null, now() - interval '1 hour'),
+  ('00000000-0000-4000-8000-000000000003', 'staff@gymster.local', 'staff00', 'Staff@123', 'An', 'Nguyen', '0901000003', date '1994-02-20', 'female', 'staff', 'Handles front desk operations, memberships, payments, and member support.', 'vi', 'active', null, now() - interval '35 minutes'),
+  ('00000000-0000-4000-8000-000000000004', 'trainer@gymster.local', 'trainer00', 'Trainer@123', 'Khoa', 'Le', '0901000004', date '1990-11-03', 'male', 'trainer', 'Strength coach focused on safe progression, form, and sustainable habits.', 'vi', 'active', null, now() - interval '20 minutes'),
+  ('00000000-0000-4000-8000-000000000005', 'member@gymster.local', 'member00', 'Member@123', 'Mai', 'Do', '0901000005', date '1998-05-18', 'female', 'member', 'Active PT member training for strength, posture, and better weekly consistency.', 'vi', 'active', null, now() - interval '10 minutes');
 
 insert into public.users (
   email,

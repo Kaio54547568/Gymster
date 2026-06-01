@@ -1,13 +1,14 @@
 import { Link, useNavigate } from "react-router";
 import { useState } from "react";
 import AuthHero from "../../components/auth/AuthHero";
-import { setCurrentUser } from "../../services/authService";
+import { setCurrentUser, signInWithOAuthProvider } from "../../services/authService";
 import { resetOnboardingState } from "../../services/onboardingService";
 import { createPendingMemberAccount } from "../../services/userApi";
 import "./Auth.css";
 
 const initialForm = {
-  fullName: "",
+  firstName: "",
+  lastName: "",
   username: "",
   email: "",
   password: "",
@@ -27,6 +28,10 @@ function isValidPhone(phone) {
 
 function isValidEmail(email) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+function isValidUsername(username) {
+  return /^[A-Za-z0-9][A-Za-z0-9._-]{4,28}[A-Za-z0-9]$/.test(username);
 }
 
 function isValidBirthDate(value) {
@@ -61,6 +66,10 @@ function RegisterPage() {
 
     if (!isValidEmail(form.email)) {
       return "Please enter a valid email address.";
+    }
+
+    if (!isValidUsername(form.username.trim())) {
+      return "Username must be 6-30 characters, use only A-Z, a-z, 0-9, _, ., -, and cannot start or end with _, ., or -.";
     }
 
     if (!isStrongPassword(form.password)) {
@@ -98,7 +107,8 @@ function RegisterPage() {
     setIsSubmitting(true);
 
     const supabaseResult = await createPendingMemberAccount({
-      fullName: form.fullName.trim(),
+      firstName: form.firstName.trim(),
+      lastName: form.lastName.trim(),
       username: form.username.trim(),
       email: form.email.trim(),
       password: form.password,
@@ -118,6 +128,15 @@ function RegisterPage() {
     resetOnboardingState();
     setStatus({ type: "success", message: "Account created. Opening member setup..." });
     window.setTimeout(() => navigate("/member", { replace: true }), 700);
+  };
+
+  const handleOAuthRegister = async (provider) => {
+    setStatus({ type: "", message: "" });
+
+    const result = await signInWithOAuthProvider(provider);
+    if (!result.ok) {
+      setStatus({ type: "error", message: result.message });
+    }
   };
 
   return (
@@ -142,17 +161,49 @@ function RegisterPage() {
             <form className="auth-form" onSubmit={handleSubmit}>
               <div className="form-grid">
                 <div className="form-field">
-                  <label htmlFor="fullName">Full name</label>
+                  <label htmlFor="firstName">First name</label>
                   <div className="field-with-icon">
                     <span className="field-icon">N</span>
-                    <input id="fullName" type="text" placeholder="Alex Nguyen" value={form.fullName} onChange={updateField("fullName")} />
+                    <input
+                      id="firstName"
+                      type="text"
+                      placeholder="Alex"
+                      value={form.firstName}
+                      onChange={updateField("firstName")}
+                      autoComplete="given-name"
+                    />
                   </div>
                 </div>
+                <div className="form-field">
+                  <label htmlFor="lastName">Last name</label>
+                  <div className="field-with-icon">
+                    <span className="field-icon">N</span>
+                    <input
+                      id="lastName"
+                      type="text"
+                      placeholder="Nguyen"
+                      value={form.lastName}
+                      onChange={updateField("lastName")}
+                      autoComplete="family-name"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="form-grid">
                 <div className="form-field">
                   <label htmlFor="username">Username</label>
                   <div className="field-with-icon">
                     <span className="field-icon">U</span>
-                    <input id="username" type="text" placeholder="alexnguyen" value={form.username} onChange={updateField("username")} autoComplete="username" />
+                    <input
+                      id="username"
+                      type="text"
+                      placeholder="alex-nguyen01"
+                      value={form.username}
+                      onChange={updateField("username")}
+                      autoComplete="username"
+                      maxLength={30}
+                    />
                   </div>
                 </div>
               </div>
@@ -255,6 +306,17 @@ function RegisterPage() {
                 <button className="auth-submit" type="submit" disabled={isSubmitting}>
                   {isSubmitting ? "Creating Account..." : "Create Account"}
                 </button>
+
+                <div className="divider">or</div>
+
+                <div className="social-grid">
+                  <button className="social-btn" type="button" onClick={() => handleOAuthRegister("google")}>
+                    Google
+                  </button>
+                  <button className="social-btn" type="button" onClick={() => handleOAuthRegister("facebook")}>
+                    Facebook
+                  </button>
+                </div>
 
                 <p className="switch-text">
                   Already have an account?{" "}
