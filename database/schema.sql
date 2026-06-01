@@ -143,6 +143,22 @@ alter table public.users alter column last_name set default '';
 alter table public.users alter column last_name set not null;
 alter table public.users drop column if exists full_name;
 
+create table if not exists public.user_settings (
+  user_id uuid primary key references public.users(user_id) on delete cascade,
+  preferred_language text not null default 'en' check (preferred_language in ('en', 'vi')),
+  theme text not null default 'dark' check (theme in ('dark', 'light')),
+  email_notifications boolean not null default true,
+  membership_expiring_alerts boolean not null default true,
+  payment_completed_notifications boolean not null default false,
+  settings_json jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+drop trigger if exists set_user_settings_updated_at on public.user_settings;
+create trigger set_user_settings_updated_at before update on public.user_settings
+for each row execute function public.set_updated_at();
+
 create table if not exists public.members (
   member_id uuid primary key default gen_random_uuid(),
   user_id uuid not null unique references public.users(user_id) on delete cascade,

@@ -1,5 +1,5 @@
 ﻿import { useEffect, useState } from 'react';
-import { Navigate, Route, Routes, useNavigate } from 'react-router';
+import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router';
 import {
   CalendarDays,
   CheckCircle,
@@ -40,6 +40,7 @@ import {
   createMemberServiceFeedback,
   getMemberFeedbackPortalData,
 } from '../../services/memberEngagementApi';
+import { createNotification } from '../../services/notificationApi';
 import { activateMemberAccount } from '../../services/userApi';
 import { getTrainerWeeklyAvailability } from '../../services/trainerAvailabilityApi';
 
@@ -91,6 +92,26 @@ function getPackageDurationMonths(pkg: any) {
 
   const match = String(pkg?.durationText || pkg?.duration || '').match(/\d+/);
   return Math.max(1, Number(match?.[0] || 1));
+}
+
+function getMembershipState(item: any) {
+  if (!item) {
+    return { hasUsablePackage: false, daysRemaining: 0, isExpiringSoon: false, reason: 'missing' };
+  }
+
+  const normalizedStatus = String(item.status || '').toLowerCase();
+  const endDate = item.endDate ? new Date(item.endDate) : null;
+  const daysRemaining = endDate && !Number.isNaN(endDate.getTime())
+    ? Math.ceil((endDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+    : 0;
+  const hasUsablePackage = normalizedStatus === 'active' && (!endDate || daysRemaining >= 0);
+
+  return {
+    hasUsablePackage,
+    daysRemaining: Math.max(0, daysRemaining),
+    isExpiringSoon: hasUsablePackage && daysRemaining <= 7,
+    reason: hasUsablePackage ? 'active' : normalizedStatus === 'active' ? 'expired' : normalizedStatus || 'missing',
+  };
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -238,7 +259,7 @@ function Dashboard() {
         ))}
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-3">
+      <div className="grid gap-6 lg:grid-cols-2">
         <Section title="Current Package">
           <div className="space-y-4">
             <div>
@@ -265,15 +286,6 @@ function Dashboard() {
           </div>
         </Section>
 
-        <Section title="Quick Actions">
-          <div className="grid gap-3">
-            {['Book Workout', 'Renew Package', 'View Trainers', 'Rate Service'].map((label) => (
-              <button key={label} className="rounded-xl border border-[#EF233C]/30 px-4 py-3 text-left text-sm font-bold text-[#EF233C] hover:bg-[#EF233C]/10">
-                {label}
-              </button>
-            ))}
-          </div>
-        </Section>
       </div>
     </div>
   );
@@ -1170,7 +1182,6 @@ function RateService() {
   const complaintTypes = ['Trainer', 'Workout Session', 'Equipment', 'Facilities', 'Overall Service', 'Customer Support'];
   const ratingLabels = ['Very Poor', 'Poor', 'Average', 'Good', 'Excellent'];
   const ratingCriteria = ['Trainer attitude', 'Training quality', 'Equipment condition', 'Cleanliness', 'Staff support'];
-  const quickTags = ['Professional trainer', 'Clean facilities', 'Good equipment', 'Crowded room', 'Equipment issue', 'Late trainer', 'Need better support'];
   const [trainerTargets, setTrainerTargets] = useState<string[]>([]);
   const [recentSessions, setRecentSessions] = useState<string[]>([]);
   const [equipmentRooms, setEquipmentRooms] = useState<string[]>([]);
@@ -1182,7 +1193,6 @@ function RateService() {
   const [relatedTarget, setRelatedTarget] = useState('');
   const [overallRating, setOverallRating] = useState(0);
   const [criteriaRatings, setCriteriaRatings] = useState<Record<string, number>>({});
-  const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [comment, setComment] = useState('');
   const [showComplaintModal, setShowComplaintModal] = useState(false);
   const [complaintForm, setComplaintForm] = useState({ type: '', target: '', description: '' });
@@ -1213,7 +1223,6 @@ function RateService() {
       serviceType,
       rating: overallRating,
       comment,
-      tags: selectedTags,
       target: relatedTarget,
     });
     if (error) {
@@ -1225,7 +1234,6 @@ function RateService() {
     setRelatedTarget('');
     setOverallRating(0);
     setCriteriaRatings({});
-    setSelectedTags([]);
     setComment('');
     await loadFeedbackData();
   };
@@ -1257,10 +1265,6 @@ function RateService() {
     if (complaintForm.type === 'Customer Support') return ['Front desk', 'Hotline', 'Billing support'];
     if (complaintForm.type === 'Overall Service') return ['Gymster service experience'];
     return [];
-  };
-
-  const toggleTag = (tag: string) => {
-    setSelectedTags((current) => (current.includes(tag) ? current.filter((item) => item !== tag) : [...current, tag]));
   };
 
   const getFeedbackBadgeClass = (status: FeedbackStatus) => {
@@ -1372,24 +1376,6 @@ function RateService() {
             </div>
 
             <div>
-              <label className="mb-3 block text-sm font-bold text-white">Quick feedback tags</label>
-              <div className="flex flex-wrap gap-2">
-                {quickTags.map((tag) => (
-                  <button
-                    key={tag}
-                    type="button"
-                    onClick={() => toggleTag(tag)}
-                    className={`rounded-full border px-3 py-2 text-xs font-bold transition ${
-                      selectedTags.includes(tag) ? 'border-[#EF233C] bg-[#EF233C]/15 text-[#EF233C]' : 'border-white/10 bg-[#222] text-white/55 hover:border-[#EF233C]/40 hover:text-white'
-                    }`}
-                  >
-                    {tag}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div>
               <div className="mb-2 flex justify-between gap-3">
                 <label className="text-sm font-bold text-white" htmlFor="feedback-comment">Tell us more</label>
                 <span className={`text-xs font-bold ${comment.length > 500 ? 'text-red-300' : 'text-white/40'}`}>{comment.length}/500</span>
@@ -1425,57 +1411,59 @@ function RateService() {
           </div>
         </Section>
 
-        <Section title="My Recent Feedback">
-          <div className="space-y-4">
-            {recentFeedback.map((feedback) => (
-              <article key={`${feedback.target}-${feedback.date}`} className="rounded-2xl border border-white/8 bg-[#222] p-4">
-                <div className="mb-3 flex items-start justify-between gap-3">
-                  <div>
-                    <h3 className="font-black text-white">{feedback.target}</h3>
-                    <p className="mt-1 text-xs text-white/45">{feedback.date}</p>
+        <div className="grid min-h-[720px] gap-6">
+          <Section title="My Recent Feedback">
+            <div className="max-h-[320px] space-y-4 overflow-y-auto pr-1">
+              {recentFeedback.map((feedback) => (
+                <article key={`${feedback.target}-${feedback.date}`} className="rounded-2xl border border-white/8 bg-[#222] p-4">
+                  <div className="mb-3 flex items-start justify-between gap-3">
+                    <div>
+                      <h3 className="font-black text-white">{feedback.target}</h3>
+                      <p className="mt-1 text-xs text-white/45">{feedback.date}</p>
+                    </div>
+                    <span className={`rounded-full px-3 py-1 text-xs font-black ${getFeedbackBadgeClass(feedback.status)}`}>{feedback.status}</span>
                   </div>
-                  <span className={`rounded-full px-3 py-1 text-xs font-black ${getFeedbackBadgeClass(feedback.status)}`}>{feedback.status}</span>
-                </div>
-                <div className="mb-3 flex gap-1 text-[#EF233C]">
-                  {[1, 2, 3, 4, 5].map((star) => (
-                    <Star key={star} className={`h-4 w-4 ${feedback.rating >= star ? 'fill-current' : 'text-white/20'}`} />
-                  ))}
-                </div>
-                <p className="text-sm leading-6 text-white/65">{feedback.comment}</p>
-                {feedback.response && (
-                  <div className="mt-3 rounded-xl border border-[#EF233C]/20 bg-[#EF233C]/10 p-3 text-sm text-white/70">
-                    <span className="font-bold text-[#EF233C]">Gym response: </span>{feedback.response}
+                  <div className="mb-3 flex gap-1 text-[#EF233C]">
+                    {[1, 2, 3, 4, 5].map((star) => (
+                      <Star key={star} className={`h-4 w-4 ${feedback.rating >= star ? 'fill-current' : 'text-white/20'}`} />
+                    ))}
                   </div>
-                )}
-              </article>
-            ))}
-            {!recentFeedback.length && <div className="rounded-2xl border border-white/8 bg-[#222] p-6 text-center text-sm font-bold text-white/45">No feedback yet.</div>}
-          </div>
-        </Section>
-      </div>
+                  <p className="text-sm leading-6 text-white/65">{feedback.comment}</p>
+                  {feedback.response && (
+                    <div className="mt-3 rounded-xl border border-[#EF233C]/20 bg-[#EF233C]/10 p-3 text-sm text-white/70">
+                      <span className="font-bold text-[#EF233C]">Gym response: </span>{feedback.response}
+                    </div>
+                  )}
+                </article>
+              ))}
+              {!recentFeedback.length && <div className="rounded-2xl border border-white/8 bg-[#222] p-6 text-center text-sm font-bold text-white/45">No feedback yet.</div>}
+            </div>
+          </Section>
 
-      <Section title="My Recent Complaints">
-        <div className="grid gap-4 lg:grid-cols-2">
-          {recentComplaints.map((complaint) => (
-            <article key={`${complaint.type}-${complaint.date}`} className="rounded-2xl border border-white/8 bg-[#222] p-4">
-              <div className="mb-3 flex items-start justify-between gap-3">
-                <div>
-                  <h3 className="font-black text-white">{complaint.type}</h3>
-                  <p className="mt-1 text-xs text-white/45">{complaint.target} · {complaint.date}</p>
-                </div>
-                <span className={`rounded-full px-3 py-1 text-xs font-black ${getFeedbackBadgeClass(complaint.status)}`}>{complaint.status}</span>
-              </div>
-              <p className="text-sm leading-6 text-white/65">{complaint.description}</p>
-              {complaint.response && (
-                <div className="mt-3 rounded-xl border border-[#EF233C]/20 bg-[#EF233C]/10 p-3 text-sm text-white/70">
-                  <span className="font-bold text-[#EF233C]">Staff response: </span>{complaint.response}
-                </div>
-              )}
-            </article>
-          ))}
-          {!recentComplaints.length && <div className="rounded-2xl border border-white/8 bg-[#222] p-6 text-center text-sm font-bold text-white/45">No complaints yet.</div>}
+          <Section title="My Recent Complaints">
+            <div className="max-h-[320px] space-y-4 overflow-y-auto pr-1">
+              {recentComplaints.map((complaint) => (
+                <article key={`${complaint.type}-${complaint.date}`} className="rounded-2xl border border-white/8 bg-[#222] p-4">
+                  <div className="mb-3 flex items-start justify-between gap-3">
+                    <div>
+                      <h3 className="font-black text-white">{complaint.type}</h3>
+                      <p className="mt-1 text-xs text-white/45">{complaint.target} - {complaint.date}</p>
+                    </div>
+                    <span className={`rounded-full px-3 py-1 text-xs font-black ${getFeedbackBadgeClass(complaint.status)}`}>{complaint.status}</span>
+                  </div>
+                  <p className="text-sm leading-6 text-white/65">{complaint.description}</p>
+                  {complaint.response && (
+                    <div className="mt-3 rounded-xl border border-[#EF233C]/20 bg-[#EF233C]/10 p-3 text-sm text-white/70">
+                      <span className="font-bold text-[#EF233C]">Staff response: </span>{complaint.response}
+                    </div>
+                  )}
+                </article>
+              ))}
+              {!recentComplaints.length && <div className="rounded-2xl border border-white/8 bg-[#222] p-6 text-center text-sm font-bold text-white/45">No complaints yet.</div>}
+            </div>
+          </Section>
         </div>
-      </Section>
+      </div>
 
       {showComplaintModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
@@ -1733,6 +1721,17 @@ function SelectPackageOnboarding({ onMemberActivated }: { onMemberActivated?: (u
             selectedSchedule: flowData.selectedSlot.label,
             sessionCount: flowData.sessionLimit || 4,
           }), 8000, 'Workout session creation timed out.');
+
+          await createNotification({
+            notificationType: 'system',
+            title: 'Thông tin PT của bạn',
+            message: [
+              `PT: ${flowData.selectedTrainer.name}`,
+              flowData.selectedTrainer.specialty ? `Chuyên môn: ${flowData.selectedTrainer.specialty}` : '',
+              flowData.selectedTrainer.rating ? `Đánh giá: ${flowData.selectedTrainer.rating}/5` : '',
+              flowData.selectedSlot.label ? `Lịch tập: ${flowData.selectedSlot.label}` : '',
+            ].filter(Boolean).join(' | '),
+          });
         }
       } catch (error) {
         console.error('[Gymster hệ thống] Demo payment background sync failed:', error);
@@ -1980,9 +1979,20 @@ function MemberSettings() {
 
 function MemberLayout() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { profile } = useSupabaseUserProfile('member');
   const [currentUser, setCurrentUserState] = useState(() => getCurrentUser());
+  const [membershipCheck, setMembershipCheck] = useState({
+    loading: true,
+    hasUsablePackage: false,
+    daysRemaining: 0,
+    isExpiringSoon: false,
+    reason: 'loading',
+  });
   const isActiveMember = currentUser?.accountStatus === 'Active' || currentUser?.account_status === 'active';
+  const currentPath = location.pathname;
+  const isRenewalPage = currentPath.startsWith('/member/my-package') || currentPath.startsWith('/member/select-package');
+  const shouldLockContent = isActiveMember && !membershipCheck.loading && !membershipCheck.hasUsablePackage && !isRenewalPage;
   const activeMenuItems: RoleShellItem[] = [
     { id: 'dashboard', path: '/member', icon: LayoutDashboard, label: 'Dashboard' },
     { id: 'package', path: '/member/my-package', icon: ReceiptText, label: 'My Package' },
@@ -1997,6 +2007,41 @@ function MemberLayout() {
   ];
   const menuItems = isActiveMember ? activeMenuItems : onboardingMenuItems;
 
+  useEffect(() => {
+    let isMounted = true;
+
+    if (!isActiveMember) {
+      setMembershipCheck({
+        loading: false,
+        hasUsablePackage: false,
+        daysRemaining: 0,
+        isExpiringSoon: false,
+        reason: 'inactive',
+      });
+      return () => {
+        isMounted = false;
+      };
+    }
+
+    getCurrentMemberPackageForUser(currentUser).then(({ data }) => {
+      if (!isMounted) return;
+      setMembershipCheck({ loading: false, ...getMembershipState(data) });
+    }).catch(() => {
+      if (!isMounted) return;
+      setMembershipCheck({
+        loading: false,
+        hasUsablePackage: false,
+        daysRemaining: 0,
+        isExpiringSoon: false,
+        reason: 'error',
+      });
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [currentUser, isActiveMember]);
+
   return (
     <RoleShell
       menuItems={menuItems}
@@ -2009,17 +2054,45 @@ function MemberLayout() {
       onAvatarClick={() => navigate(isActiveMember ? '/member/profile' : '/member/settings')}
     >
       {isActiveMember ? (
-        <Routes>
-          <Route index element={<Dashboard />} />
-          <Route path="my-package" element={<MyPackage />} />
-          <Route path="my-schedule" element={<MySchedule />} />
-          <Route path="trainers" element={<Trainers />} />
-          <Route path="rate-service" element={<RateService />} />
-          <Route path="notifications" element={<RoleNotificationsPage />} />
-          <Route path="profile" element={<Profile />} />
-          <Route path="settings" element={<MemberSettings />} />
-          <Route path="*" element={<Navigate to="/member" replace />} />
-        </Routes>
+        <div className="relative min-h-full">
+          {membershipCheck.isExpiringSoon && (
+            <div className="px-6 pt-6">
+              <div className="rounded-2xl border border-amber-400/30 bg-amber-500/10 p-4 text-sm font-bold text-amber-200">
+                Gói tập của bạn còn {membershipCheck.daysRemaining} ngày. Vui lòng gia hạn sớm để không bị gián đoạn truy cập.
+              </div>
+            </div>
+          )}
+          <div className={shouldLockContent ? 'pointer-events-none select-none blur-sm' : ''}>
+            <Routes>
+              <Route index element={<Dashboard />} />
+              <Route path="my-package" element={<MyPackage />} />
+              <Route path="my-schedule" element={<MySchedule />} />
+              <Route path="trainers" element={<Trainers />} />
+              <Route path="rate-service" element={<RateService />} />
+              <Route path="notifications" element={<RoleNotificationsPage />} />
+              <Route path="profile" element={<Profile />} />
+              <Route path="settings" element={<MemberSettings />} />
+              <Route path="*" element={<Navigate to="/member" replace />} />
+            </Routes>
+          </div>
+          {shouldLockContent && (
+            <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/65 px-4 backdrop-blur-sm">
+              <div className="w-full max-w-lg rounded-3xl border border-[#EF233C]/35 bg-[#151515] p-6 text-center shadow-[0_28px_90px_rgba(0,0,0,0.75)]">
+                <h2 className="text-3xl font-black text-white">Cần gia hạn gói tập</h2>
+                <p className="mt-3 text-sm leading-6 text-white/65">
+                  Gói tập của bạn đã hết hạn hoặc chưa được kích hoạt. Vui lòng gia hạn hoặc đăng ký gói tập mới để tiếp tục sử dụng hệ thống.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => navigate('/member/my-package')}
+                  className="mt-6 rounded-xl bg-[#EF233C] px-5 py-3 text-sm font-black text-white transition hover:bg-[#c91930]"
+                >
+                  Gia hạn / đăng ký gói tập
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
       ) : (
         <Routes>
           <Route index element={<Navigate to="/member/select-package" replace />} />

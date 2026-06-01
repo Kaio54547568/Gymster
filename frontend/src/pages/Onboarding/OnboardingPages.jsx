@@ -18,6 +18,7 @@ import {
 import { fetchPackagesFromSupabase } from "../../services/packageApi";
 import { createPayment } from "../../services/paymentApi";
 import { fetchTrainersFromSupabase } from "../../services/trainerApi";
+import { createNotification } from "../../services/notificationApi";
 import { getTrainers } from "../../services/trainerService";
 import {
   createTrainingRequest,
@@ -778,6 +779,17 @@ export function OnboardingPaymentPage() {
         sessionCount: 4,
       });
       workoutSessions = createdSessions;
+
+      await createNotification({
+        notificationType: "system",
+        title: "Thông tin PT của bạn",
+        message: [
+          `PT: ${state.selectedTrainer.name}`,
+          state.selectedTrainer.specialty ? `Chuyên môn: ${state.selectedTrainer.specialty}` : "",
+          state.selectedTrainer.rating ? `Đánh giá: ${state.selectedTrainer.rating}/5` : "",
+          state.selectedSchedule ? `Lịch tập: ${state.selectedSchedule}` : "",
+        ].filter(Boolean).join(" | "),
+      });
     }
 
     setIsCreatingPayment(false);

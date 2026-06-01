@@ -279,10 +279,10 @@ export function RenewPackageUI() {
       <div className="max-w-7xl mx-auto space-y-6">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <p className="text-primary text-sm font-black tracking-[0.35em] uppercase mb-3">Staff Review</p>
-            <h1 className="text-5xl font-black tracking-tight mb-3">Renewal Requests</h1>
+            <p className="text-primary text-sm font-black tracking-[0.35em] uppercase mb-3">Duyệt gói tập</p>
+            <h1 className="text-5xl font-black tracking-tight mb-3">Yêu cầu gia hạn gói</h1>
             <p className="text-muted-foreground max-w-3xl">
-              Duy?t y?u c?u mua m?i, gia h?n v? n?ng c?p g?i t?p c?a h?i vi?n.
+              Duyệt yêu cầu mua mới, gia hạn và nâng cấp gói tập của hội viên.
             </p>
           </div>
           <button
@@ -291,7 +291,7 @@ export function RenewPackageUI() {
             className="inline-flex items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-primary to-destructive px-6 py-4 font-black text-white shadow-[0_0_30px_rgba(255,0,0,0.35)] transition hover:scale-[1.02]"
           >
             <Plus className="w-5 h-5" />
-            Add New
+            Thêm mới
           </button>
         </div>
 
@@ -304,10 +304,10 @@ export function RenewPackageUI() {
 
         <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
           {[
-            { label: 'Total Requests', value: stats.total, icon: FileText },
-            { label: 'Pending', value: stats.pending, icon: AlertCircle },
-            { label: 'Approved', value: stats.approved, icon: CheckCircle },
-            { label: 'Denied', value: stats.denied, icon: X },
+            { label: 'Tổng yêu cầu', value: stats.total, icon: FileText },
+            { label: 'Chờ duyệt', value: stats.pending, icon: AlertCircle },
+            { label: 'Đã duyệt', value: stats.approved, icon: CheckCircle },
+            { label: 'Đã từ chối', value: stats.denied, icon: X },
           ].map((item) => {
             const Icon = item.icon;
             return (
@@ -329,9 +329,9 @@ export function RenewPackageUI() {
         <div className="rounded-3xl border border-border bg-card/95 shadow-[0_8px_32px_rgba(0,0,0,0.3)]">
           <div className="flex flex-col gap-4 border-b border-border p-5 md:flex-row md:items-center md:justify-between">
             <div>
-              <h2 className="text-2xl font-black">Request Queue</h2>
+              <h2 className="text-2xl font-black">Danh sách yêu cầu</h2>
               <p className="mt-1 text-sm text-muted-foreground">
-                Local MVP queue: <span className="font-semibold text-foreground">gymster_member_renewal_requests</span>
+                Nguồn dữ liệu: <span className="font-semibold text-foreground">gymster_member_renewal_requests</span>
               </p>
             </div>
             <div className="relative w-full md:w-96">
@@ -339,7 +339,7 @@ export function RenewPackageUI() {
               <input
                 value={searchTerm}
                 onChange={(event) => setSearchTerm(event.target.value)}
-                placeholder="Search requests..."
+                placeholder="Tìm yêu cầu..."
                 className="w-full rounded-2xl border border-border bg-input py-3 pl-12 pr-4 font-semibold outline-none transition focus:border-primary"
               />
             </div>
@@ -349,28 +349,28 @@ export function RenewPackageUI() {
             <table className="w-full min-w-[1080px]">
               <thead>
                 <tr className="border-b border-border text-left text-xs font-black uppercase tracking-wider text-muted-foreground">
-                  <th className="px-5 py-4">Request ID</th>
-                  <th className="px-5 py-4">Member name</th>
-                  <th className="px-5 py-4">Current package</th>
-                  <th className="px-5 py-4">Requested package</th>
-                  <th className="px-5 py-4">Type</th>
-                  <th className="px-5 py-4">Requested date</th>
-                  <th className="px-5 py-4">Amount</th>
-                  <th className="px-5 py-4">Status</th>
-                  <th className="px-5 py-4 text-right">Actions</th>
+                  <th className="px-5 py-4">Mã yêu cầu</th>
+                  <th className="px-5 py-4">Hội viên</th>
+                  <th className="px-5 py-4">Gói hiện tại</th>
+                  <th className="px-5 py-4">Gói yêu cầu</th>
+                  <th className="px-5 py-4">Loại</th>
+                  <th className="px-5 py-4">Ngày yêu cầu</th>
+                  <th className="px-5 py-4">Số tiền</th>
+                  <th className="px-5 py-4">Trạng thái</th>
+                  <th className="px-5 py-4 text-right">Thao tác</th>
                 </tr>
               </thead>
               <tbody>
                 {isLoading ? (
                   <tr>
                     <td colSpan={9} className="px-5 py-12 text-center font-bold text-muted-foreground">
-                      Loading renewal requests...
+                      Đang tải yêu cầu gia hạn...
                     </td>
                   </tr>
                 ) : filteredRequests.length === 0 ? (
                   <tr>
                     <td colSpan={9} className="px-5 py-12 text-center font-bold text-muted-foreground">
-                      No renewal requests found.
+                      Không tìm thấy yêu cầu gia hạn.
                     </td>
                   </tr>
                 ) : (
@@ -404,7 +404,7 @@ export function RenewPackageUI() {
                               onClick={() => setDetailRequest(request)}
                               className="rounded-xl border border-border px-3 py-2 text-sm font-bold transition hover:border-primary hover:bg-primary/10"
                             >
-                              View Detail
+                              Xem chi tiết
                             </button>
                             {canReview && (
                               <>
@@ -413,14 +413,14 @@ export function RenewPackageUI() {
                                   onClick={() => handleAccept(request)}
                                   className="rounded-xl bg-emerald-500/15 px-3 py-2 text-sm font-black text-emerald-300 transition hover:bg-emerald-500/25"
                                 >
-                                  Accept
+                                  Duyệt
                                 </button>
                                 <button
                                   type="button"
                                   onClick={() => setDenyTarget(request)}
                                   className="rounded-xl bg-red-500/15 px-3 py-2 text-sm font-black text-red-300 transition hover:bg-red-500/25"
                                 >
-                                  Deny
+                                  Từ chối
                                 </button>
                               </>
                             )}

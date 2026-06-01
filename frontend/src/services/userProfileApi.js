@@ -512,5 +512,107 @@ export async function updateCurrentUserLanguagePreference(currentUser, language)
     return { ok: false, message: "Language preference could not be updated." };
   }
 
+  await updateCurrentUserSettings(currentUser, { preferredLanguage: nextLanguage });
+
   return { ok: true, message: "Language preference updated." };
+}
+
+function mapUserSettings(row, userRow = {}, currentUser = {}) {
+  return {
+    userId: row?.user_id || userRow?.user_id || "",
+    preferredLanguage: row?.preferred_language || userRow?.preferred_language || currentUser?.preferredLanguage || currentUser?.preferred_language || "en",
+    theme: row?.theme || currentUser?.theme || currentUser?.displayTheme || currentUser?.display_theme || "dark",
+    emailNotifications: row?.email_notifications ?? true,
+    membershipExpiringAlerts: row?.membership_expiring_alerts ?? true,
+    paymentCompletedNotifications: row?.payment_completed_notifications ?? false,
+    settingsJson: row?.settings_json || {},
+  };
+}
+
+export async function getCurrentUserSettings(currentUser) {
+  if (!supabase) {
+    return { data: mapUserSettings(null, {}, currentUser), error: new Error("hệ thống is not configured.") };
+  }
+
+  try {
+    const userRow = await findUserByCurrentUser(currentUser);
+    if (!userRow?.user_id) {
+      return { data: mapUserSettings(null, {}, currentUser), error: new Error("Current user could not be resolved.") };
+    }
+
+    const { data, error } = await supabase
+      .from("user_settings")
+      .select("*")
+      .eq("user_id", userRow.user_id)
+      .maybeSingle();
+
+    if (error) throw error;
+
+    if (!data) {
+      return {
+        data: mapUserSettings({
+          user_id: userRow.user_id,
+          preferred_language: userRow.preferred_language || "en",
+        }, userRow, currentUser),
+        error: null,
+      };
+    }
+
+    return { data: mapUserSettings(data, userRow, currentUser), error: null };
+  } catch (error) {
+    console.error("[Gymster hệ thống] Failed to load user settings:", error);
+    return { data: mapUserSettings(null, {}, currentUser), error };
+  }
+}
+
+export async function updateCurrentUserSettings(currentUser, settings = {}) {
+  if (!supabase) {
+    return { ok: false, message: "hệ thống is not configured." };
+  }
+
+  try {
+    const userRow = await findUserByCurrentUser(currentUser);
+    if (!userRow?.user_id) {
+      return { ok: false, message: "Current user could not be resolved." };
+    }
+
+    const payload = {
+      user_id: userRow.user_id,
+    };
+
+    if (settings.preferredLanguage || settings.preferred_language) {
+      payload.preferred_language = (settings.preferredLanguage || settings.preferred_language) === "vi" ? "vi" : "en";
+    }
+
+    if (settings.theme) {
+      payload.theme = settings.theme === "light" ? "light" : "dark";
+    }
+
+    if (typeof settings.emailNotifications === "boolean") {
+      payload.email_notifications = settings.emailNotifications;
+    }
+
+    if (typeof settings.membershipExpiringAlerts === "boolean") {
+      payload.membership_expiring_alerts = settings.membershipExpiringAlerts;
+    }
+
+    if (typeof settings.paymentCompletedNotifications === "boolean") {
+      payload.payment_completed_notifications = settings.paymentCompletedNotifications;
+    }
+
+    if (settings.settingsJson && typeof settings.settingsJson === "object") {
+      payload.settings_json = settings.settingsJson;
+    }
+
+    const { error } = await supabase
+      .from("user_settings")
+      .upsert(payload, { onConflict: "user_id" });
+
+    if (error) throw error;
+
+    return { ok: true, message: "Settings updated." };
+  } catch (error) {
+    console.error("[Gymster hệ thống] Failed to update user settings:", error);
+    return { ok: false, message: "Settings could not be saved." };
+  }
 }

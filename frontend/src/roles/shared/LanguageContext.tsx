@@ -8,7 +8,7 @@ import {
   useState,
 } from 'react';
 import { getCurrentUser, setCurrentUser } from '../../services/authService';
-import { updateCurrentUserLanguagePreference } from '../../services/userProfileApi';
+import { getCurrentUserSettings, updateCurrentUserLanguagePreference } from '../../services/userProfileApi';
 
 export type AppLanguage = 'en' | 'vi';
 
@@ -42,6 +42,7 @@ const DICTIONARY: Record<string, string> = {
   Dashboard: 'Bảng điều khiển',
   'Add Member': 'Thêm hội viên',
   'Member List': 'Danh sách hội viên',
+  'Daily Check-in': 'Check-in hằng ngày',
   'Renew Package': 'Gia hạn gói',
   'Usage History': 'Lịch sử sử dụng',
   'Feedback Management': 'Quản lý phản hồi',
@@ -179,7 +180,6 @@ const DICTIONARY: Record<string, string> = {
   'Member Dashboard': 'Bảng điều khiển hội viên',
   'Current Package': 'Gói hiện tại',
   'Upcoming Workout': 'Buổi tập sắp tới',
-  'Quick Actions': 'Thao tác nhanh',
   'Book Workout': 'Đặt lịch tập',
   'Renew Package': 'Gia hạn gói',
   'View Trainers': 'Xem huấn luyện viên',
@@ -344,6 +344,26 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
       window.localStorage.setItem(STORAGE_KEY, userLanguage);
       document.documentElement.lang = userLanguage;
     }
+
+    let isMounted = true;
+    if (currentUser) {
+      void getCurrentUserSettings(currentUser).then((result) => {
+        const savedLanguage = result.data?.preferredLanguage;
+        if (!isMounted || (savedLanguage !== 'vi' && savedLanguage !== 'en') || savedLanguage === language) return;
+        setLanguageState(savedLanguage);
+        window.localStorage.setItem(STORAGE_KEY, savedLanguage);
+        document.documentElement.lang = savedLanguage;
+        setCurrentUser({
+          ...currentUser,
+          preferredLanguage: savedLanguage,
+          preferred_language: savedLanguage,
+        });
+      });
+    }
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   useEffect(() => {

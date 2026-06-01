@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Bell, Edit2, Eye, EyeOff, Globe, Lock, Mail, Moon, Phone, Shield, Sun, X } from 'lucide-react';
+import ThemeToggle from '../../components/theme/ThemeToggle';
 import { getCurrentUser, setCurrentUser } from '../../services/authService';
-import { updateCurrentUserContactInfo, updateCurrentUserPassword } from '../../services/userProfileApi';
+import { getCurrentUserSettings, updateCurrentUserContactInfo, updateCurrentUserPassword, updateCurrentUserSettings } from '../../services/userProfileApi';
 import { useAppearance } from './AppearanceContext';
 import { useLanguage, type AppLanguage } from './LanguageContext';
 
@@ -23,6 +24,26 @@ type PasswordFieldProps = {
   onChange: (value: string) => void;
   onToggleVisible: () => void;
 };
+
+type NotificationPreferenceKey = 'emailNotifications' | 'membershipExpiringAlerts' | 'paymentCompletedNotifications';
+
+const notificationPreferenceOptions: Array<{ key: NotificationPreferenceKey; label: string; desc: string }> = [
+  {
+    key: 'emailNotifications',
+    label: 'Email Notifications',
+    desc: 'Receive important account and operation updates via email',
+  },
+  {
+    key: 'membershipExpiringAlerts',
+    label: 'Membership Expiring Alerts',
+    desc: 'Alert when member packages are about to expire',
+  },
+  {
+    key: 'paymentCompletedNotifications',
+    label: 'Payment Completed',
+    desc: 'Notify when payments are successfully processed',
+  },
+];
 
 function PasswordField({ label, value, visible, disabled, onChange, onToggleVisible }: PasswordFieldProps) {
   return (
@@ -60,7 +81,7 @@ export default function AccountSettings({
   primaryEmail,
   phoneNumber,
 }: AccountSettingsProps) {
-  const { darkMode, setDarkMode } = useAppearance();
+  const { darkMode } = useAppearance();
   const { language, setLanguage } = useLanguage();
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -74,6 +95,12 @@ export default function AccountSettings({
   const [isEditingContact, setIsEditingContact] = useState(false);
   const [passwordMessage, setPasswordMessage] = useState('');
   const [contactMessage, setContactMessage] = useState('');
+  const [notificationMessage, setNotificationMessage] = useState('');
+  const [notificationPrefs, setNotificationPrefs] = useState<Record<NotificationPreferenceKey, boolean>>({
+    emailNotifications: true,
+    membershipExpiringAlerts: true,
+    paymentCompletedNotifications: false,
+  });
 
   useEffect(() => {
     setMainEmail(primaryEmail);
@@ -82,6 +109,23 @@ export default function AccountSettings({
   useEffect(() => {
     setPhone(phoneNumber);
   }, [phoneNumber]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    getCurrentUserSettings(getCurrentUser()).then((result) => {
+      if (!isMounted || !result.data) return;
+      setNotificationPrefs({
+        emailNotifications: Boolean(result.data.emailNotifications),
+        membershipExpiringAlerts: Boolean(result.data.membershipExpiringAlerts),
+        paymentCompletedNotifications: Boolean(result.data.paymentCompletedNotifications),
+      });
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const addEmail = () => {
     const email = newEmail.trim();
@@ -162,6 +206,21 @@ export default function AccountSettings({
     setVisiblePasswords((current) => ({ ...current, [key]: !current[key] }));
   };
 
+  const saveNotificationPreferences = (nextPrefs: Record<NotificationPreferenceKey, boolean>) => {
+    setNotificationMessage('Saving settings...');
+    updateCurrentUserSettings(getCurrentUser(), nextPrefs).then((result) => {
+      setNotificationMessage(result.ok ? 'Settings saved.' : result.message);
+    });
+  };
+
+  const toggleNotificationPreference = (key: NotificationPreferenceKey) => {
+    setNotificationPrefs((current) => {
+      const nextPrefs = { ...current, [key]: !current[key] };
+      saveNotificationPreferences(nextPrefs);
+      return nextPrefs;
+    });
+  };
+
   return (
     <div className="min-h-full px-6 py-8">
       <div className="mx-auto max-w-5xl space-y-6">
@@ -181,21 +240,24 @@ export default function AccountSettings({
             <h2 className="text-lg font-bold text-white">Notification Preferences</h2>
           </div>
           <div className="space-y-3 p-6">
-            {[
-              ['Email Notifications', 'Receive important account and operation updates via email'],
-              ['Membership Expiring Alerts', 'Alert when member packages are about to expire'],
-              ['Payment Completed', 'Notify when payments are successfully processed'],
-            ].map(([label, desc], index) => (
-              <div key={label} className="flex items-center justify-between rounded-xl border border-white/8 bg-[#222] p-4">
+            {notificationPreferenceOptions.map(({ key, label, desc }) => (
+              <div key={key} className="flex items-center justify-between gap-4 rounded-xl border border-white/8 bg-[#222] p-4">
                 <div>
                   <div className="text-sm font-semibold text-white">{label}</div>
                   <div className="mt-1 text-xs text-white/45">{desc}</div>
                 </div>
-                <button type="button" className={`relative h-7 w-14 shrink-0 rounded-full transition-all ${index !== 2 ? 'bg-[#EF233C]' : 'bg-white/10'}`}>
-                  <span className={`absolute left-0.5 top-0.5 h-6 w-6 rounded-full bg-white transition-transform ${index !== 2 ? 'translate-x-7' : 'translate-x-0'}`} />
+                <button
+                  type="button"
+                  onClick={() => toggleNotificationPreference(key)}
+                  className={`relative h-7 w-14 shrink-0 rounded-full transition-all ${notificationPrefs[key] ? 'bg-[#EF233C]' : 'bg-white/10'}`}
+                  aria-pressed={notificationPrefs[key]}
+                  aria-label={label}
+                >
+                  <span className={`absolute left-0.5 top-0.5 h-6 w-6 rounded-full bg-white transition-transform ${notificationPrefs[key] ? 'translate-x-7' : 'translate-x-0'}`} />
                 </button>
               </div>
             ))}
+            {notificationMessage && <p className="text-xs font-semibold text-white/55">{notificationMessage}</p>}
           </div>
         </section>
 
@@ -255,17 +317,15 @@ export default function AccountSettings({
 
         <section className="rounded-2xl border border-white/8 bg-[#181818]">
           <div className="flex items-center gap-3 border-b border-white/8 px-6 py-5">
-            {darkMode ? <Moon className="h-5 w-5 text-[#EF233C]" /> : <Sun className="h-5 w-5 text-[#2563EB]" />}
+            {darkMode ? <Moon className="h-5 w-5 text-[#EF233C]" /> : <Sun className="h-5 w-5 text-[#EF233C]" />}
             <h2 className="text-lg font-bold text-white">Display</h2>
           </div>
           <div className="flex items-center justify-between p-6">
             <div>
               <div className="text-sm font-semibold text-white">Dark mode</div>
-              <div className="mt-1 text-xs text-white/45">Turn off to use the light interface with blue as the primary color.</div>
+              <div className="mt-1 text-xs text-white/45">Switch between Gymster dark and light themes.</div>
             </div>
-            <button type="button" onClick={() => setDarkMode(!darkMode)} className={`relative h-8 w-16 shrink-0 rounded-full transition-all ${darkMode ? 'bg-[#EF233C]' : 'bg-[#2563EB]'}`}>
-              <span className={`absolute left-1 top-1 h-6 w-6 rounded-full bg-white transition-transform ${darkMode ? 'translate-x-8' : 'translate-x-0'}`} />
-            </button>
+            <ThemeToggle showLabel />
           </div>
         </section>
 

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, CheckCircle, Dumbbell, Plus, Wrench } from 'lucide-react';
-import { createStaffMaintenanceReport, getStaffEquipmentStatus } from '../../../services/staffOperationsApi';
+import { createStaffMaintenanceReport, getStaffEquipmentStatus, markStaffEquipmentMaintained } from '../../../services/staffOperationsApi';
 
 type EquipmentStatusValue = 'Active' | 'Broken' | 'Under Maintenance' | 'Replaced';
 
@@ -16,6 +16,7 @@ interface Equipment {
 
 interface MaintenanceReport {
   id: string;
+  equipmentUuid?: string;
   equipmentName: string;
   room: string;
   issueDescription: string;
@@ -108,6 +109,16 @@ export function EquipmentStatus() {
       await loadEquipment();
     }
     setShowReportModal(false);
+  };
+
+  const handleMarkMaintained = async (payload: { equipmentUuid?: string; reportId?: string }) => {
+    const result = await markStaffEquipmentMaintained(payload);
+    if (!result.ok) {
+      setWarning(result.message);
+      return;
+    }
+    setWarning('');
+    await loadEquipment();
   };
 
   return (
@@ -208,9 +219,16 @@ export function EquipmentStatus() {
                       <td className="px-6 py-4">{getStatusBadge(eq.status)}</td>
                       <td className="px-6 py-4 text-muted-foreground">{eq.lastMaintenance ? new Date(eq.lastMaintenance).toLocaleDateString('en-US') : '-'}</td>
                       <td className="px-6 py-4">
-                        <button onClick={() => openReportModal(eq)} className="rounded-lg bg-destructive/20 px-3 py-1.5 text-sm text-destructive transition-colors hover:bg-destructive/30">
-                          Report Issue
-                        </button>
+                        <div className="flex flex-wrap gap-2">
+                          <button onClick={() => openReportModal(eq)} className="rounded-lg bg-destructive/20 px-3 py-1.5 text-sm text-destructive transition-colors hover:bg-destructive/30">
+                            Report Issue
+                          </button>
+                          {eq.status !== 'Active' && (
+                            <button onClick={() => handleMarkMaintained({ equipmentUuid: eq.equipmentUuid })} className="rounded-lg bg-primary/20 px-3 py-1.5 text-sm text-primary transition-colors hover:bg-primary/30">
+                              Mark Maintained
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -232,6 +250,15 @@ export function EquipmentStatus() {
                     <span className="rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-bold text-primary">{report.status}</span>
                   </div>
                   <p className="text-sm text-white/70">{report.issueDescription}</p>
+                  {report.status !== 'resolved' && (
+                    <button
+                      type="button"
+                      onClick={() => handleMarkMaintained({ reportId: report.id, equipmentUuid: report.equipmentUuid })}
+                      className="mt-4 rounded-lg bg-primary/20 px-3 py-2 text-sm font-bold text-primary transition-colors hover:bg-primary/30"
+                    >
+                      Maintenance Complete
+                    </button>
+                  )}
                 </article>
               ))}
             </div>

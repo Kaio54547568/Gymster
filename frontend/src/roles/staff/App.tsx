@@ -4,6 +4,7 @@ import { Dashboard } from './components/Dashboard';
 import { AddMemberUI } from './components/AddMemberUI';
 import { MemberList } from './components/MemberList';
 import { MemberDetail } from './components/MemberDetail';
+import { DailyCheckIn } from './components/DailyCheckIn';
 import { RenewPackageUI } from './components/RenewPackageUI';
 import { ReceiptDetail } from './components/ReceiptDetail';
 import { ViewHistoryUI } from './components/ViewHistoryUI';
@@ -16,7 +17,7 @@ import { Profile } from './components/Profile';
 
 export default function App() {
   return (
-    <div className="dark min-h-screen bg-background text-foreground">
+    <div className="min-h-screen bg-background text-foreground">
       <Routes>
         <Route path="" element={<MainLayout />}>
           <Route index element={<Navigate to="dashboard" replace />} />
@@ -24,6 +25,7 @@ export default function App() {
           <Route path="add-member" element={<AddMemberUI />} />
           <Route path="members" element={<MemberList />} />
           <Route path="members/:id" element={<MemberDetail />} />
+          <Route path="check-in" element={<DailyCheckIn />} />
           <Route path="renew-package" element={<RenewPackageUI />} />
           <Route path="renew-package/:memberId" element={<RenewPackageUI />} />
           <Route path="receipt/:id" element={<ReceiptDetail />} />
