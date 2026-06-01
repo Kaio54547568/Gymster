@@ -2,12 +2,12 @@ import { Link, useNavigate } from "react-router";
 import { useState } from "react";
 import AuthHero from "../../components/auth/AuthHero";
 import ThemeToggle from "../../components/theme/ThemeToggle";
-import { getUserHome, loginUser } from "../../services/authService";
+import { getUserHome, loginUser, signInWithOAuthProvider } from "../../services/authService";
 import "./Auth.css";
 
 function LoginPage() {
   const navigate = useNavigate();
-  const [form, setForm] = useState({ identifier: "", password: "" });
+  const [form, setForm] = useState({ identifier: "", password: "", rememberLogin: false });
   const [showPassword, setShowPassword] = useState(false);
   const [status, setStatus] = useState({ type: "", message: "" });
 
@@ -24,7 +24,9 @@ function LoginPage() {
       return;
     }
 
-    const result = await loginUser(form.identifier, form.password);
+    const result = await loginUser(form.identifier, form.password, {
+      rememberLogin: form.rememberLogin,
+    });
     if (!result.ok) {
       setStatus({ type: "error", message: result.message });
       return;
@@ -32,6 +34,18 @@ function LoginPage() {
 
     setStatus({ type: "success", message: `Đăng nhập thành công với tài khoản ${result.user.username}.` });
     navigate(getUserHome(result.user), { replace: true });
+  };
+
+  const handleOAuthLogin = async (provider) => {
+    setStatus({ type: "", message: "" });
+
+    const result = await signInWithOAuthProvider(provider, {
+      rememberLogin: form.rememberLogin,
+    });
+
+    if (!result.ok) {
+      setStatus({ type: "error", message: result.message });
+    }
   };
 
   return (
@@ -61,7 +75,7 @@ function LoginPage() {
                   <input
                     id="identifier"
                     type="text"
-                    placeholder={'T\u00ean \u0111\u0103ng nh\u1eadp'}
+                    placeholder="Tên đăng nhập hoặc email"
                     value={form.identifier}
                     onChange={updateField("identifier")}
                     autoComplete="username"
@@ -94,7 +108,14 @@ function LoginPage() {
 
               <div className="form-row">
                 <label className="check-field" htmlFor="remember">
-                  <input id="remember" type="checkbox" />
+                  <input
+                    id="remember"
+                    type="checkbox"
+                    checked={form.rememberLogin}
+                    onChange={(event) => {
+                      setForm((current) => ({ ...current, rememberLogin: event.target.checked }));
+                    }}
+                  />
                   <span>Ghi nhớ đăng nhập</span>
                 </label>
                 <button className="text-link" type="button">
@@ -114,10 +135,10 @@ function LoginPage() {
             <div className="divider">hoặc</div>
 
             <div className="social-grid">
-              <button className="social-btn" type="button">
+              <button className="social-btn" type="button" onClick={() => handleOAuthLogin("google")}>
                 Google
               </button>
-              <button className="social-btn" type="button">
+              <button className="social-btn" type="button" onClick={() => handleOAuthLogin("facebook")}>
                 Facebook
               </button>
             </div>

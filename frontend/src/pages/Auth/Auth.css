@@ -378,6 +378,31 @@
   color: color-mix(in srgb, var(--text-muted) 78%, transparent);
 }
 
+.auth-main-inner .form-field input,
+.auth-main-inner .form-field select {
+  color: #ff4a4a;
+}
+
+.auth-main-inner .field-icon,
+.auth-main-inner .field-eye {
+  color: #ff3b3b;
+}
+
+.auth-main-inner .form-field input::placeholder {
+  color: rgba(255, 59, 59, 0.58);
+}
+
+.auth-main-inner .form-field input[type="date"] {
+  color-scheme: dark;
+}
+
+.auth-main-inner .form-field input[type="date"]::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  filter: invert(23%) sepia(96%) saturate(3482%) hue-rotate(343deg) brightness(106%) contrast(104%)
+    drop-shadow(0 0 4px rgba(255, 59, 59, 0.65));
+  opacity: 1;
+}
+
 .form-field select option {
   color: var(--text);
   background: var(--popover);
@@ -520,6 +545,14 @@
 
 .back-home:hover {
   color: var(--primary-dark);
+}
+
+.auth-main-inner .back-home {
+  color: #ff3b3b;
+}
+
+.auth-main-inner .back-home:hover {
+  color: #ff6b6b;
 }
 
 .package-divider {

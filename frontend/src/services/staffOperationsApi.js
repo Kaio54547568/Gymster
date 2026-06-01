@@ -2,6 +2,7 @@ import { supabase } from "./supabaseClient";
 import { getCurrentUser, isPasswordMatch } from "./authService";
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const usernamePattern = /^[A-Za-z0-9][A-Za-z0-9._-]{4,28}[A-Za-z0-9]$/;
 
 function combineName(row, fallback = "User") {
   const name = [row?.first_name, row?.last_name].filter(Boolean).join(" ").trim();
@@ -331,7 +332,15 @@ export async function createStaffMember(form) {
   try {
     const nameParts = splitName(form.fullName);
     const email = form.email || `${String(form.phoneNumber || Date.now()).replace(/\D/g, "")}@gymster.local`;
-    const username = form.username || `member_${String(form.phoneNumber || Date.now()).replace(/\D/g, "")}`;
+    const username = String(form.username || `member_${String(form.phoneNumber || Date.now()).replace(/\D/g, "")}`).trim();
+
+    if (!usernamePattern.test(username)) {
+      return {
+        ok: false,
+        message: "Username must be 6-30 characters, use only A-Z, a-z, 0-9, _, ., -, and cannot start or end with _, ., or -.",
+      };
+    }
+
     const { data: user, error: userError } = await supabase
       .from("users")
       .insert({

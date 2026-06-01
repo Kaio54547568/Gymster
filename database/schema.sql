@@ -17,6 +17,8 @@ create table if not exists public.users (
   user_id uuid primary key default gen_random_uuid(),
   email text not null unique,
   username text unique,
+  auth_user_id uuid unique,
+  auth_provider text,
   password_hash text,
   first_name text not null,
   last_name text not null default '',
@@ -45,10 +47,39 @@ create table if not exists public.users (
 
 alter table public.users add column if not exists first_name text;
 alter table public.users add column if not exists last_name text;
+alter table public.users add column if not exists auth_user_id uuid unique;
+alter table public.users add column if not exists auth_provider text;
 alter table public.users add column if not exists headline text not null default '';
 alter table public.users add column if not exists preferred_language text not null default 'en';
 alter table public.users drop constraint if exists users_preferred_language_check;
 alter table public.users add constraint users_preferred_language_check check (preferred_language in ('en', 'vi'));
+
+update public.users
+set username = case email
+  when 'owner@gymster.local' then 'owner01'
+  when 'admin@gymster.local' then 'admin01'
+  when 'staff@gymster.local' then 'staff00'
+  when 'trainer@gymster.local' then 'trainer00'
+  when 'member@gymster.local' then 'member00'
+  else username
+end
+where email in (
+  'owner@gymster.local',
+  'admin@gymster.local',
+  'staff@gymster.local',
+  'trainer@gymster.local',
+  'member@gymster.local'
+);
+
+update public.users
+set username = lower(role) || substr(md5(user_id::text), 1, 12)
+where username is not null
+  and username !~ '^[A-Za-z0-9][A-Za-z0-9._-]{4,28}[A-Za-z0-9]$';
+
+alter table public.users drop constraint if exists users_username_format_check;
+alter table public.users add constraint users_username_format_check check (
+  username is null or username ~ '^[A-Za-z0-9][A-Za-z0-9._-]{4,28}[A-Za-z0-9]$'
+);
 
 do $$
 begin
