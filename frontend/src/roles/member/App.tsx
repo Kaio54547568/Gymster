@@ -829,34 +829,45 @@ function MySchedule() {
 
   useEffect(() => {
     let isMounted = true;
-    setIsLoadingSessions(true);
 
-    getWorkoutSessionsForMember(getCurrentUser())
-      .then(({ data, error }) => {
-        if (!isMounted) return;
+    const loadSessions = () => {
+      setIsLoadingSessions(true);
 
-        if (error) {
+      getWorkoutSessionsForMember(getCurrentUser())
+        .then(({ data, error }) => {
+          if (!isMounted) return;
+
+          if (error) {
+            setScheduleSessions([]);
+            setSessionLoadMessage('Some workout sessions could not be loaded.');
+          } else if (data.length) {
+            setScheduleSessions(data.map(mapWorkoutSessionToSchedule));
+            setSessionLoadMessage('');
+          } else {
+            setScheduleSessions([]);
+            setSessionLoadMessage('');
+          }
+
+          setIsLoadingSessions(false);
+        })
+        .catch(() => {
+          if (!isMounted) return;
           setScheduleSessions([]);
           setSessionLoadMessage('Some workout sessions could not be loaded.');
-        } else if (data.length) {
-          setScheduleSessions(data.map(mapWorkoutSessionToSchedule));
-          setSessionLoadMessage('');
-        } else {
-          setScheduleSessions([]);
-          setSessionLoadMessage('');
-        }
+          setIsLoadingSessions(false);
+        });
+    };
 
-        setIsLoadingSessions(false);
-      })
-      .catch(() => {
-        if (!isMounted) return;
-        setScheduleSessions([]);
-        setSessionLoadMessage('Some workout sessions could not be loaded.');
-        setIsLoadingSessions(false);
-      });
+    const handleScheduleUpdated = () => {
+      loadSessions();
+    };
+
+    loadSessions();
+    window.addEventListener('gymster:schedule-updated', handleScheduleUpdated);
 
     return () => {
       isMounted = false;
+      window.removeEventListener('gymster:schedule-updated', handleScheduleUpdated);
     };
   }, []);
   const upcomingSessions = scheduleSessions.filter((session) => session.status === 'Scheduled' || session.status === 'Pending Reschedule');

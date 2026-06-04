@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import RoleShell, { type RoleShellItem } from '../../shared/RoleShell';
 import { useSupabaseUserProfile } from '../../shared/useSupabaseUserProfile';
+import { StaffAIAssistantChat } from './StaffAIAssistantChat';
 
 const menuItems: RoleShellItem[] = [
   { id: 'dashboard', path: '/staff/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
@@ -39,6 +40,7 @@ export function MainLayout() {
       userInitials={profile.initials}
       userAvatarUrl={profile.avatarUrl}
       onAvatarClick={() => navigate('/staff/profile')}
+      assistantSlot={<StaffAIAssistantChat />}
     >
       <Outlet />
     </RoleShell>

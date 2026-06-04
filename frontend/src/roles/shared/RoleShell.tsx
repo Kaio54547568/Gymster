@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import ThemeToggle from '../../components/theme/ThemeToggle';
 import { logoutUser } from '../../services/authService';
+import AIAssistantChat from './AIAssistantChat';
 import { useAppearance } from './AppearanceContext';
 import { useRoleTranslationEffect } from './LanguageContext';
 import { useRoleNotifications, type RoleNotification } from './notificationStore';
@@ -45,6 +46,7 @@ type RoleShellProps = {
   notifications?: RoleNotification[];
   onAvatarClick?: () => void;
   darkMode?: boolean;
+  assistantSlot?: ReactNode;
 };
 
 export default function RoleShell({
@@ -60,6 +62,7 @@ export default function RoleShell({
   notifications,
   onAvatarClick,
   darkMode,
+  assistantSlot,
 }: RoleShellProps) {
   const shellRef = useRef<HTMLDivElement>(null);
   const appearance = useAppearance();
@@ -397,6 +400,7 @@ export default function RoleShell({
           </div>
         </div>
       )}
+      {assistantSlot ?? <AIAssistantChat />}
     </div>
   );
 }
