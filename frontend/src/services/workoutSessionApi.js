@@ -1,64 +1,19 @@
 import { supabase } from "./supabaseClient";
 import { resolveCurrentMemberId } from "./memberPackageApi";
+import {
+  generateSessionsForPackageRange,
+  generateUpcomingSessions,
+} from "./workoutScheduleGenerator";
+import { formatSessionExerciseContent, getSessionStatusLabel, normalizeSessionStatus } from "./sessionModel";
+import { findConflictingPtSession } from "./workoutSessionConflict";
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const dayIndexes = {
-  sunday: 0,
-  monday: 1,
-  tuesday: 2,
-  wednesday: 3,
-  thursday: 4,
-  friday: 5,
-  saturday: 6,
-};
-
-function toDateValue(date) {
-  return date.toISOString().slice(0, 10);
-}
-
-function parseFixedSchedule(schedule) {
-  const [daysText = "", timeText = ""] = String(schedule || "").split(",");
-  const [startTime = "07:00", endTime = "08:00"] = timeText.split("-").map((value) => value.trim());
-  const days = daysText
-    .split("/")
-    .map((day) => day.trim().toLowerCase())
-    .map((day) => dayIndexes[day])
-    .filter((day) => day !== undefined);
-
-  return {
-    days: days.length ? days : [new Date().getDay()],
-    startTime,
-    endTime,
-  };
-}
-
-function generateUpcomingSessions(schedule, count = 4) {
-  const parsed = parseFixedSchedule(schedule);
-  const sessions = [];
-  const cursor = new Date();
-  cursor.setHours(0, 0, 0, 0);
-  cursor.setDate(cursor.getDate() + 1);
-
-  while (sessions.length < count) {
-    if (parsed.days.includes(cursor.getDay())) {
-      sessions.push({
-        sessionDate: toDateValue(cursor),
-        startTime: parsed.startTime,
-        endTime: parsed.endTime,
-      });
-    }
-
-    cursor.setDate(cursor.getDate() + 1);
-  }
-
-  return sessions;
-}
 
 function mapWorkoutSessionRow(row) {
   if (!row) return null;
 
   return {
-    sessionId: row.session_id || row.workout_session_id,
+    sessionId: row.workout_session_id || row.session_id,
     memberId: row.member_id,
     trainerId: row.trainer_id,
     packageId: row.package_id,
@@ -71,44 +26,21 @@ function mapWorkoutSessionRow(row) {
     endTime: row.end_time,
     status: row.status,
     note: row.note || row.notes || "",
+    workoutContent: Array.isArray(row.workout_content) ? row.workout_content : [],
     memberName: row.memberName || "Member",
     trainerName: row.trainerName || "Trainer",
     packageName: row.packageName || "",
+    isPtSession: Boolean(row.trainer_id),
+    hasContent: Boolean(
+      (row.session_title || row.title || "").trim()
+      || (row.note || row.notes || "").trim()
+      || (Array.isArray(row.workout_content) && row.workout_content.length),
+    ),
   };
-}
-
-function normalizeDbStatus(status) {
-  const normalized = String(status || "").trim().toLowerCase().replace(/\s+/g, "_");
-  const map = {
-    scheduled: "scheduled",
-    completed: "completed",
-    done: "completed",
-    cancelled: "cancelled",
-    canceled: "cancelled",
-    no_show: "missed",
-    missed: "missed",
-    pending_reschedule: "rescheduled",
-    rescheduled: "rescheduled",
-  };
-
-  return map[normalized] || normalized || "scheduled";
 }
 
 export function getWorkoutSessionStatusLabel(status) {
-  const normalized = String(status || "").trim().toLowerCase().replace(/\s+/g, "_");
-  const labels = {
-    scheduled: "Scheduled",
-    completed: "Completed",
-    done: "Completed",
-    cancelled: "Cancelled",
-    canceled: "Cancelled",
-    no_show: "No Show",
-    missed: "No Show",
-    pending_reschedule: "Pending Reschedule",
-    rescheduled: "Pending Reschedule",
-  };
-
-  return labels[normalized] || "Scheduled";
+  return getSessionStatusLabel(status);
 }
 
 function formatTimeRange(startTime, endTime) {
@@ -269,6 +201,7 @@ async function selectWorkoutSessions(filterColumn, id) {
       member_id,
       trainer_id,
       member_package_id,
+      session_title,
       title,
       exercise_type,
       room_name,
@@ -276,7 +209,9 @@ async function selectWorkoutSessions(filterColumn, id) {
       start_time,
       end_time,
       status,
+      note,
       notes,
+      workout_content,
       created_at
     `)
     .eq(filterColumn, id)
@@ -353,7 +288,7 @@ async function insertCurrentSchemaWorkoutSessions(rows) {
       trainer_id: row.trainer_id,
       member_package_id: row.member_package_id,
       title: row.session_title,
-      exercise_type: "Personal Training",
+      exercise_type: "",
       room_name: "PT Room",
       session_date: row.session_date,
       start_time: row.start_time,
@@ -364,6 +299,27 @@ async function insertCurrentSchemaWorkoutSessions(rows) {
     .select("*");
 }
 
+async function resolvePackageDateRange(memberPackageId, startDate, endDate) {
+  if (startDate && endDate) {
+    return { startDate, endDate };
+  }
+
+  if (!memberPackageId) {
+    return { startDate: null, endDate: null };
+  }
+
+  const { data } = await supabase
+    .from("member_packages")
+    .select("start_date, end_date")
+    .eq("member_package_id", memberPackageId)
+    .maybeSingle();
+
+  return {
+    startDate: startDate || data?.start_date || null,
+    endDate: endDate || data?.end_date || null,
+  };
+}
+
 export async function createWorkoutSessionsForSchedule(data) {
   if (!supabase) {
     const error = new Error("Missing h\u1ec7 th\u1ed1ng environment variables.");
@@ -372,18 +328,28 @@ export async function createWorkoutSessionsForSchedule(data) {
   }
 
   const memberId = await resolveMemberId(data);
-  const rows = generateUpcomingSessions(data.selectedSchedule, data.sessionCount || 4).map((session, index) => ({
+  const range = await resolvePackageDateRange(data.memberPackageId, data.startDate, data.endDate);
+  const rangedSessions = generateSessionsForPackageRange({
+    schedule: data.selectedSchedule,
+    startDate: range.startDate,
+    endDate: range.endDate,
+  });
+  const hasPackageDateRange = Boolean(range.startDate && range.endDate);
+  const generatedSessions = hasPackageDateRange
+    ? rangedSessions
+    : generateUpcomingSessions(data.selectedSchedule, data.sessionCount || 4);
+  const rows = generatedSessions.map((session) => ({
     member_id: memberId,
     trainer_id: data.trainerId,
     package_id: data.packageId,
     member_package_id: data.memberPackageId || null,
     room_id: data.roomId || null,
-    session_title: `PT Session ${index + 1}`,
+    session_title: "",
     session_date: session.sessionDate,
     start_time: session.startTime,
     end_time: session.endTime,
     status: "scheduled",
-    note: `Generated from onboarding schedule: ${data.selectedSchedule}`,
+    note: "",
   }));
 
   let { data: insertedRows, error } = await insertTargetWorkoutSessions(rows);
@@ -428,6 +394,76 @@ export async function getWorkoutSessionsForMember(currentUser) {
   };
 }
 
+export async function createManualWorkoutSessionForMember(payload, currentUser) {
+  if (!supabase) {
+    return { data: null, error: new Error("Missing system configuration.") };
+  }
+
+  const memberId = await resolveCurrentMemberId(currentUser);
+  if (!memberId) {
+    return { data: null, error: new Error("Member account was not found.") };
+  }
+
+  const candidate = {
+    sessionDate: String(payload?.sessionDate || ""),
+    startTime: String(payload?.startTime || "").slice(0, 5),
+    endTime: String(payload?.endTime || "").slice(0, 5),
+  };
+  if (!candidate.sessionDate || !candidate.startTime || !candidate.endTime) {
+    return { data: null, error: new Error("Enter the workout date, start time, and end time.") };
+  }
+
+  const { data: ptRows, error: conflictLoadError } = await supabase
+    .from("workout_sessions")
+    .select("workout_session_id,trainer_id,session_date,start_time,end_time,status")
+    .eq("member_id", memberId)
+    .eq("session_date", candidate.sessionDate)
+    .not("trainer_id", "is", null);
+  if (conflictLoadError) return { data: null, error: conflictLoadError };
+
+  const conflictingPtSession = findConflictingPtSession(candidate, (ptRows || []).map((row) => ({
+    sessionId: row.workout_session_id,
+    trainerId: row.trainer_id,
+    sessionDate: row.session_date,
+    startTime: row.start_time,
+    endTime: row.end_time,
+    status: row.status,
+  })));
+  if (conflictingPtSession) {
+    return { data: null, error: new Error("This time overlaps your fixed PT schedule. Choose another time.") };
+  }
+
+  const title = String(payload?.title || "").trim() || "Personal workout";
+  const notes = String(payload?.notes || "").trim();
+  const { data, error } = await supabase
+    .from("workout_sessions")
+    .insert({
+      member_id: memberId,
+      trainer_id: null,
+      member_package_id: null,
+      title,
+      exercise_type: "Personal workout",
+      room_name: "Personal workout",
+      session_date: candidate.sessionDate,
+      start_time: candidate.startTime,
+      end_time: candidate.endTime,
+      status: "scheduled",
+      notes,
+    })
+    .select("*")
+    .single();
+
+  if (error) {
+    const message = String(error.message || "").includes("overlaps your fixed PT schedule")
+      ? "This time overlaps your fixed PT schedule. Choose another time."
+      : error.message;
+    return { data: null, error: new Error(message) };
+  }
+
+  const [mapped] = await enrichWorkoutSessions([data]);
+  return { data: mapped, error: null };
+}
+
 export async function getWorkoutSessionsForTrainer(currentUser) {
   if (!supabase) {
     const error = new Error("Missing h\u1ec7 th\u1ed1ng environment variables.");
@@ -462,13 +498,14 @@ export async function updateWorkoutSessionStatus(sessionId, status) {
 
   const { data, error } = await supabase
     .from("workout_sessions")
-    .update({ status: normalizeDbStatus(status) })
+    .update({ status: normalizeSessionStatus(status) })
     .eq("workout_session_id", sessionId)
     .select(`
       workout_session_id,
       member_id,
       trainer_id,
       member_package_id,
+      session_title,
       title,
       exercise_type,
       room_name,
@@ -476,7 +513,9 @@ export async function updateWorkoutSessionStatus(sessionId, status) {
       start_time,
       end_time,
       status,
+      note,
       notes,
+      workout_content,
       created_at
     `)
     .single();
@@ -488,6 +527,152 @@ export async function updateWorkoutSessionStatus(sessionId, status) {
 
   const [mapped] = await enrichWorkoutSessions([data]);
   return { data: mapped, error: null };
+}
+
+function formatPlanContent(plan, exercises) {
+  const lines = [];
+  if (plan.plan_goal) lines.push(`Goal: ${plan.plan_goal}`);
+
+  exercises.forEach((exercise, index) => {
+    const details = [
+      exercise.sets ? `${exercise.sets} sets` : "",
+      exercise.reps ? `${exercise.reps} reps` : "",
+      exercise.duration_minutes ? `${exercise.duration_minutes} minutes` : "",
+      exercise.rest_seconds ? `${exercise.rest_seconds}s rest` : "",
+      exercise.intensity || "",
+    ].filter(Boolean).join(" | ");
+    lines.push(`${index + 1}. ${exercise.exercise_name}${details ? ` - ${details}` : ""}${exercise.notes ? `\n   ${exercise.notes}` : ""}`);
+  });
+
+  if (plan.notes) lines.push(`Notes: ${plan.notes}`);
+  return lines.join("\n");
+}
+
+export async function getWorkoutPlansForTrainer(currentUser) {
+  if (!supabase) {
+    return { data: [], error: new Error("Missing hệ thống environment variables.") };
+  }
+
+  const trainerId = await resolveCurrentTrainerId(currentUser);
+  if (!trainerId) return { data: [], error: null };
+
+  const { data: plans, error } = await supabase
+    .from("workout_plans")
+    .select("*")
+    .eq("trainer_id", trainerId)
+    .order("created_at", { ascending: false });
+
+  if (error) return { data: [], error };
+
+  const planIds = (plans || []).map((plan) => plan.workout_plan_id);
+  let exercises = [];
+  if (planIds.length) {
+    const exerciseResult = await supabase
+      .from("workout_plan_exercises")
+      .select("*")
+      .in("workout_plan_id", planIds)
+      .order("display_order", { ascending: true });
+    if (exerciseResult.error) return { data: [], error: exerciseResult.error };
+    exercises = exerciseResult.data || [];
+  }
+
+  return {
+    data: (plans || []).map((plan) => {
+      const planExercises = exercises.filter((exercise) => exercise.workout_plan_id === plan.workout_plan_id);
+      return {
+        id: plan.workout_plan_id,
+        name: plan.plan_name,
+        goal: plan.plan_goal || "",
+        status: plan.status,
+        content: formatPlanContent(plan, planExercises),
+        exercises: planExercises.map((exercise) => ({
+          exerciseId: exercise.workout_plan_exercise_id,
+          exerciseName: exercise.exercise_name || "",
+          sets: Number(exercise.sets || 0),
+          reps: exercise.reps || "",
+          restTime: Number(exercise.rest_seconds || 60),
+          difficulty: exercise.intensity || "Medium",
+          muscleGroup: exercise.exercise_type || "",
+          instruction: exercise.notes || "",
+        })),
+      };
+    }),
+    error: null,
+  };
+}
+
+async function notifyMemberAboutSessionUpdate(row) {
+  if (!row?.member_id) return null;
+
+  const { data: member } = await supabase
+    .from("members")
+    .select("user_id")
+    .eq("member_id", row.member_id)
+    .maybeSingle();
+
+  if (!member?.user_id) return null;
+
+  const sessionDate = row.session_date
+    ? new Date(`${row.session_date}T00:00:00`).toLocaleDateString("en-GB")
+    : "upcoming";
+  const sessionTitle = row.session_title || row.title || "Workout session";
+  const { error } = await supabase.from("notifications").insert({
+    user_id: member.user_id,
+    notification_type: "schedule",
+    title: "Workout session content updated",
+    message: `${sessionTitle} on ${sessionDate} now has workout content from your trainer. Open your schedule to view the details.`,
+    is_read: false,
+  });
+
+  return error || null;
+}
+
+export async function updateWorkoutSessionContent(sessionId, { title = "", content = "", exercises = [] }) {
+  if (!supabase || !sessionId) {
+    return { data: null, error: new Error("Missing hệ thống configuration or workout session id.") };
+  }
+
+  const normalizedExercises = Array.isArray(exercises) ? exercises : [];
+  const formattedContent = content.trim() || formatSessionExerciseContent(normalizedExercises);
+  let result = await supabase
+    .from("workout_sessions")
+    .update({
+      session_title: title.trim(),
+      title: title.trim(),
+      note: formattedContent,
+      notes: formattedContent,
+      workout_content: normalizedExercises,
+    })
+    .eq("workout_session_id", sessionId)
+    .select("*")
+    .single();
+
+  if (result.error) {
+    result = await supabase
+      .from("workout_sessions")
+      .update({ title: title.trim(), notes: formattedContent })
+      .eq("workout_session_id", sessionId)
+      .select("*")
+      .single();
+  }
+
+  if (result.error) {
+    result = await supabase
+      .from("workout_sessions")
+      .update({ session_title: title.trim(), note: formattedContent })
+      .eq("workout_session_id", sessionId)
+      .select("*")
+      .single();
+  }
+
+  if (result.error) {
+    console.error("[Gymster hệ thống] Failed to update workout session content:", result.error);
+    return { data: null, error: result.error };
+  }
+
+  const notificationError = await notifyMemberAboutSessionUpdate(result.data);
+  const [mapped] = await enrichWorkoutSessions([result.data]);
+  return { data: mapped, error: null, notificationError };
 }
 
 export async function requestSessionReschedule(sessionId, requestedStartTime, requestedEndTime, reason = "") {

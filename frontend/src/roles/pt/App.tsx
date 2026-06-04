@@ -23,13 +23,23 @@ import {
   updateTrainingRequestStatus,
 } from "../../services/trainingRequestApi";
 import {
+  getWorkoutPlansForTrainer,
   getWorkoutSessionStatusLabel,
   getWorkoutSessionsForTrainer,
+  updateWorkoutSessionContent,
   updateWorkoutSessionStatus,
 } from "../../services/workoutSessionApi";
 import { updateCurrentUserProfile, uploadCurrentUserAvatar } from "../../services/userProfileApi";
 import { fetchPtPortalData } from "../../services/ptDataApi";
 import { createStaffMaintenanceReport, getStaffEquipmentStatus } from "../../services/staffOperationsApi";
+import {
+  createWorkoutPlan,
+  deleteWorkoutPlan,
+  getDetailedWorkoutPlansForTrainer,
+  updateWorkoutPlan,
+} from "../../services/workoutPlanApi";
+import { requestMedicalHistoryForMember } from "../../services/medicalHistoryApi";
+import { updateMemberCurrentGoal } from "../../services/memberCareApi";
 
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // TYPES
@@ -47,7 +57,7 @@ type Screen =
   | "profile";
 
 type AssignmentStatus = "Active" | "Paused" | "Completed";
-type ScheduleStatus = "Scheduled" | "Done" | "Cancelled" | "No Show" | "Pending Reschedule";
+type ScheduleStatus = "Scheduled" | "Completed" | "Incomplete";
 type GoalStatus = "In Progress" | "Completed" | "Overdue";
 type MealPlanStatus = "Draft" | "Assigned" | "Completed";
 
@@ -63,14 +73,22 @@ interface TrainingSchedule {
   scheduleId: string; memberId: string; trainingDate: string;
   trainingTime: string; exerciseType: string; status: ScheduleStatus; duration: number;
   memberName?: string; packageName?: string; roomName?: string; notes?: string; source?: string;
+  trainingDateIso?: string; hasContent?: boolean; workoutContent?: Exercise[];
+}
+interface WorkoutPlanTemplate {
+  id: string; name: string; goal: string; status: string; content: string; exercises: Exercise[];
 }
 interface ProgressRecord {
   progressId: string; memberId: string; scheduleId: string;
   recordedDate: string; completionLevel: number; note: string;
 }
 interface Exercise {
-  exerciseId: string; exerciseName: string; sets: number; reps: number;
+  exerciseId: string; exerciseName: string; sets: number; reps: string | number;
   restTime: number; difficulty: string; muscleGroup: string; instruction: string;
+}
+interface DetailedWorkoutPlan {
+  id: string; memberId: string | null; memberName: string; name: string; goal: string;
+  startDate: string; endDate: string; status: string; notes: string; exercises: Exercise[];
 }
 interface TrainingGoal {
   goalId: string; memberId: string; goalName: string; targetValue: string;
@@ -170,17 +188,57 @@ function getAssignment(memberId: string): TrainerAssignment | undefined {
   return ASSIGNMENTS.find(a => a.memberId === memberId);
 }
 
+function createEmptyExercise(): Exercise {
+  return {
+    exerciseId: `EX${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    exerciseName: "",
+    sets: 3,
+    reps: 10,
+    restTime: 60,
+    difficulty: "Medium",
+    muscleGroup: "",
+    instruction: "",
+  };
+}
+
+function toIsoDate(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function startOfCalendarWeek(date: Date): Date {
+  const start = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const day = start.getDay();
+  start.setDate(start.getDate() - (day === 0 ? 6 : day - 1));
+  return start;
+}
+
+function getCalendarWeek(anchorDate: Date) {
+  const start = startOfCalendarWeek(anchorDate);
+  return Array.from({ length: 7 }, (_, index) => {
+    const date = new Date(start);
+    date.setDate(start.getDate() + index);
+    return {
+      key: toIsoDate(date),
+      label: date.toLocaleDateString("en-US", { weekday: "short" }),
+      date: String(date.getDate()),
+    };
+  });
+}
+
 function statusColor(status: string): string {
-  if (["Active", "Done", "Completed"].includes(status)) return "text-emerald-400 bg-emerald-400/10 border-emerald-400/30";
+  if (["Active", "Completed"].includes(status)) return "text-emerald-400 bg-emerald-400/10 border-emerald-400/30";
   if (["Paused", "Scheduled", "In Progress"].includes(status)) return "text-amber-400 bg-amber-400/10 border-amber-400/30";
-  if (["Cancelled", "Overdue"].includes(status)) return "text-red-400 bg-red-400/10 border-red-400/30";
+  if (["Incomplete", "Overdue"].includes(status)) return "text-red-400 bg-red-400/10 border-red-400/30";
   return "text-gray-400 bg-gray-400/10 border-gray-400/30";
 }
 
 function statusLabel(status: string): string {
   const map: Record<string, string> = {
     Active: "Active", Paused: "Paused", Completed: "Completed",
-    Scheduled: "Scheduled", Done: "Done", Cancelled: "Cancelled",
+    Scheduled: "Scheduled", Incomplete: "Incomplete",
     "In Progress": "In Progress", Overdue: "Overdue",
   };
   return map[status] || status;
@@ -269,6 +327,77 @@ function Select({ label, value, onChange, options }: { label: string; value: str
       >
         {options.map(o => <option key={o} value={o}>{o}</option>)}
       </select>
+    </div>
+  );
+}
+
+function ExerciseEditor({
+  exercises,
+  onAdd,
+  onUpdate,
+  onRemove,
+}: {
+  exercises: Exercise[];
+  onAdd: () => void;
+  onUpdate: (id: string, field: keyof Exercise, value: string | number) => void;
+  onRemove: (id: string) => void;
+}) {
+  return (
+    <div className="space-y-3">
+      <div className="flex justify-end">
+        <PrimaryBtn icon={Plus} label="Add exercise" small onClick={onAdd} />
+      </div>
+      {exercises.map((exercise, index) => (
+        <div key={exercise.exerciseId} className="rounded-xl border border-white/5 bg-[#181818] p-4">
+          <div className="mb-3 flex items-center justify-between">
+            <div className="flex min-w-0 flex-1 items-center gap-2">
+              <div className="flex size-6 shrink-0 items-center justify-center rounded-lg border border-[#FF3B3B]/25 bg-[#FF3B3B]/15 text-xs font-bold text-[#FF3B3B]">{index + 1}</div>
+              <input
+                value={exercise.exerciseName}
+                onChange={(event) => onUpdate(exercise.exerciseId, "exerciseName", event.target.value)}
+                placeholder="Exercise name"
+                className="min-w-0 flex-1 border-b border-transparent bg-transparent pb-0.5 text-sm font-semibold text-white outline-none transition-colors focus:border-[#FF3B3B]/40"
+              />
+            </div>
+            <button type="button" onClick={() => onRemove(exercise.exerciseId)} className="flex size-7 items-center justify-center rounded-lg text-[#555] transition hover:bg-red-400/10 hover:text-red-400" aria-label="Remove exercise">
+              <X className="size-3" />
+            </button>
+          </div>
+          <div className="mb-3 grid grid-cols-3 gap-3">
+            {[
+              { label: "Sets", field: "sets" as keyof Exercise, value: exercise.sets },
+              { label: "Reps", field: "reps" as keyof Exercise, value: exercise.reps },
+              { label: "Rest (s)", field: "restTime" as keyof Exercise, value: exercise.restTime },
+            ].map(({ label, field, value }) => (
+              <label key={label} className="block">
+                <span className="mb-1 block text-xs text-[#555]">{label}</span>
+                <input type="number" value={value as number} onChange={(event) => onUpdate(exercise.exerciseId, field, Number(event.target.value))} className="w-full rounded-lg border border-white/8 bg-[#222] px-2.5 py-1.5 text-sm text-white outline-none transition-colors focus:border-[#FF3B3B]/40" />
+              </label>
+            ))}
+          </div>
+          <div className="mb-3 grid grid-cols-2 gap-3">
+            <label className="block">
+              <span className="mb-1 block text-xs text-[#555]">Muscle group</span>
+              <input value={exercise.muscleGroup} onChange={(event) => onUpdate(exercise.exerciseId, "muscleGroup", event.target.value)} className="w-full rounded-lg border border-white/8 bg-[#222] px-2.5 py-1.5 text-xs text-white outline-none transition-colors focus:border-[#FF3B3B]/40" />
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-xs text-[#555]">Difficulty</span>
+              <select value={exercise.difficulty} onChange={(event) => onUpdate(exercise.exerciseId, "difficulty", event.target.value)} className="w-full rounded-lg border border-white/8 bg-[#222] px-2.5 py-1.5 text-xs text-white outline-none transition-colors focus:border-[#FF3B3B]/40">
+                {["Easy", "Medium", "Hard", "Very Hard"].map((difficulty) => <option key={difficulty}>{difficulty}</option>)}
+              </select>
+            </label>
+          </div>
+          <label className="block">
+            <span className="mb-1 block text-xs text-[#555]">Technique instruction</span>
+            <input value={exercise.instruction} onChange={(event) => onUpdate(exercise.exerciseId, "instruction", event.target.value)} className="w-full rounded-lg border border-white/8 bg-[#222] px-2.5 py-1.5 text-xs text-white outline-none transition-colors focus:border-[#FF3B3B]/40" />
+          </label>
+        </div>
+      ))}
+      {!exercises.length && (
+        <button type="button" onClick={onAdd} className="w-full rounded-xl border border-dashed border-white/10 bg-[#181818] p-8 text-sm font-semibold text-[#777] transition hover:border-[#FF3B3B]/40 hover:text-white">
+          Add the first exercise
+        </button>
+      )}
     </div>
   );
 }
@@ -663,13 +792,7 @@ function TrainingRequestsPanel({ showToast }: { showToast: (msg: string) => void
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // SCREEN 2: MANAGE TRAINEES
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-function ManageTraineesScreen({
-  onViewMember, onAddTrainee, onRemove,
-}: {
-  onViewMember: (id: string) => void;
-  onAddTrainee: () => void;
-  onRemove: (id: string) => void;
-}) {
+function ManageTraineesScreen({ onViewMember }: { onViewMember: (id: string) => void }) {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("All");
 
@@ -685,20 +808,19 @@ function ManageTraineesScreen({
 
   return (
     <div className="space-y-5 pb-6">
-      <div className="flex items-start justify-between gap-4">
+      <div>
         <div>
           <h1 className="text-4xl text-white tracking-[0.08em]" style={{ fontFamily: "'Bebas Neue', sans-serif" }}>MANAGE TRAINEES</h1>
-          <p className="text-[#555] text-xs mt-1">ManageTraineeListScreen · ManageTraineeListController</p>
+          <p className="text-[#555] text-xs mt-1">Select a trainee to open their member profile.</p>
         </div>
-        <PrimaryBtn icon={Plus} label="Add Trainee" onClick={onAddTrainee} />
       </div>
 
       <div className="grid grid-cols-4 gap-3">
         {[
-          { label: "Tổng phân công", value: ASSIGNMENTS.length, color: "text-white" },
-          { label: "Đang hoạt động", value: countBy("Active"), color: "text-emerald-400" },
-          { label: "Tạm dừng", value: countBy("Paused"), color: "text-amber-400" },
-          { label: "Hoàn thành", value: countBy("Completed"), color: "text-[#666]" },
+          { label: "Total assignments", value: ASSIGNMENTS.length, color: "text-white" },
+          { label: "Active trainees", value: countBy("Active"), color: "text-emerald-400" },
+          { label: "Paused trainees", value: countBy("Paused"), color: "text-amber-400" },
+          { label: "Completed trainees", value: countBy("Completed"), color: "text-[#666]" },
         ].map(stat => (
           <div key={stat.label} className="bg-[#181818] border border-white/5 rounded-xl p-4 text-center">
             <div className={`text-2xl font-bold ${stat.color}`}>{stat.value}</div>
@@ -713,7 +835,7 @@ function ManageTraineesScreen({
           <input
             value={search}
             onChange={e => setSearch(e.target.value)}
-            placeholder="Tìm theo tên, số điện thoại, mã học viên..."
+            placeholder="Search by name, phone number, or member ID..."
             className="w-full bg-[#181818] border border-white/8 text-white placeholder-[#555] text-sm pl-9 pr-4 py-2.5 rounded-lg focus:outline-none focus:border-[#FF3B3B]/40 transition-colors"
           />
         </div>
@@ -735,7 +857,7 @@ function ManageTraineesScreen({
           <table className="w-full">
             <thead>
               <tr className="border-b border-white/5">
-                {["Học viên", "Mã HV", "Gói tập", "Ngày PH", "Trạng thái", "Buổi còn", "Tiến độ", ""].map(h => (
+                {["Trainee", "Member ID", "Package", "Assignment Date", "Status", "Remaining Sessions", "Progress"].map(h => (
                   <th key={h} className="text-left text-[#444] text-[10px] font-bold uppercase tracking-widest px-4 py-3">{h}</th>
                 ))}
               </tr>
@@ -745,7 +867,16 @@ function ManageTraineesScreen({
                 const m = getMember(a.memberId);
                 if (!m) return null;
                 return (
-                  <tr key={a.assignmentId} className="border-b border-white/5 hover:bg-white/2 transition-colors">
+                  <tr
+                    key={a.assignmentId}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => onViewMember(m.id)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") onViewMember(m.id);
+                    }}
+                    className="cursor-pointer border-b border-white/5 transition-colors hover:bg-white/5 focus:bg-white/5 focus:outline-none"
+                  >
                     <td className="px-4 py-3.5">
                       <div className="flex items-center gap-3">
                         <Avatar initials={m.avatar} size="sm" />
@@ -769,19 +900,6 @@ function ManageTraineesScreen({
                         <span className="text-white text-xs font-semibold w-7">{a.progress}%</span>
                       </div>
                     </td>
-                    <td className="px-4 py-3.5">
-                      <div className="flex items-center gap-1">
-                        <button onClick={() => onViewMember(m.id)} className="size-7 flex items-center justify-center text-[#555] hover:text-[#FF3B3B] hover:bg-[#FF3B3B]/10 rounded-lg transition-all" title="View Details">
-                          <Eye className="size-3" />
-                        </button>
-                        <button className="size-7 flex items-center justify-center text-[#555] hover:text-amber-400 hover:bg-amber-400/10 rounded-lg transition-all" title="Update">
-                          <Edit2 className="size-3" />
-                        </button>
-                        <button onClick={() => onRemove(m.id)} className="size-7 flex items-center justify-center text-[#555] hover:text-red-400 hover:bg-red-400/10 rounded-lg transition-all" title="Remove Assignment">
-                          <Trash2 className="size-3" />
-                        </button>
-                      </div>
-                    </td>
                   </tr>
                 );
               })}
@@ -791,7 +909,7 @@ function ManageTraineesScreen({
         {filtered.length === 0 && (
           <div className="text-center py-16">
             <Users className="size-10 mx-auto mb-3 text-[#333]" />
-            <p className="text-[#555] text-sm">Không tìm thấy học viên nào</p>
+            <p className="text-[#555] text-sm">No trainees found</p>
           </div>
         )}
       </div>
@@ -811,6 +929,9 @@ function MemberDetailScreen({
   showToast: (msg: string) => void;
 }) {
   const [tab, setTab] = useState("overview");
+  const [currentGoal, setCurrentGoal] = useState(() => TRAINING_GOALS.find(goal => goal.memberId === memberId)?.goalName || "Weight Loss");
+  const [isSavingGoal, setIsSavingGoal] = useState(false);
+  const [isRequestingMedical, setIsRequestingMedical] = useState(false);
   const m = getMember(memberId);
   const a = getAssignment(memberId);
   if (!m) return null;
@@ -823,14 +944,36 @@ function MemberDetailScreen({
   const medicalHistory = MEDICAL_HISTORIES.find(item => item.memberId === memberId);
   const bodyMetricDetail = BODY_METRIC_DETAILS.find(item => item.memberId === memberId);
   const assignedMealPlan = INITIAL_MEAL_PLANS.find(plan => plan.assignedMemberId === memberId && plan.status === "Assigned");
+  const completedSessions = memberSchedules.filter(session => session.status === "Completed").length;
+  const incompleteSessions = memberSchedules.filter(session => session.status === "Incomplete").length;
+  const totalSessions = a?.totalSessions || memberSchedules.length;
+  const attendanceRate = completedSessions + incompleteSessions > 0
+    ? Math.round((completedSessions / (completedSessions + incompleteSessions)) * 100)
+    : 0;
 
   const tabs = [
-    { id: "overview", label: "Tổng quan" },
-    { id: "schedule", label: "Lịch tập" },
-    { id: "progress", label: "Tiến độ" },
-    { id: "evaluation", label: "Đánh giá" },
+    { id: "overview", label: "Overview" },
+    { id: "schedule", label: "Workout Calendar" },
+    { id: "progress", label: "Progress" },
+    { id: "evaluation", label: "Evaluation" },
     { id: "medical", label: "Medical History" },
+    { id: "meal-plan", label: "Current Meal Plans" },
   ];
+
+  const saveCurrentGoal = async (nextGoal: string) => {
+    setCurrentGoal(nextGoal);
+    setIsSavingGoal(true);
+    const { error } = await updateMemberCurrentGoal(memberId, nextGoal, getCurrentUser());
+    setIsSavingGoal(false);
+    showToast(error ? "Current goal could not be updated." : "Current goal updated.");
+  };
+
+  const requestMedicalHistory = async () => {
+    setIsRequestingMedical(true);
+    const { error } = await requestMedicalHistoryForMember(memberId, getCurrentUser());
+    setIsRequestingMedical(false);
+    showToast(error ? "Medical history request could not be sent." : "Medical history request sent to member.");
+  };
 
   return (
     <div className="space-y-5 pb-6">
@@ -840,7 +983,7 @@ function MemberDetailScreen({
         </button>
         <div>
           <h1 className="text-4xl text-white tracking-[0.08em]" style={{ fontFamily: "'Bebas Neue', sans-serif" }}>MEMBER DETAIL</h1>
-          <p className="text-[#555] text-xs">Chi tiết học viên — TrainerAssignment #{a?.assignmentId}</p>
+          <p className="text-[#555] text-xs">Member profile - TrainerAssignment #{a?.assignmentId}</p>
         </div>
       </div>
 
@@ -858,10 +1001,10 @@ function MemberDetailScreen({
             </div>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
               {[
-                { icon: User, label: "Tuổi", value: `${m.age} tuổi` },
-                { icon: Phone, label: "Điện thoại", value: m.phone },
+                { icon: User, label: "Age", value: `${m.age}` },
+                { icon: Phone, label: "Phone", value: m.phone },
                 { icon: Mail, label: "Email", value: m.email },
-                { icon: CalendarDays, label: "Ngày tham gia", value: m.joinDate },
+                { icon: CalendarDays, label: "Join date", value: m.joinDate },
               ].map(({ icon: Icon, label, value }) => (
                 <div key={label} className="flex items-center gap-2">
                   <Icon className="size-3.5 text-[#555] shrink-0" />
@@ -875,18 +1018,18 @@ function MemberDetailScreen({
             {a && (
               <div className="mt-4 flex items-center gap-6">
                 <div>
-                  <div className="text-[#555] text-xs mb-1">Tiến độ tổng thể</div>
+                  <div className="text-[#555] text-xs mb-1">Overall progress</div>
                   <div className="flex items-center gap-3">
                     <div className="w-40"><Bar2 value={a.progress} /></div>
                     <span className="text-white text-sm font-bold">{a.progress}%</span>
                   </div>
                 </div>
                 <div>
-                  <div className="text-[#555] text-xs">Buổi còn lại</div>
+                  <div className="text-[#555] text-xs">Remaining Sessions</div>
                   <div className="text-white text-sm font-bold mt-1">{a.sessionsRemaining}/{a.totalSessions}</div>
                 </div>
                 <div>
-                  <div className="text-[#555] text-xs">Ngày phân công</div>
+                  <div className="text-[#555] text-xs">Assignment Date</div>
                   <div className="text-white text-sm font-bold mt-1">{a.assignmentDate}</div>
                 </div>
               </div>
@@ -911,7 +1054,7 @@ function MemberDetailScreen({
       {/* Tab content */}
       {tab === "overview" && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <SectionCard title="Mục tiêu tập luyện">
+          <SectionCard title="Training goals">
             <div className="space-y-3">
               {memberGoals.length > 0 ? memberGoals.map(g => (
                 <div key={g.goalId} className="bg-[#222] rounded-lg p-3">
@@ -919,16 +1062,16 @@ function MemberDetailScreen({
                     <div className="text-white text-xs font-semibold">{g.goalName}</div>
                     <Badge status={g.status} />
                   </div>
-                  <div className="text-[#555] text-xs mb-2">{g.targetValue} · Hạn: {g.deadline}</div>
+                  <div className="text-[#555] text-xs mb-2">{g.targetValue} - Due: {g.deadline}</div>
                   <div className="flex items-center gap-2">
                     <div className="flex-1"><Bar2 value={g.progress} /></div>
                     <span className="text-white text-xs font-bold">{g.progress}%</span>
                   </div>
                 </div>
-              )) : <p className="text-[#555] text-xs">Chưa có mục tiêu nào</p>}
+              )) : <p className="text-[#555] text-xs">No goals yet</p>}
             </div>
           </SectionCard>
-          <SectionCard title="Chỉ số cơ thể">
+          <SectionCard title="Body metrics">
             {memberMetrics.length > 0 ? (
               <ResponsiveContainer width="100%" height={180}>
                 <LineChart data={memberMetrics}>
@@ -936,55 +1079,56 @@ function MemberDetailScreen({
                   <XAxis dataKey="measuredDate" tick={{ fill: "#555", fontSize: 10 }} axisLine={false} tickLine={false} />
                   <YAxis tick={{ fill: "#555", fontSize: 10 }} axisLine={false} tickLine={false} />
                   <Tooltip contentStyle={tooltipStyle} />
-                  <Line type="monotone" dataKey="weight" stroke="#FF3B3B" strokeWidth={2} dot={{ fill: "#FF3B3B", r: 3 }} name="Cân nặng (kg)" />
-                  <Line type="monotone" dataKey="bodyFatRate" stroke="#FF7B7B" strokeWidth={1.5} dot={{ fill: "#FF7B7B", r: 2 }} name="Mỡ cơ thể (%)" />
+                  <Line type="monotone" dataKey="weight" stroke="#FF3B3B" strokeWidth={2} dot={{ fill: "#FF3B3B", r: 3 }} name="Weight (kg)" />
+                  <Line type="monotone" dataKey="bodyFatRate" stroke="#FF7B7B" strokeWidth={1.5} dot={{ fill: "#FF7B7B", r: 2 }} name="Body fat (%)" />
                 </LineChart>
               </ResponsiveContainer>
-            ) : <p className="text-[#555] text-xs">Chưa có dữ liệu</p>}
+            ) : <p className="text-[#555] text-xs">No data yet</p>}
           </SectionCard>
         </div>
       )}
 
       {tab === "schedule" && (
-        <SectionCard title="Lịch tập">
+        <SectionCard title="Workout Calendar">
           <div className="space-y-2">
             {memberSchedules.map(s => (
-              <div key={s.scheduleId} className="flex items-center gap-4 bg-[#222] rounded-lg p-3">
-                <div className="text-center w-12">
-                  <div className="text-[#FF3B3B] text-sm font-bold">{s.trainingTime}</div>
-                </div>
+              <div key={s.scheduleId} className="flex items-start gap-4 bg-[#222] rounded-lg p-4">
+                <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-[#FF3B3B]/10 text-[#FF3B3B]"><CalendarDays className="size-4" /></div>
                 <div className="flex-1">
-                  <div className="text-white text-xs font-medium">{s.exerciseType}</div>
-                  <div className="text-[#555] text-xs">{s.trainingDate} · {s.duration} phút · {s.scheduleId}</div>
+                  <div className="text-sm font-bold text-white">{s.trainingDate}</div>
+                  <div className={`mt-1 text-xs ${s.hasContent ? "text-[#BDBDBD]" : "text-[#666]"}`}>
+                    {s.hasContent ? (s.notes || s.exerciseType) : "No workout session"}
+                  </div>
                 </div>
                 <Badge status={s.status} />
               </div>
             ))}
+            {!memberSchedules.length && <p className="py-8 text-center text-xs text-[#555]">No workout sessions found.</p>}
           </div>
         </SectionCard>
       )}
 
       {tab === "progress" && (
-        <SectionCard title="Hồ sơ tiến độ (ProgressRecord)">
-          <div className="space-y-3">
-            {memberRecords.map(r => (
-              <div key={r.progressId} className="bg-[#222] rounded-lg p-3">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-[#555] text-xs">{r.recordedDate} · {r.progressId}</span>
-                  <div className="flex items-center gap-2">
-                    <div className="w-20"><Bar2 value={r.completionLevel} /></div>
-                    <span className="text-white text-xs font-bold">{r.completionLevel}%</span>
-                  </div>
-                </div>
-                <p className="text-[#BDBDBD] text-xs">{r.note}</p>
-              </div>
-            ))}
+        <div className="grid gap-4 lg:grid-cols-3">
+          <div className="rounded-xl border border-white/5 bg-[#181818] p-5">
+            <div className="text-xs font-bold uppercase tracking-widest text-[#666]">Completed sessions</div>
+            <div className="mt-3 text-3xl font-black text-white">{completedSessions}<span className="text-lg text-[#666]"> / {totalSessions}</span></div>
           </div>
-        </SectionCard>
+          <div className="rounded-xl border border-white/5 bg-[#181818] p-5">
+            <div className="text-xs font-bold uppercase tracking-widest text-[#666]">Attendance rate</div>
+            <div className="mt-3 flex items-center gap-4"><div className="flex-1"><Bar2 value={attendanceRate} /></div><div className="text-3xl font-black text-white">{attendanceRate}%</div></div>
+          </div>
+          <div className="rounded-xl border border-white/5 bg-[#181818] p-5">
+            <label className="mb-2 block text-xs font-bold uppercase tracking-widest text-[#666]" htmlFor="member-current-goal">Current goal</label>
+            <select id="member-current-goal" disabled={isSavingGoal} value={currentGoal} onChange={(event) => saveCurrentGoal(event.target.value)} className="w-full rounded-lg border border-white/10 bg-[#222] px-3 py-2.5 text-sm font-semibold text-white outline-none focus:border-[#FF3B3B]/60 disabled:opacity-60">
+              {["Weight Loss", "Chest", "Back", "Shoulders", "Arms", "Core", "Legs", "Mobility", "Endurance"].map(goal => <option key={goal}>{goal}</option>)}
+            </select>
+          </div>
+        </div>
       )}
 
       {tab === "evaluation" && (
-        <SectionCard title="Lịch sử đánh giá (ProgressEvaluation)">
+        <SectionCard title="Evaluation history">
           <div className="space-y-4">
             {memberEvals.map(e => (
               <div key={e.evaluationId} className="bg-[#222] rounded-lg p-4">
@@ -998,20 +1142,23 @@ function MemberDetailScreen({
                 </div>
                 <p className="text-[#BDBDBD] text-xs mb-2">{e.overallComment}</p>
                 <div className="grid grid-cols-2 gap-2 text-xs">
-                  <div><span className="text-emerald-400 font-semibold">Điểm mạnh:</span><span className="text-[#BDBDBD] ml-1">{e.strengths}</span></div>
-                  <div><span className="text-amber-400 font-semibold">Cần cải thiện:</span><span className="text-[#BDBDBD] ml-1">{e.improvements}</span></div>
+                  <div><span className="text-emerald-400 font-semibold">Strengths:</span><span className="text-[#BDBDBD] ml-1">{e.strengths}</span></div>
+                  <div><span className="text-amber-400 font-semibold">Improvements:</span><span className="text-[#BDBDBD] ml-1">{e.improvements}</span></div>
                 </div>
-                <div className="mt-2 text-xs"><span className="text-[#FF3B3B] font-semibold">Khuyến nghị:</span><span className="text-[#BDBDBD] ml-1">{e.recommendation}</span></div>
+                <div className="mt-2 text-xs"><span className="text-[#FF3B3B] font-semibold">Recommendation:</span><span className="text-[#BDBDBD] ml-1">{e.recommendation}</span></div>
               </div>
             ))}
-            {memberEvals.length === 0 && <p className="text-[#555] text-xs">Chưa có đánh giá nào</p>}
+            {memberEvals.length === 0 && <p className="text-[#555] text-xs">No evaluations yet</p>}
           </div>
         </SectionCard>
       )}
 
       {tab === "medical" && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <SectionCard title="Medical History">
+          <SectionCard
+            title="Medical History"
+            action={<PrimaryBtn label={isRequestingMedical ? "Sending..." : "Request Medical History"} icon={Bell} small onClick={requestMedicalHistory} />}
+          >
             {medicalHistory ? (
               <div className="space-y-3">
                 {[
@@ -1054,21 +1201,40 @@ function MemberDetailScreen({
             ) : <p className="text-[#555] text-xs">No body metrics available for this member.</p>}
           </SectionCard>
 
-          <SectionCard title="Assigned Meal Plan">
-            {assignedMealPlan ? (
-              <div className="space-y-3">
+        </div>
+      )}
+
+      {tab === "meal-plan" && (
+        <SectionCard title="Current Meal Plans">
+          {assignedMealPlan ? (
+            <div className="grid gap-4 lg:grid-cols-2">
+              <div className="rounded-xl border border-white/5 bg-[#222] p-5">
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <div className="text-white text-sm font-semibold">{assignedMealPlan.name}</div>
-                    <div className="text-[#777] text-xs mt-1">{assignedMealPlan.goal} - {assignedMealPlan.caloriesPerDay} kcal/day</div>
+                    <div className="text-lg font-bold text-white">{assignedMealPlan.name}</div>
+                    <div className="mt-1 text-xs text-[#777]">{assignedMealPlan.goal} - {assignedMealPlan.caloriesPerDay} kcal/day</div>
                   </div>
                   <Badge status={assignedMealPlan.status} />
                 </div>
-                <p className="text-[#BDBDBD] text-xs">{assignedMealPlan.notes}</p>
+                <p className="mt-4 text-sm text-[#BDBDBD]">{assignedMealPlan.notes || "No notes"}</p>
+                <p className="mt-3 text-xs text-[#666]">{assignedMealPlan.startDate || "Not set"} - {assignedMealPlan.endDate || "Not set"}</p>
               </div>
-            ) : <p className="text-[#555] text-xs">No meal plan assigned yet.</p>}
-          </SectionCard>
-        </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                {[
+                  ["Breakfast", assignedMealPlan.breakfast],
+                  ["Lunch", assignedMealPlan.lunch],
+                  ["Dinner", assignedMealPlan.dinner],
+                  ["Snacks", assignedMealPlan.snacks],
+                ].map(([label, value]) => (
+                  <div key={label} className="rounded-xl bg-[#222] p-4">
+                    <div className="text-xs font-bold uppercase tracking-widest text-[#777]">{label}</div>
+                    <div className="mt-2 text-sm text-white">{value || "Not set"}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : <p className="py-8 text-center text-xs text-[#555]">No current meal plan assigned.</p>}
+        </SectionCard>
       )}
     </div>
   );
@@ -1078,10 +1244,8 @@ function MemberDetailScreen({
 // SCREEN 4: SCHEDULE & PROGRESS
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function ScheduleProgressScreen({
-  onAddSchedule, onUpdateProgress, onViewMember, showToast,
+  onViewMember, showToast,
 }: {
-  onAddSchedule: () => void;
-  onUpdateProgress: () => void;
   onViewMember: (id: string) => void;
   showToast: (msg: string) => void;
 }) {
@@ -1091,19 +1255,44 @@ function ScheduleProgressScreen({
   const [sessions, setSessions] = useState<TrainingSchedule[]>([]);
   const [isLoadingSessions, setIsLoadingSessions] = useState(true);
   const [sessionLoadMessage, setSessionLoadMessage] = useState("");
-  const days = [
-    { key: "04/05", label: "Sun", date: "4" },
-    { key: "05/05", label: "Mon", date: "5" },
-    { key: "06/05", label: "Tue", date: "6" },
-    { key: "07/05", label: "Wed", date: "7" },
-    { key: "08/05", label: "Thu", date: "8" },
-    { key: "09/05", label: "Fri", date: "9" },
-    { key: "10/05", label: "Sat", date: "10" },
-  ];
+  const [selectedMemberId, setSelectedMemberId] = useState("all");
+  const [calendarAnchor, setCalendarAnchor] = useState(() => new Date());
+  const [workoutPlans, setWorkoutPlans] = useState<WorkoutPlanTemplate[]>([]);
+  const [selectedPlanId, setSelectedPlanId] = useState("");
+  const [sessionTitle, setSessionTitle] = useState("");
+  const [sessionContent, setSessionContent] = useState("");
+  const [sessionExercises, setSessionExercises] = useState<Exercise[]>([]);
+  const [showMarkOptions, setShowMarkOptions] = useState(false);
+  const [isSavingContent, setIsSavingContent] = useState(false);
+  const days = getCalendarWeek(calendarAnchor);
   const timeSlots = ["06:00", "07:00", "08:00", "09:00", "10:00", "11:00", "14:00", "15:00", "16:00", "17:00", "18:00", "19:00"];
-  const weekLabel = "May 4 - 10, 2025";
-  const sessionDay = (date: string) => date.slice(0, 5);
+  const weekStart = new Date(`${days[0].key}T00:00:00`);
+  const weekEnd = new Date(`${days[6].key}T00:00:00`);
+  const weekLabel = `${weekStart.toLocaleDateString("en-US", { month: "short", day: "numeric" })} - ${weekEnd.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`;
   const sessionHour = (time: string) => Number(time.split(":")[0]);
+  const assignedMemberIds = new Set(
+    ASSIGNMENTS.filter(assignment => assignment.status !== "Completed").map(assignment => assignment.memberId),
+  );
+  const currentAssignedMembers = MEMBERS.filter(member => assignedMemberIds.has(member.id));
+  const assignedMembers = currentAssignedMembers.length
+    ? currentAssignedMembers
+    : Array.from(new Map(sessions.map(session => [session.memberId, {
+      id: session.memberId,
+      name: session.memberName || "Member",
+      phone: "",
+      email: "",
+      package: session.packageName || "Membership package",
+      avatar: "MB",
+      joinDate: "",
+      age: 0,
+      gender: "",
+    }])).values());
+  const assignedSessions = currentAssignedMembers.length
+    ? sessions.filter(session => assignedMemberIds.has(session.memberId))
+    : sessions;
+  const filteredSessions = selectedMemberId === "all"
+    ? assignedSessions
+    : assignedSessions.filter(session => session.memberId === selectedMemberId);
   const selectedMember = selectedSession
     ? getMember(selectedSession.memberId) || {
       id: selectedSession.memberId,
@@ -1117,8 +1306,8 @@ function ScheduleProgressScreen({
       gender: "",
     }
     : null;
-  const visibleDays = view === "Day" ? days.filter(day => day.key === "06/05") : days;
-  const upcomingSessions = sessions.filter(item => item.status === "Scheduled" || item.status === "Pending Reschedule").slice(0, 5);
+  const visibleDays = view === "Day" ? [days.find(day => day.key === toIsoDate(calendarAnchor)) || days[0]] : days;
+  const upcomingSessions = filteredSessions.filter(item => item.status === "Scheduled").slice(0, 5);
 
   const mapWorkoutSessionToTrainingSchedule = (session: any): TrainingSchedule => {
     const startTime = String(session.startTime || "").slice(0, 5);
@@ -1132,14 +1321,17 @@ function ScheduleProgressScreen({
       memberName: session.memberName || "Member",
       packageName: session.packageName || "Membership package",
       roomName: session.roomName || "PT Room",
+      trainingDateIso: sessionDate,
       trainingDate: parsedDate && !Number.isNaN(parsedDate.getTime())
         ? parsedDate.toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", year: "numeric" })
         : sessionDate || "-",
       trainingTime: endTime ? `${startTime} - ${endTime}` : startTime,
-      exerciseType: session.sessionTitle || session.exerciseType || "Workout Session",
-      status: (getWorkoutSessionStatusLabel(session.status) === "Completed" ? "Done" : getWorkoutSessionStatusLabel(session.status)) as ScheduleStatus,
+      exerciseType: session.sessionTitle || session.exerciseType || "No workout session",
+      status: getWorkoutSessionStatusLabel(session.status) as ScheduleStatus,
       duration: 60,
       notes: session.note || "",
+      hasContent: Boolean(session.hasContent),
+      workoutContent: session.workoutContent || [],
       source: "supabase",
     };
   };
@@ -1154,7 +1346,7 @@ function ScheduleProgressScreen({
 
         if (error) {
           setSessions(SCHEDULES);
-          setSessionLoadMessage("Some workout sessions could not be loaded. Vui lòng thử lại sau.");
+          setSessionLoadMessage("Some workout sessions could not be loaded. Please try again.");
         } else if (data.length) {
           setSessions(data.map(mapWorkoutSessionToTrainingSchedule));
           setSessionLoadMessage("");
@@ -1168,7 +1360,7 @@ function ScheduleProgressScreen({
       .catch(() => {
         if (!isMounted) return;
         setSessions(SCHEDULES);
-        setSessionLoadMessage("Some workout sessions could not be loaded. Vui lòng thử lại sau.");
+        setSessionLoadMessage("Some workout sessions could not be loaded. Please try again.");
         setIsLoadingSessions(false);
       });
 
@@ -1177,11 +1369,84 @@ function ScheduleProgressScreen({
     };
   }, []);
 
+  useEffect(() => {
+    let isMounted = true;
+    getWorkoutPlansForTrainer(getCurrentUser()).then(({ data }) => {
+      if (isMounted) setWorkoutPlans(data || []);
+    });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    setSelectedPlanId("");
+    setSessionTitle(selectedSession?.hasContent ? selectedSession.exerciseType : "");
+    setSessionContent(selectedSession?.notes || "");
+    setSessionExercises(selectedSession?.workoutContent || []);
+    setShowMarkOptions(false);
+  }, [selectedSession]);
+
+  const moveCalendar = (daysToMove: number) => {
+    setCalendarAnchor(current => {
+      const next = new Date(current);
+      next.setDate(next.getDate() + daysToMove);
+      return next;
+    });
+  };
+
+  const openDay = (dayKey: string) => {
+    setCalendarAnchor(new Date(`${dayKey}T00:00:00`));
+    setView("Day");
+  };
+
+  const applyWorkoutPlan = (planId: string) => {
+    setSelectedPlanId(planId);
+    const plan = workoutPlans.find(item => item.id === planId);
+    if (!plan) return;
+    setSessionTitle(plan.name);
+    setSessionContent(plan.content);
+    setSessionExercises(plan.exercises || []);
+  };
+
+  const updateSessionExercise = (id: string, field: keyof Exercise, value: string | number) => {
+    setSessionExercises(current => current.map(exercise => exercise.exerciseId === id ? { ...exercise, [field]: value } : exercise));
+  };
+
+  const saveSessionContent = async () => {
+    if (!selectedSession) return;
+    if (!sessionTitle.trim() && !sessionContent.trim() && !sessionExercises.some(exercise => exercise.exerciseName.trim())) {
+      showToast("Enter content or choose a workout.");
+      return;
+    }
+
+    setIsSavingContent(true);
+    const { data, error, notificationError } = await updateWorkoutSessionContent(selectedSession.scheduleId, {
+      title: sessionTitle,
+      content: sessionContent,
+      exercises: sessionExercises,
+    });
+    setIsSavingContent(false);
+
+    if (error || !data) {
+      showToast("Workout session content could not be updated.");
+      return;
+    }
+
+    const mapped = mapWorkoutSessionToTrainingSchedule(data);
+    SCHEDULES = SCHEDULES.map(item => item.scheduleId === mapped.scheduleId ? mapped : item);
+    setSessions(current => current.map(item => item.scheduleId === mapped.scheduleId ? mapped : item));
+    setSelectedSession(mapped);
+    showToast(notificationError
+      ? "Content updated, but the member notification could not be sent."
+      : "Content updated and member notified.");
+  };
+
   const updateSessionStatus = async (id: string, status: ScheduleStatus) => {
     const targetSession = sessions.find(item => item.scheduleId === id);
 
     if (targetSession?.source === "supabase") {
-      const dbStatus = status === "Done" ? "completed" : status === "No Show" ? "no_show" : status === "Pending Reschedule" ? "pending_reschedule" : status.toLowerCase();
+      const dbStatus = status.toLowerCase();
       const { data, error } = await updateWorkoutSessionStatus(id, dbStatus);
 
       if (error) {
@@ -1190,12 +1455,14 @@ function ScheduleProgressScreen({
       }
 
       const mapped = mapWorkoutSessionToTrainingSchedule(data);
+      SCHEDULES = SCHEDULES.map(item => item.scheduleId === id ? mapped : item);
       setSessions(prev => prev.map(item => item.scheduleId === id ? mapped : item));
       setSelectedSession(prev => prev && prev.scheduleId === id ? mapped : prev);
       showToast(`Session marked as ${status}.`);
       return;
     }
 
+    SCHEDULES = SCHEDULES.map(item => item.scheduleId === id ? { ...item, status } : item);
     setSessions(prev => prev.map(item => item.scheduleId === id ? { ...item, status } : item));
     setSelectedSession(prev => prev && prev.scheduleId === id ? { ...prev, status } : prev);
     showToast(`Session marked as ${status}.`);
@@ -1206,20 +1473,16 @@ function ScheduleProgressScreen({
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-4xl text-white tracking-[0.08em]" style={{ fontFamily: "'Bebas Neue', sans-serif" }}>PT CALENDAR</h1>
-          <p className="text-[#555] text-xs mt-1">Google Calendar-inspired schedule for member training sessions.</p>
-        </div>
-        <div className="flex gap-2">
-          <GhostBtn icon={Activity} label="Update Progress" small onClick={onUpdateProgress} />
-          <PrimaryBtn icon={Plus} label="Add Schedule" small onClick={onAddSchedule} />
+          <p className="text-[#555] text-xs mt-1">Track member schedules and update content for each workout session.</p>
         </div>
       </div>
 
       <div className="bg-[#181818] border border-white/5 rounded-xl p-4">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex flex-wrap items-center gap-2">
-            <button onClick={() => showToast("Calendar moved to today.")} className="rounded-full border border-white/10 px-4 py-2 text-sm font-semibold text-white hover:border-[#FF3B3B]">Today</button>
-            <button onClick={() => showToast("Previous week selected.")} className="size-9 rounded-full border border-white/10 text-[#999] hover:text-white">Prev</button>
-            <button onClick={() => showToast("Next week selected.")} className="size-9 rounded-full border border-white/10 text-[#999] hover:text-white">Next</button>
+            <button onClick={() => setCalendarAnchor(new Date())} className="rounded-full border border-white/10 px-4 py-2 text-sm font-semibold text-white hover:border-[#FF3B3B]">Today</button>
+            <button onClick={() => moveCalendar(-7)} className="size-9 rounded-full border border-white/10 text-[#999] hover:text-white">Prev</button>
+            <button onClick={() => moveCalendar(7)} className="size-9 rounded-full border border-white/10 text-[#999] hover:text-white">Next</button>
             <div className="ml-2 text-white text-lg font-semibold">{weekLabel}</div>
           </div>
           <div className="flex rounded-full border border-white/10 bg-[#111] p-1">
@@ -1227,6 +1490,19 @@ function ScheduleProgressScreen({
               <button key={item} onClick={() => setView(item)} className={`rounded-full px-4 py-1.5 text-xs font-semibold transition-all ${view === item ? "bg-[#FF3B3B] text-white shadow-[0_0_18px_rgba(255,59,59,0.35)]" : "text-[#777] hover:text-white"}`}>{item}</button>
             ))}
           </div>
+        </div>
+        <div className="mt-4 flex flex-col gap-2 border-t border-white/5 pt-4 sm:flex-row sm:items-center">
+          <label className="text-xs font-bold uppercase tracking-widest text-[#777]" htmlFor="schedule-member-filter">Assigned members</label>
+          <select
+            id="schedule-member-filter"
+            value={selectedMemberId}
+            onChange={event => setSelectedMemberId(event.target.value)}
+            className="min-w-64 rounded-lg border border-white/10 bg-[#222] px-3 py-2.5 text-sm font-semibold text-white focus:border-[#FF3B3B]/60 focus:outline-none"
+          >
+            <option value="all">All members ({assignedMembers.length})</option>
+            {assignedMembers.map(member => <option key={member.id} value={member.id}>{member.name}</option>)}
+          </select>
+          <span className="text-xs text-[#555]">{filteredSessions.length} sessions displayed</span>
         </div>
       </div>
 
@@ -1240,15 +1516,15 @@ function ScheduleProgressScreen({
           {sessionLoadMessage}
         </div>
       )}
-      {!isLoadingSessions && !sessionLoadMessage && sessions.length === 0 && (
+      {!isLoadingSessions && !sessionLoadMessage && filteredSessions.length === 0 && (
         <div className="rounded-xl border border-white/5 bg-[#181818] p-8 text-center text-sm font-semibold text-[#777]">
-          No assigned workout sessions found.
+          No workout sessions for the current filter.
         </div>
       )}
 
       {view === "Agenda" ? (
         <div className="bg-[#181818] border border-white/5 rounded-xl p-4 space-y-3">
-          {sessions.map(session => {
+          {filteredSessions.map(session => {
             const member = getMember(session.memberId);
             return (
               <button key={session.scheduleId} onClick={() => setSelectedSession(session)} className="w-full rounded-xl border border-white/5 bg-[#111] p-4 text-left hover:border-[#FF3B3B]/50">
@@ -1268,17 +1544,23 @@ function ScheduleProgressScreen({
           <div className="min-w-[920px] grid" style={{ gridTemplateColumns: `72px repeat(${visibleDays.length}, minmax(120px, 1fr))` }}>
             <div className="border-b border-white/5 bg-[#111]" />
             {visibleDays.map(day => (
-              <div key={day.key} className="border-b border-l border-white/5 bg-[#111] p-3 text-center">
+              <button
+                key={day.key}
+                type="button"
+                onClick={() => openDay(day.key)}
+                className="border-b border-l border-white/5 bg-[#111] p-3 text-center transition hover:bg-[#1d1d1d] focus:outline-none focus:ring-1 focus:ring-inset focus:ring-[#FF3B3B]/50"
+                title={`Open calendar day ${day.key}`}
+              >
                 <div className="text-[#777] text-xs font-semibold uppercase tracking-widest">{day.label}</div>
-                <div className={`mx-auto mt-1 flex size-9 items-center justify-center rounded-full text-lg font-semibold ${day.key === "06/05" ? "bg-[#FF3B3B] text-white" : "text-white"}`}>{day.date}</div>
-              </div>
+                <div className={`mx-auto mt-1 flex size-9 items-center justify-center rounded-full text-lg font-semibold ${day.key === toIsoDate(new Date()) ? "bg-[#FF3B3B] text-white" : "text-white"}`}>{day.date}</div>
+              </button>
             ))}
             {timeSlots.map(slot => (
               <div key={slot} className="contents">
                 <div className="border-b border-white/5 bg-[#111] px-3 py-4 text-right text-xs text-[#777]">{slot}</div>
                 {visibleDays.map(day => {
                   const hour = Number(slot.split(":")[0]);
-                  const events = sessions.filter(item => sessionDay(item.trainingDate) === day.key && sessionHour(item.trainingTime) === hour);
+                  const events = filteredSessions.filter(item => item.trainingDateIso === day.key && sessionHour(item.trainingTime) === hour);
                   return (
                     <div key={`${day.key}-${slot}`} className="min-h-[76px] border-b border-l border-white/5 p-1.5">
                       {events.map(event => {
@@ -1331,7 +1613,7 @@ function ScheduleProgressScreen({
 
       {selectedSession && selectedMember && (
         <ModalOverlay onClose={() => setSelectedSession(null)}>
-          <div className="w-full max-w-md rounded-2xl border border-white/10 bg-[#181818] p-5 shadow-2xl">
+          <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-white/10 bg-[#181818] p-5 shadow-2xl">
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="text-[#FF3B3B] text-xs font-bold uppercase tracking-widest">Session Detail</p>
@@ -1345,12 +1627,45 @@ function ScheduleProgressScreen({
               <div className="flex justify-between rounded-lg bg-[#222] p-3"><span className="text-[#777]">Package</span><span className="text-white">{selectedMember.package || selectedSession.packageName || "Membership package"}</span></div>
               <div className="flex justify-between rounded-lg bg-[#222] p-3"><span className="text-[#777]">Status</span><Badge status={selectedSession.status} /></div>
             </div>
+            <div className="mt-5 space-y-4 rounded-xl border border-white/8 bg-[#111] p-4">
+              <div>
+                <label className="mb-1.5 block text-xs font-bold uppercase tracking-widest text-[#777]">Choose a prepared workout</label>
+                <select
+                  value={selectedPlanId}
+                  onChange={event => applyWorkoutPlan(event.target.value)}
+                  className="w-full rounded-lg border border-white/10 bg-[#222] px-3 py-2.5 text-sm text-white focus:border-[#FF3B3B]/60 focus:outline-none"
+                >
+                  <option value="">Enter content manually</option>
+                  {workoutPlans.map(plan => <option key={plan.id} value={plan.id}>{plan.name}</option>)}
+                </select>
+              </div>
+              <Input label="Workout name" value={sessionTitle} onChange={setSessionTitle} placeholder="Example: Upper Body Strength" />
+              <Textarea label="General notes" value={sessionContent} onChange={setSessionContent} rows={3} />
+              <ExerciseEditor
+                exercises={sessionExercises}
+                onAdd={() => setSessionExercises(current => [...current, createEmptyExercise()])}
+                onUpdate={updateSessionExercise}
+                onRemove={(id) => setSessionExercises(current => current.filter(exercise => exercise.exerciseId !== id))}
+              />
+              {!sessionTitle.trim() && !sessionContent.trim() && !sessionExercises.length && (
+                <p className="text-xs font-semibold text-amber-300">This workout session is empty. Enter content or choose a workout.</p>
+              )}
+              <button
+                type="button"
+                disabled={isSavingContent}
+                onClick={saveSessionContent}
+                className="w-full rounded-xl bg-[#FF3B3B] px-4 py-3 text-sm font-bold text-white transition hover:bg-[#cc2e2e] disabled:cursor-wait disabled:opacity-60"
+              >
+                {isSavingContent ? "Updating..." : "Update content & notify member"}
+              </button>
+            </div>
             <div className="mt-5 grid grid-cols-1 gap-2">
               <PrimaryBtn label="View Member" icon={User} onClick={() => { setSelectedSession(null); onViewMember(selectedMember.id); }} />
-              <GhostBtn label="Mark Completed" icon={CheckCircle} onClick={() => updateSessionStatus(selectedSession.scheduleId, "Done")} />
-              <GhostBtn label="Mark No Show" icon={AlertTriangle} onClick={() => updateSessionStatus(selectedSession.scheduleId, "No Show")} />
-              <GhostBtn label="Request Reschedule" icon={CalendarDays} onClick={() => updateSessionStatus(selectedSession.scheduleId, "Pending Reschedule")} />
-              {selectedSession.status !== "Done" && <GhostBtn label="Cancel Session" icon={X} onClick={() => updateSessionStatus(selectedSession.scheduleId, "Cancelled")} />}
+              <GhostBtn label="Mark" icon={CheckCircle} onClick={() => setShowMarkOptions(current => !current)} />
+              <div className={`grid overflow-hidden transition-all duration-200 ${showMarkOptions ? "max-h-24 grid-cols-2 gap-2 opacity-100" : "max-h-0 grid-cols-2 gap-2 opacity-0"}`}>
+                <button type="button" onClick={() => updateSessionStatus(selectedSession.scheduleId, "Completed")} className="rounded-lg border border-emerald-400/20 bg-emerald-400/10 px-4 py-2.5 text-xs font-bold text-emerald-300 hover:bg-emerald-400/20">Mark Completed</button>
+                <button type="button" onClick={() => updateSessionStatus(selectedSession.scheduleId, "Incomplete")} className="rounded-lg border border-red-400/20 bg-red-400/10 px-4 py-2.5 text-xs font-bold text-red-300 hover:bg-red-400/20">Mark Incomplete</button>
+              </div>
             </div>
           </div>
         </ModalOverlay>
@@ -1361,22 +1676,45 @@ function ScheduleProgressScreen({
 // SCREEN 5: WORKOUT GUIDANCE
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function WorkoutGuidanceScreen({ showToast }: { showToast: (msg: string) => void }) {
-  const [selectedMember, setSelectedMember] = useState("MEM001");
-  const [goal, setGoal] = useState("Tăng sức mạnh và khối lượng cơ bắp phần thân trên");
-  const [intensity, setIntensity] = useState("High");
-  const [techniqueNote, setTechniqueNote] = useState("Chú ý giữ lưng thẳng trong Squat và Deadlift. Thở ra khi nâng tạ, thở vào khi hạ xuống. Khởi động kỹ trước khi vào bài chính.");
-  const [exercises, setExercises] = useState<Exercise[]>(INITIAL_EXERCISES);
-  const [showResult, setShowResult] = useState(false);
+  const newExercise = (): Exercise => ({
+    exerciseId: `EX${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    exerciseName: "",
+    sets: 3,
+    reps: 10,
+    restTime: 60,
+    difficulty: "Medium",
+    muscleGroup: "",
+    instruction: "",
+  });
+  const [workoutName, setWorkoutName] = useState("");
+  const [goal, setGoal] = useState("");
+  const [status, setStatus] = useState("draft");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [notes, setNotes] = useState("");
+  const [exercises, setExercises] = useState<Exercise[]>([newExercise()]);
+  const [workoutPlans, setWorkoutPlans] = useState<DetailedWorkoutPlan[]>([]);
+  const [editingPlanId, setEditingPlanId] = useState<string | null>(null);
+  const [selectedPlanDetail, setSelectedPlanDetail] = useState<DetailedWorkoutPlan | null>(null);
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [showWorkoutList, setShowWorkoutList] = useState(false);
+  const [isLoadingPlans, setIsLoadingPlans] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+
+  const loadWorkoutPlans = async () => {
+    setIsLoadingPlans(true);
+    const { data, error } = await getDetailedWorkoutPlansForTrainer(getCurrentUser());
+    setWorkoutPlans(data || []);
+    setIsLoadingPlans(false);
+    if (error) showToast("Workout list could not be loaded.");
+  };
+
+  useEffect(() => {
+    void loadWorkoutPlans();
+  }, []);
 
   const addExercise = () => {
-    const e: Exercise = {
-      exerciseId: `EX${Date.now()}`,
-      exerciseName: "Lat Pulldown",
-      sets: 3, reps: 12, restTime: 60,
-      difficulty: "Trung bình", muscleGroup: "Lưng",
-      instruction: "Pull the bar down toward your chest and keep your back straight.",
-    };
-    setExercises(prev => [...prev, e]);
+    setExercises(prev => [...prev, newExercise()]);
   };
 
   const removeExercise = (id: string) => setExercises(prev => prev.filter(e => e.exerciseId !== id));
@@ -1384,83 +1722,126 @@ function WorkoutGuidanceScreen({ showToast }: { showToast: (msg: string) => void
   const updateEx = (id: string, field: keyof Exercise, value: string | number) =>
     setExercises(prev => prev.map(e => e.exerciseId === id ? { ...e, [field]: value } : e));
 
-  const m = getMember(selectedMember);
+  const resetForm = () => {
+    setEditingPlanId(null);
+    setWorkoutName("");
+    setGoal("");
+    setStatus("draft");
+    setStartDate("");
+    setEndDate("");
+    setNotes("");
+    setExercises([newExercise()]);
+  };
+
+  const editWorkout = (plan: DetailedWorkoutPlan) => {
+    setEditingPlanId(plan.id);
+    setWorkoutName(plan.name);
+    setGoal(plan.goal);
+    setStatus(plan.status);
+    setStartDate(plan.startDate);
+    setEndDate(plan.endDate);
+    setNotes(plan.notes);
+    setExercises(plan.exercises.length ? plan.exercises : [newExercise()]);
+    setSelectedPlanDetail(null);
+    setShowWorkoutList(false);
+  };
+
+  const saveWorkout = async () => {
+    const draft = {
+      name: workoutName,
+      goal,
+      status,
+      startDate,
+      endDate,
+      notes,
+      exercises,
+    };
+
+    setIsSaving(true);
+    const result = editingPlanId
+      ? await updateWorkoutPlan(getCurrentUser(), editingPlanId, draft)
+      : await createWorkoutPlan(getCurrentUser(), draft);
+    setIsSaving(false);
+
+    if (result.error) {
+      showToast(result.error.message || "Workout could not be saved.");
+      return;
+    }
+
+    showToast(editingPlanId ? "Workout updated." : "New workout created.");
+    resetForm();
+    await loadWorkoutPlans();
+  };
+
+  const removeWorkout = async (planId: string) => {
+    const { error } = await deleteWorkoutPlan(getCurrentUser(), planId);
+    if (error) {
+      showToast("Workout could not be deleted.");
+      return;
+    }
+    setPendingDeleteId(null);
+    setSelectedPlanDetail(current => current?.id === planId ? null : current);
+    setWorkoutPlans(current => current.filter(plan => plan.id !== planId));
+    showToast("Workout deleted.");
+  };
 
   return (
     <div className="space-y-5 pb-6">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-4xl text-white tracking-[0.08em]" style={{ fontFamily: "'Bebas Neue', sans-serif" }}>WORKOUT GUIDANCE</h1>
-          <p className="text-[#555] text-xs mt-1">WorkoutGuidanceScreen · WorkoutGuidanceController</p>
+          <h1 className="text-4xl text-white tracking-[0.08em]" style={{ fontFamily: "'Bebas Neue', sans-serif" }}>CREATE NEW WORKOUT</h1>
+          <p className="text-[#555] text-xs mt-1">Create reusable workouts for quickly updating workout sessions.</p>
         </div>
-        <div className="flex gap-2">
-          <GhostBtn label="View Result" small onClick={() => setShowResult(true)} />
-          <PrimaryBtn icon={Zap} label="Save & Assign" small onClick={() => { showToast("Workout guidance saved and assigned successfully!"); }} />
-        </div>
+        <GhostBtn icon={Eye} label={`Workout list (${workoutPlans.length})`} small onClick={() => setShowWorkoutList(true)} />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-5">
-        {/* Left: Config panel */}
         <div className="lg:col-span-2 space-y-4">
-          <SectionCard title="Cấu hình WorkoutGuidance">
+          <SectionCard title={editingPlanId ? "Edit workout" : "Create new workout"}>
             <div className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-[#BDBDBD] mb-1.5 uppercase tracking-wide">Học viên (Member)</label>
-                <select
-                  value={selectedMember}
-                  onChange={e => setSelectedMember(e.target.value)}
-                  className="w-full bg-[#222] border border-white/10 text-white text-sm px-3 py-2.5 rounded-lg focus:outline-none focus:border-[#FF3B3B]/60 transition-colors"
-                >
-                  {ASSIGNMENTS.filter(a => a.status === "Active").map(a => {
-                    const mem = getMember(a.memberId);
-                    return mem ? <option key={mem.id} value={mem.id}>{mem.name}</option> : null;
-                  })}
-                </select>
-                {m && (
-                  <div className="flex items-center gap-2 mt-2 px-2">
-                    <Avatar initials={m.avatar} size="sm" />
-                    <div className="text-xs text-[#555]">{m.package} · {m.phone}</div>
-                  </div>
-                )}
+              <Input label="Workout name" value={workoutName} onChange={setWorkoutName} placeholder="Example: Upper Body Strength" />
+              <Textarea label="Workout goal" value={goal} onChange={setGoal} rows={2} />
+              <div className="grid grid-cols-2 gap-3">
+                <Input label="Start date" value={startDate} onChange={setStartDate} type="date" />
+                <Input label="End date" value={endDate} onChange={setEndDate} type="date" />
               </div>
-              <Textarea label="Goal" value={goal} onChange={setGoal} rows={2} />
-              <Select
-                label="Intensity"
-                value={intensity}
-                onChange={setIntensity}
-                options={["Low", "Medium", "High", "Very High"]}
-              />
-              <Textarea label="Technique Note" value={techniqueNote} onChange={setTechniqueNote} rows={4} />
+              <Select label="Status" value={status} onChange={setStatus} options={["draft", "active", "completed", "archived"]} />
+              <Textarea label="General notes" value={notes} onChange={setNotes} rows={4} />
+              <div className="grid grid-cols-2 gap-2">
+                {editingPlanId && <GhostBtn label="Cancel edit" onClick={resetForm} />}
+                <button
+                  type="button"
+                  disabled={isSaving}
+                  onClick={saveWorkout}
+                  className={`${editingPlanId ? "" : "col-span-2"} rounded-xl bg-[#FF3B3B] px-4 py-3 text-sm font-bold text-white transition hover:bg-[#cc2e2e] disabled:cursor-wait disabled:opacity-60`}
+                >
+                  {isSaving ? "Saving..." : editingPlanId ? "Save changes" : "Save workout"}
+                </button>
+              </div>
             </div>
           </SectionCard>
 
           <div className="bg-[#181818] border border-white/5 rounded-xl p-4">
             <div className="text-xs text-[#555] space-y-1.5">
               <div className="flex items-center justify-between">
-                <span>Tổng bài tập</span>
+                <span>Total exercises</span>
                 <span className="text-white font-semibold">{exercises.length}</span>
               </div>
               <div className="flex items-center justify-between">
-                <span>Tổng sets</span>
+                <span>Total sets</span>
                 <span className="text-white font-semibold">{exercises.reduce((s, e) => s + e.sets, 0)}</span>
               </div>
               <div className="flex items-center justify-between">
-                <span>Thời gian nghỉ TB</span>
-                <span className="text-white font-semibold">{Math.round(exercises.reduce((s, e) => s + e.restTime, 0) / exercises.length)}s</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span>Cường độ</span>
-                <span className={`font-semibold ${intensity === "High" || intensity === "Very High" ? "text-[#FF3B3B]" : "text-amber-400"}`}>{intensity}</span>
+                <span>Average rest time</span>
+                <span className="text-white font-semibold">{exercises.length ? Math.round(exercises.reduce((s, e) => s + e.restTime, 0) / exercises.length) : 0}s</span>
               </div>
             </div>
           </div>
         </div>
 
-        {/* Right: Exercise builder */}
         <div className="lg:col-span-3 space-y-3">
-          <div className="flex items-center justify-between">
-            <h3 className="text-white font-semibold text-sm">Exercise Builder</h3>
-            <PrimaryBtn icon={Plus} label="Add Exercise" small onClick={addExercise} />
+          <div className="flex items-center justify-end">
+            <PrimaryBtn icon={Plus} label="Add exercise" small onClick={addExercise} />
           </div>
           {exercises.map((ex, idx) => (
             <div key={ex.exerciseId} className="bg-[#181818] border border-white/5 rounded-xl p-4">
@@ -1470,6 +1851,7 @@ function WorkoutGuidanceScreen({ showToast }: { showToast: (msg: string) => void
                   <input
                     value={ex.exerciseName}
                     onChange={e => updateEx(ex.exerciseId, "exerciseName", e.target.value)}
+                    placeholder="Exercise name"
                     className="bg-transparent text-white font-semibold text-sm focus:outline-none border-b border-transparent focus:border-[#FF3B3B]/40 pb-0.5 transition-colors"
                   />
                 </div>
@@ -1496,7 +1878,7 @@ function WorkoutGuidanceScreen({ showToast }: { showToast: (msg: string) => void
               </div>
               <div className="grid grid-cols-2 gap-3 mb-3">
                 <div>
-                  <div className="text-[#555] text-xs mb-1">Nhóm cơ</div>
+                  <div className="text-[#555] text-xs mb-1">Muscle group</div>
                   <input
                     value={ex.muscleGroup}
                     onChange={e => updateEx(ex.exerciseId, "muscleGroup", e.target.value)}
@@ -1504,7 +1886,7 @@ function WorkoutGuidanceScreen({ showToast }: { showToast: (msg: string) => void
                   />
                 </div>
                 <div>
-                  <div className="text-[#555] text-xs mb-1">Độ khó</div>
+                  <div className="text-[#555] text-xs mb-1">Difficulty</div>
                   <select
                     value={ex.difficulty}
                     onChange={e => updateEx(ex.exerciseId, "difficulty", e.target.value)}
@@ -1515,7 +1897,7 @@ function WorkoutGuidanceScreen({ showToast }: { showToast: (msg: string) => void
                 </div>
               </div>
               <div>
-                <div className="text-[#555] text-xs mb-1">Hướng dẫn kỹ thuật</div>
+                <div className="text-[#555] text-xs mb-1">Technique instruction</div>
                 <input
                   value={ex.instruction}
                   onChange={e => updateEx(ex.exerciseId, "instruction", e.target.value)}
@@ -1524,11 +1906,91 @@ function WorkoutGuidanceScreen({ showToast }: { showToast: (msg: string) => void
               </div>
             </div>
           ))}
+          {!exercises.length && (
+            <button type="button" onClick={addExercise} className="w-full rounded-xl border border-dashed border-white/10 bg-[#181818] p-10 text-sm font-semibold text-[#777] hover:border-[#FF3B3B]/40 hover:text-white">
+              Add the first exercise
+            </button>
+          )}
         </div>
       </div>
 
-      {showResult && (
-        <WorkoutResultModal exercises={exercises} goal={goal} intensity={intensity} member={m} onClose={() => setShowResult(false)} />
+      {showWorkoutList && (
+        <ModalOverlay onClose={() => { setShowWorkoutList(false); setSelectedPlanDetail(null); setPendingDeleteId(null); }}>
+          <div className="max-h-[88vh] w-[min(920px,calc(100vw-32px))] overflow-y-auto rounded-2xl border border-white/10 bg-[#181818] shadow-2xl">
+            <div className="sticky top-0 z-10 flex items-center justify-between border-b border-white/5 bg-[#181818] px-5 py-4">
+              <div>
+                <h3 className="text-lg font-bold text-white">Created workouts</h3>
+                <p className="mt-1 text-xs text-[#666]">View details, edit, or delete reusable workouts.</p>
+              </div>
+              <button type="button" onClick={() => setShowWorkoutList(false)} className="rounded-lg p-2 text-[#777] hover:bg-white/5 hover:text-white"><X className="size-4" /></button>
+            </div>
+            <div className="p-5">
+              {isLoadingPlans ? (
+                <div className="py-12 text-center text-sm text-[#777]">Loading workouts...</div>
+              ) : workoutPlans.length ? (
+                <div className="grid gap-3">
+                  {workoutPlans.map(plan => (
+                    <div key={plan.id} className="rounded-xl border border-white/5 bg-[#111] p-4">
+                      <div className="flex flex-col justify-between gap-4 md:flex-row md:items-start">
+                        <div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <h4 className="font-bold text-white">{plan.name}</h4>
+                            <Badge status={plan.status} />
+                          </div>
+                          <p className="mt-1 text-xs text-[#777]">{plan.exercises.length} exercises - Reusable workout</p>
+                          <p className="mt-2 line-clamp-2 text-sm text-[#BDBDBD]">{plan.goal || "No goal yet."}</p>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          <GhostBtn icon={Eye} label="Details" small onClick={() => setSelectedPlanDetail(plan)} />
+                          <GhostBtn icon={Edit2} label="Edit" small onClick={() => editWorkout(plan)} />
+                          {pendingDeleteId === plan.id ? (
+                            <>
+                              <button type="button" onClick={() => removeWorkout(plan.id)} className="rounded-lg bg-red-500 px-3 py-2 text-xs font-bold text-white hover:bg-red-600">Confirm delete</button>
+                              <GhostBtn label="Cancel" small onClick={() => setPendingDeleteId(null)} />
+                            </>
+                          ) : (
+                            <button type="button" onClick={() => setPendingDeleteId(plan.id)} className="rounded-lg border border-red-400/20 px-3 py-2 text-xs font-bold text-red-300 hover:bg-red-400/10"><Trash2 className="mr-1 inline size-3" />Delete</button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="rounded-xl border border-dashed border-white/10 py-12 text-center text-sm text-[#777]">No workouts created yet.</div>
+              )}
+            </div>
+          </div>
+        </ModalOverlay>
+      )}
+
+      {selectedPlanDetail && (
+        <ModalOverlay onClose={() => setSelectedPlanDetail(null)}>
+          <div className="max-h-[85vh] w-[min(680px,calc(100vw-32px))] overflow-y-auto rounded-2xl border border-white/10 bg-[#181818] p-5 shadow-2xl">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-xl font-bold text-white">{selectedPlanDetail.name}</h3>
+                <p className="mt-1 text-xs text-[#777]">Reusable workout - {selectedPlanDetail.status}</p>
+              </div>
+              <button type="button" onClick={() => setSelectedPlanDetail(null)} className="rounded-lg p-2 text-[#777] hover:bg-white/5 hover:text-white"><X className="size-4" /></button>
+            </div>
+            <div className="mt-4 space-y-3">
+              <div className="rounded-xl bg-[#111] p-4">
+                <div className="text-xs font-bold uppercase tracking-widest text-[#FF3B3B]">Workout goal</div>
+                <p className="mt-2 text-sm text-[#D5D5D5]">{selectedPlanDetail.goal || "No goal yet."}</p>
+                {selectedPlanDetail.notes && <p className="mt-2 text-xs text-[#777]">{selectedPlanDetail.notes}</p>}
+              </div>
+              {selectedPlanDetail.exercises.map((exercise, index) => (
+                <div key={exercise.exerciseId} className="rounded-xl border border-white/5 bg-[#111] p-4">
+                  <div className="font-bold text-white">{index + 1}. {exercise.exerciseName}</div>
+                  <div className="mt-2 text-xs text-[#777]">{exercise.sets} sets - {exercise.reps} reps - rest {exercise.restTime}s - {exercise.difficulty}</div>
+                  {exercise.instruction && <p className="mt-2 text-sm text-[#BDBDBD]">{exercise.instruction}</p>}
+                </div>
+              ))}
+              <GhostBtn icon={Edit2} label="Edit this workout" onClick={() => editWorkout(selectedPlanDetail)} />
+            </div>
+          </div>
+        </ModalOverlay>
       )}
     </div>
   );
@@ -1817,8 +2279,8 @@ function MealPlanScreen({ showToast }: { showToast: (msg: string) => void }) {
         <h1 className="text-4xl text-white tracking-[0.08em]" style={{ fontFamily: "'Bebas Neue', sans-serif" }}>MEAL PLANS</h1>
         <p className="text-[#555] text-xs mt-1">Create templates, assign meal plans, and review member nutrition support.</p>
       </div>
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-        <div>
+      <div className="grid grid-cols-1 gap-5 xl:grid-cols-5">
+        <div className="xl:col-span-2">
           <SectionCard title={editingId ? "Edit Meal Plan" : "Create Meal Plan"}>
             <div className="space-y-3">
               <Input label="Meal plan name" value={form.name} onChange={(value) => updateForm("name", value)} placeholder="Lean Strength Plan" />
@@ -1837,7 +2299,7 @@ function MealPlanScreen({ showToast }: { showToast: (msg: string) => void }) {
             </div>
           </SectionCard>
         </div>
-        <div className="xl:col-span-2">
+        <div className="xl:col-span-3 xl:pl-4">
           <SectionCard title="Meal Plan Templates and Assignments">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               {mealPlans.map(plan => {
@@ -2339,171 +2801,6 @@ function AddTraineeModal({ onClose, onConfirm }: { onClose: () => void; onConfir
   );
 }
 
-function RemoveConfirmModal({ memberId, onClose, onConfirm }: { memberId: string; onClose: () => void; onConfirm: () => void }) {
-  const m = getMember(memberId);
-  return (
-    <ModalOverlay onClose={onClose}>
-      <div className="bg-[#181818] border border-red-400/20 rounded-2xl p-6 w-full max-w-sm">
-        <div className="size-12 bg-red-400/10 rounded-xl flex items-center justify-center mx-auto mb-4">
-          <Trash2 className="size-6 text-red-400" />
-        </div>
-        <h3 className="text-white font-bold text-base text-center mb-2">Remove Assignment</h3>
-        <p className="text-[#BDBDBD] text-sm text-center mb-2">
-          Remove trainee <strong className="text-white">{m?.name}</strong> from the assignment list?
-        </p>
-        <div className="bg-amber-400/8 border border-amber-400/20 rounded-lg p-3 mb-5">
-          <p className="text-amber-400 text-xs">
-            <strong>Note:</strong> This only updates the TrainerAssignment status and does not delete the member account.
-          </p>
-        </div>
-        <div className="flex gap-3">
-          <button onClick={onClose} className="flex-1 py-2.5 bg-[#222] border border-white/8 text-[#BDBDBD] hover:text-white text-sm font-semibold rounded-xl transition-colors">Cancel</button>
-          <button onClick={onConfirm} className="flex-1 py-2.5 bg-red-500 hover:bg-red-600 text-white text-sm font-semibold rounded-xl transition-colors">Remove Assignment</button>
-        </div>
-      </div>
-    </ModalOverlay>
-  );
-}
-
-function AddScheduleModal({ onClose, onConfirm }: { onClose: () => void; onConfirm: () => void }) {
-  const [memberId, setMemberId] = useState("MEM001");
-  const [date, setDate] = useState("07/05/2025");
-  const [time, setTime] = useState("08:00");
-  const [type, setType] = useState("Strength Training");
-  const [duration, setDuration] = useState("60");
-
-  return (
-    <ModalOverlay onClose={onClose}>
-      <div className="bg-[#181818] border border-white/10 rounded-2xl w-full max-w-md">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-white/5">
-          <h3 className="text-white font-bold text-sm">Add Schedule — TrainingSchedule</h3>
-          <button onClick={onClose} className="text-[#555] hover:text-white transition-colors"><X className="size-4" /></button>
-        </div>
-        <div className="p-5 space-y-4">
-          <div>
-            <label className="block text-xs font-semibold text-[#BDBDBD] mb-1.5 uppercase tracking-wide">Trainee (Member)</label>
-            <select value={memberId} onChange={e => setMemberId(e.target.value)} className="w-full bg-[#222] border border-white/10 text-white text-sm px-3 py-2.5 rounded-lg focus:outline-none focus:border-[#FF3B3B]/60 transition-colors">
-              {MEMBERS.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
-            </select>
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <Input label="Training Date (TrainingDate)" value={date} onChange={setDate} />
-            <Input label="Training Time (TrainingTime)" value={time} onChange={setTime} />
-          </div>
-          <Select label="Exercise Type (ExerciseType)" value={type} onChange={setType} options={["Strength Training", "Cardio & HIIT", "Upper Body", "Lower Body", "Full Body", "Core Training", "Flexibility", "Yoga & Recovery"]} />
-          <Input label="Duration (minutes)" value={duration} onChange={setDuration} type="number" />
-        </div>
-        <div className="flex gap-3 px-5 pb-5">
-          <GhostBtn label="Cancel" onClick={onClose} />
-          <button onClick={onConfirm} className="flex-1 py-2.5 bg-[#FF3B3B] hover:bg-[#cc2e2e] text-white font-semibold text-sm rounded-xl transition-colors">
-            Create Schedule
-          </button>
-        </div>
-      </div>
-    </ModalOverlay>
-  );
-}
-
-function ProgressRecordModal({ onClose, onConfirm }: { onClose: () => void; onConfirm: () => void }) {
-  const [memberId, setMemberId] = useState("MEM001");
-  const [scheduleId, setScheduleId] = useState("SCH001");
-  const [date, setDate] = useState("06/05/2025");
-  const [level, setLevel] = useState(80);
-  const [note, setNote] = useState("");
-
-  return (
-    <ModalOverlay onClose={onClose}>
-      <div className="bg-[#181818] border border-white/10 rounded-2xl w-full max-w-md">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-white/5">
-          <h3 className="text-white font-bold text-sm">Update Progress — ProgressRecord</h3>
-          <button onClick={onClose} className="text-[#555] hover:text-white transition-colors"><X className="size-4" /></button>
-        </div>
-        <div className="p-5 space-y-4">
-          <div>
-            <label className="block text-xs font-semibold text-[#BDBDBD] mb-1.5 uppercase tracking-wide">Trainee</label>
-            <select value={memberId} onChange={e => setMemberId(e.target.value)} className="w-full bg-[#222] border border-white/10 text-white text-sm px-3 py-2.5 rounded-lg focus:outline-none focus:border-[#FF3B3B]/60 transition-colors">
-              {MEMBERS.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="block text-xs font-semibold text-[#BDBDBD] mb-1.5 uppercase tracking-wide">Training Session (TrainingSchedule)</label>
-            <select value={scheduleId} onChange={e => setScheduleId(e.target.value)} className="w-full bg-[#222] border border-white/10 text-white text-sm px-3 py-2.5 rounded-lg focus:outline-none focus:border-[#FF3B3B]/60 transition-colors">
-              {SCHEDULES.filter(s => s.memberId === memberId).map(s => (
-                <option key={s.scheduleId} value={s.scheduleId}>{s.scheduleId} — {s.trainingDate} {s.trainingTime} · {s.exerciseType}</option>
-              ))}
-            </select>
-          </div>
-          <Input label="Recorded Date (RecordedDate)" value={date} onChange={setDate} />
-          <div>
-            <label className="block text-xs font-semibold text-[#BDBDBD] mb-2 uppercase tracking-wide">Completion Level (CompletionLevel) — {level}%</label>
-            <input
-              type="range" min={0} max={100} value={level}
-              onChange={e => setLevel(Number(e.target.value))}
-              className="w-full accent-[#FF3B3B]"
-            />
-            <div className="flex justify-between text-xs text-[#444] mt-1">
-              <span>0%</span><span>50%</span><span>100%</span>
-            </div>
-          </div>
-          <Textarea label="Note" value={note} onChange={setNote} rows={2} />
-        </div>
-        <div className="flex gap-3 px-5 pb-5">
-          <GhostBtn label="Cancel" onClick={onClose} />
-          <button onClick={onConfirm} className="flex-1 py-2.5 bg-[#FF3B3B] hover:bg-[#cc2e2e] text-white font-semibold text-sm rounded-xl transition-colors">
-            Save Progress
-          </button>
-        </div>
-      </div>
-    </ModalOverlay>
-  );
-}
-
-function WorkoutResultModal({ exercises, goal, intensity, member, onClose }: {
-  exercises: Exercise[]; goal: string; intensity: string; member?: Member; onClose: () => void;
-}) {
-  return (
-    <ModalOverlay onClose={onClose}>
-      <div className="bg-[#181818] border border-white/10 rounded-2xl w-full max-w-lg max-h-[80vh] overflow-y-auto">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-white/5 sticky top-0 bg-[#181818]">
-          <h3 className="text-white font-bold text-sm">Workout Plan — {member?.name}</h3>
-          <button onClick={onClose} className="text-[#555] hover:text-white transition-colors"><X className="size-4" /></button>
-        </div>
-        <div className="p-5 space-y-4">
-          <div className="bg-[#FF3B3B]/8 border border-[#FF3B3B]/20 rounded-xl p-4">
-            <div className="text-[#FF3B3B] text-xs font-bold uppercase tracking-widest mb-1">Mục tiêu</div>
-            <div className="text-white text-sm font-semibold">{goal}</div>
-            <div className="text-[#BDBDBD] text-xs mt-1">Cường độ: <span className="text-[#FF3B3B] font-semibold">{intensity}</span></div>
-          </div>
-          <div className="space-y-2">
-            {exercises.map((ex, idx) => (
-              <div key={ex.exerciseId} className="bg-[#222] rounded-xl p-4">
-                <div className="flex items-center gap-3 mb-2">
-                  <div className="size-6 bg-[#FF3B3B]/15 border border-[#FF3B3B]/25 rounded-lg flex items-center justify-center text-[#FF3B3B] text-xs font-bold">{idx + 1}</div>
-                  <div className="text-white font-semibold text-sm">{ex.exerciseName}</div>
-                  <div className="ml-auto text-[#555] text-xs">{ex.muscleGroup}</div>
-                </div>
-                <div className="grid grid-cols-3 gap-3 text-center">
-                  {[
-                    { label: "Sets", value: ex.sets },
-                    { label: "Reps", value: ex.reps },
-                    { label: "Rest", value: `${ex.restTime}s` },
-                  ].map(({ label, value }) => (
-                    <div key={label} className="bg-[#1a1a1a] rounded-lg py-2">
-                      <div className="text-white text-sm font-bold">{value}</div>
-                      <div className="text-[#555] text-xs">{label}</div>
-                    </div>
-                  ))}
-                </div>
-                {ex.instruction && <p className="text-[#BDBDBD] text-xs mt-2 italic">{ex.instruction}</p>}
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-    </ModalOverlay>
-  );
-}
-
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // TOAST
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -2650,10 +2947,6 @@ function EquipmentReportScreen({ showToast }: { showToast: (msg: string) => void
 export default function App() {
   const [screen, setScreen] = useState<Screen>("dashboard");
   const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
-  const [showAddTrainee, setShowAddTrainee] = useState(false);
-  const [showRemoveConfirm, setShowRemoveConfirm] = useState<string | null>(null);
-  const [showAddSchedule, setShowAddSchedule] = useState(false);
-  const [showProgressModal, setShowProgressModal] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const { darkMode, setDarkMode } = useAppearance();
   const [, setPtDataVersion] = useState(0);
@@ -2721,11 +3014,7 @@ export default function App() {
             <DashboardScreen onNavigate={navigate} onViewMember={viewMember} />
           )}
           {screen === "trainees" && (
-            <ManageTraineesScreen
-              onViewMember={viewMember}
-              onAddTrainee={() => setShowAddTrainee(true)}
-              onRemove={(id) => setShowRemoveConfirm(id)}
-            />
+            <ManageTraineesScreen onViewMember={viewMember} />
           )}
           {screen === "member-detail" && selectedMemberId && (
             <MemberDetailScreen
@@ -2737,8 +3026,6 @@ export default function App() {
           )}
           {screen === "schedule" && (
             <ScheduleProgressScreen
-              onAddSchedule={() => setShowAddSchedule(true)}
-              onUpdateProgress={() => setShowProgressModal(true)}
               onViewMember={viewMember}
               showToast={showToast}
             />
@@ -2751,31 +3038,6 @@ export default function App() {
           {screen === "settings" && <SettingsScreen showToast={showToast} darkMode={darkMode} setDarkMode={setDarkMode} />}
         </div>
 
-      {showAddTrainee && (
-        <AddTraineeModal
-          onClose={() => setShowAddTrainee(false)}
-          onConfirm={() => { setShowAddTrainee(false); showToast("Trainee assigned successfully!"); }}
-        />
-      )}
-      {showRemoveConfirm && (
-        <RemoveConfirmModal
-          memberId={showRemoveConfirm}
-          onClose={() => setShowRemoveConfirm(null)}
-          onConfirm={() => { setShowRemoveConfirm(null); showToast("Assignment removed successfully! The member account is still active."); }}
-        />
-      )}
-      {showAddSchedule && (
-        <AddScheduleModal
-          onClose={() => setShowAddSchedule(false)}
-          onConfirm={() => { setShowAddSchedule(false); showToast("Training schedule created successfully!"); }}
-        />
-      )}
-      {showProgressModal && (
-        <ProgressRecordModal
-          onClose={() => setShowProgressModal(false)}
-          onConfirm={() => { setShowProgressModal(false); showToast("Progress updated successfully!"); }}
-        />
-      )}
       {toast && <Toast message={toast} onDone={() => setToast(null)} />}
     </RoleShell>
   );

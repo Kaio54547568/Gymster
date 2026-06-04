@@ -385,9 +385,10 @@ create table if not exists public.workout_sessions (
   start_time time not null,
   end_time time not null,
   status text not null default 'scheduled' check (
-    status in ('scheduled', 'completed', 'cancelled', 'rescheduled', 'missed')
+    status in ('scheduled', 'completed', 'incomplete', 'cancelled', 'rescheduled', 'missed')
   ),
   notes text,
+  workout_content jsonb not null default '[]'::jsonb,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -396,10 +397,12 @@ create table if not exists public.notifications (
   notification_id uuid primary key default gen_random_uuid(),
   user_id uuid not null references public.users(user_id) on delete cascade,
   notification_type text not null check (
-    notification_type in ('account', 'package', 'payment', 'training_request', 'schedule', 'system')
+    notification_type in ('account', 'package', 'payment', 'training_request', 'schedule', 'medical_request', 'system')
   ),
   title text not null,
   message text not null,
+  action_type text,
+  action_payload jsonb not null default '{}'::jsonb,
   is_read boolean not null default false,
   read_at timestamptz,
   created_at timestamptz not null default now()
@@ -505,6 +508,38 @@ drop trigger if exists set_workout_sessions_updated_at on public.workout_session
 create trigger set_workout_sessions_updated_at
 before update on public.workout_sessions
 for each row execute function public.set_updated_at();
+
+create or replace function public.prevent_member_workout_pt_overlap()
+returns trigger
+language plpgsql
+as $$
+begin
+  if new.trainer_id is null
+    and new.status not in ('cancelled', 'incomplete')
+    and exists (
+      select 1
+      from public.workout_sessions pt_session
+      where pt_session.member_id = new.member_id
+        and pt_session.trainer_id is not null
+        and pt_session.session_date = new.session_date
+        and pt_session.status not in ('cancelled', 'incomplete')
+        and pt_session.start_time < new.end_time
+        and pt_session.end_time > new.start_time
+      and pt_session.workout_session_id is distinct from new.workout_session_id
+    )
+  then
+    raise exception 'This time overlaps your fixed PT schedule. Choose another time.';
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists prevent_member_workout_pt_overlap on public.workout_sessions;
+create trigger prevent_member_workout_pt_overlap
+before insert or update of session_date, start_time, end_time, trainer_id, status
+on public.workout_sessions
+for each row execute function public.prevent_member_workout_pt_overlap();
 
 -- Additional portal tables for full Supabase migration across Member, Trainer/PT, Staff, and Admin/Owner.
 -- These tables support the remaining UI areas that need application data.
@@ -756,9 +791,20 @@ create table if not exists public.medical_records (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists public.medical_history_requests (
+  medical_history_request_id uuid primary key default gen_random_uuid(),
+  member_id uuid not null references public.members(member_id) on delete cascade,
+  trainer_id uuid references public.trainers(trainer_id) on delete set null,
+  status text not null default 'pending' check (status in ('pending', 'submitted', 'cancelled')),
+  requested_at timestamptz not null default now(),
+  submitted_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 create table if not exists public.workout_plans (
   workout_plan_id uuid primary key default gen_random_uuid(),
-  member_id uuid not null references public.members(member_id) on delete cascade,
+  member_id uuid references public.members(member_id) on delete cascade,
   trainer_id uuid references public.trainers(trainer_id) on delete set null,
   plan_name text not null,
   plan_goal text,
@@ -780,6 +826,7 @@ create table if not exists public.workout_plan_exercises (
   sets integer check (sets is null or sets >= 0),
   reps text,
   duration_minutes integer check (duration_minutes is null or duration_minutes >= 0),
+  rest_seconds integer check (rest_seconds is null or rest_seconds >= 0),
   intensity text,
   notes text,
   display_order integer not null default 0,
@@ -872,6 +919,8 @@ create index if not exists idx_training_goals_member_id on public.training_goals
 create index if not exists idx_progress_records_member_id on public.progress_records(member_id);
 create index if not exists idx_body_metrics_member_id on public.body_metrics(member_id);
 create index if not exists idx_medical_records_member_id on public.medical_records(member_id);
+create index if not exists idx_medical_history_requests_member_id on public.medical_history_requests(member_id);
+create index if not exists idx_medical_history_requests_trainer_id on public.medical_history_requests(trainer_id);
 create index if not exists idx_workout_plans_member_id on public.workout_plans(member_id);
 create index if not exists idx_workout_plans_trainer_id on public.workout_plans(trainer_id);
 create index if not exists idx_meal_plan_assignments_member_id on public.meal_plan_assignments(member_id);
@@ -937,6 +986,10 @@ for each row execute function public.set_updated_at();
 
 drop trigger if exists set_medical_records_updated_at on public.medical_records;
 create trigger set_medical_records_updated_at before update on public.medical_records
+for each row execute function public.set_updated_at();
+
+drop trigger if exists set_medical_history_requests_updated_at on public.medical_history_requests;
+create trigger set_medical_history_requests_updated_at before update on public.medical_history_requests
 for each row execute function public.set_updated_at();
 
 drop trigger if exists set_workout_plans_updated_at on public.workout_plans;
@@ -1083,6 +1136,7 @@ alter table public.workout_sessions add column if not exists package_id uuid ref
 alter table public.workout_sessions add column if not exists room_id uuid references public.rooms(room_id) on delete set null;
 alter table public.workout_sessions add column if not exists session_title text;
 alter table public.workout_sessions add column if not exists note text;
+alter table public.workout_sessions add column if not exists workout_content jsonb not null default '[]'::jsonb;
 
 update public.workout_sessions
 set
@@ -1094,6 +1148,7 @@ alter table public.workout_sessions add constraint workout_sessions_status_check
   status in (
     'scheduled',
     'completed',
+    'incomplete',
     'cancelled',
     'rescheduled',
     'pending_reschedule',
@@ -1103,6 +1158,13 @@ alter table public.workout_sessions add constraint workout_sessions_status_check
 );
 
 alter table public.notifications add column if not exists updated_at timestamptz not null default now();
+alter table public.notifications add column if not exists action_type text;
+alter table public.notifications add column if not exists action_payload jsonb not null default '{}'::jsonb;
+
+alter table public.notifications drop constraint if exists notifications_notification_type_check;
+alter table public.notifications add constraint notifications_notification_type_check check (
+  notification_type in ('account', 'package', 'payment', 'training_request', 'schedule', 'medical_request', 'system')
+);
 
 drop trigger if exists set_notifications_updated_at on public.notifications;
 create trigger set_notifications_updated_at before update on public.notifications
@@ -1147,6 +1209,7 @@ declare
     'progress_records',
     'body_metrics',
     'medical_records',
+    'medical_history_requests',
     'workout_plans',
     'workout_plan_exercises',
     'meal_plans',

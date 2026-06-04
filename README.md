@@ -1,19 +1,19 @@
 # Gymster
 
-Gymster la ung dung quan ly phong gym duoc xay dung theo mo hinh nhieu cong portal: khach/landing, dang nhap, hoi vien, nhan vien, PT/trainer va admin/owner. Project hien tai tap trung vao frontend React/Vite va dang migrate dan cac luong du lieu tu mock/localStorage sang Supabase.
+Gymster là ứng dụng quản lý phòng gym được xây dựng theo mô hình nhiều cổng portal: khách/landing, đăng nhập, hội viên, nhân viên, PT/trainer và admin/owner. Project hiện tại tập trung vào frontend React/Vite và đang migrate dần các luồng dữ liệu từ mock/localStorage sang Supabase.
 
-## Tong quan
+## Tổng Quan
 
-Gymster ho tro cac nghiep vu chinh cua phong gym:
+Gymster hỗ trợ các nghiệp vụ chính của phòng gym:
 
-- Quan ly hoi vien, goi tap, gia han goi va lich su su dung.
-- Onboarding hoi vien moi: chon goi, chon PT, thanh toan va kich hoat tai khoan.
-- Quan ly lich tap, buoi PT, yeu cau training va thong bao.
-- Van hanh quay le tan: them hoi vien, check-in, thu phi, hoa don, feedback, thiet bi.
-- Portal PT: danh sach hoc vien, lich tap, tien do, dinh huong tap luyen va ke hoach dinh duong.
-- Portal admin/owner: dashboard dieu hanh, doanh thu, hoi vien, nhan su, payroll, thiet bi, bao tri va muc do hai long.
+- Quản lý hội viên, gói tập, gia hạn gói và lịch sử sử dụng.
+- Onboarding hội viên mới: chọn gói, chọn PT, thanh toán và kích hoạt tài khoản.
+- Quản lý lịch tập, buổi PT, yêu cầu training và thông báo.
+- Vận hành quầy lễ tân: thêm hội viên, check-in, thu phí, hóa đơn, feedback, thiết bị.
+- Portal PT: danh sách học viên, lịch tập, tiến độ, định hướng tập luyện và kế hoạch dinh dưỡng.
+- Portal admin/owner: dashboard điều hành, doanh thu, hội viên, nhân sự, payroll, thiết bị, bảo trì và mức độ hài lòng.
 
-## Tech stack
+## Tech Stack
 
 - React 19
 - Vite 8
@@ -24,73 +24,79 @@ Gymster ho tro cac nghiep vu chinh cua phong gym:
 - Lucide React
 - Motion
 
-## Cau truc thu muc
+## Cấu Trúc Thư Mục
 
 ```text
 Gymster/
-|-- frontend/              # Ung dung React/Vite chinh
+|-- frontend/              # Ứng dụng React/Vite chính
 |   |-- src/
-|   |   |-- components/    # Component dung chung cho auth/layout/theme
+|   |   |-- components/    # Component dùng chung cho auth/layout/theme
 |   |   |-- pages/         # Landing, Auth, Onboarding
-|   |   |-- roles/         # Portal theo vai tro: admin, staff, pt, member
-|   |   |-- routes/        # Route guard va route tong
+|   |   |-- roles/         # Portal theo vai trò: admin, staff, pt, member
+|   |   |-- routes/        # Route guard và route tổng
 |   |   |-- services/      # API/service layer, Supabase client
-|   |   |-- styles/        # Global styles va design tokens
-|   |   `-- test_data/     # Tai khoan/demo data fallback
+|   |   |-- styles/        # Global styles và design tokens
+|   |   `-- test_data/     # Tài khoản/demo data fallback
 |   |-- .env.example
 |   `-- package.json
-|-- database/              # SQL schema, seed va Supabase helper scripts
-|-- source_figma/          # Source UI tham khao tu Figma cho tung portal
-|-- skills.md              # Quy uoc lam viec cho AI coding agents
-|-- package.json           # Script root delegate vao frontend
+|-- database/              # SQL schema, seed và Supabase helper scripts
+|-- source_figma/          # Source UI tham khảo từ Figma cho từng portal
+|-- skills.md              # Quy ước làm việc cho AI coding agents
+|-- package.json           # Script root delegate vào frontend
 `-- README.md
 ```
 
-## Yeu cau moi truong
+## Yêu Cầu Môi Trường
 
-- Node.js va npm
-- Supabase project neu muon chay voi database that
-- Trinh duyet hien dai
+- Node.js và npm
+- Supabase project nếu muốn chạy với database thật
+- Trình duyệt hiện đại
 
-## Cai dat
+## Cài Đặt
 
-Clone project va cai dependency:
+Clone project và cài dependency:
 
 ```bash
 npm install
 npm --prefix frontend install
 ```
 
-Tao file moi truong cho frontend:
+Tạo file môi trường cho frontend:
 
 ```bash
 cp frontend/.env.example frontend/.env.local
 ```
 
-Cap nhat `frontend/.env.local`:
+Trên PowerShell có thể dùng:
+
+```powershell
+Copy-Item frontend/.env.example frontend/.env.local
+```
+
+Cập nhật `frontend/.env.local`:
 
 ```env
 VITE_SUPABASE_URL=your_supabase_project_url
 VITE_SUPABASE_PUBLISHABLE_KEY=your_supabase_publishable_key
 ```
 
-Neu thieu hai bien nay, app van khoi dong nhung cac chuc nang phu thuoc Supabase se bao chua duoc cau hinh.
+Nếu thiếu hai biến này, app vẫn khởi động nhưng các chức năng phụ thuộc Supabase sẽ báo chưa được cấu hình.
 
-## Chay local
+## Chạy Local
 
-Tu root project:
+Từ root project:
 
 ```bash
 npm run dev
 ```
 
-Hoac chay truc tiep trong frontend:
+Hoặc chạy trực tiếp trong frontend:
 
 ```bash
 npm --prefix frontend run dev
 ```
 
-Cac script khac:
+Các script khác:
 
 ```bash
 npm run build
@@ -98,47 +104,47 @@ npm run preview
 npm run lint
 ```
 
-## Database va Supabase
+## Database Và Supabase
 
-Thu muc `database/` chua cac file SQL chinh:
+Thư mục `database/` chứa các file SQL chính:
 
-- `schema.sql`: tao bang, constraint, foreign key, index, trigger va mot so compatibility columns cho frontend.
-- `seed.sql`: du lieu mau cho users, employees, trainers, packages, members, payments, invoices, workout sessions, notifications va cac bang portal mo rong.
-- `member_activation_rpc.sql`: RPC kich hoat tai khoan hoi vien.
+- `schema.sql`: tạo bảng, constraint, foreign key, index, trigger và một số compatibility columns cho frontend.
+- `seed.sql`: dữ liệu mẫu cho users, employees, trainers, packages, members, payments, invoices, workout sessions, notifications và các bảng portal mở rộng.
+- `member_activation_rpc.sql`: RPC kích hoạt tài khoản hội viên.
 - `storage_pics_policies.sql`: policy cho bucket/avatar `pics`.
-- `production_cleanup.sql`: script don dep/production hardening tham khao.
+- `production_cleanup.sql`: script dọn dẹp/production hardening tham khảo.
 
-Thiet lap database trong Supabase SQL Editor:
+Thiết lập database trong Supabase SQL Editor:
 
-1. Chay `database/schema.sql`.
-2. Chay `database/seed.sql`.
-3. Neu can luong kich hoat hoi vien, chay `database/member_activation_rpc.sql`.
-4. Neu can upload avatar/hinh anh, tao bucket `pics` va chay `database/storage_pics_policies.sql`.
+1. Chạy `database/schema.sql`.
+2. Chạy `database/seed.sql`.
+3. Nếu cần luồng kích hoạt hội viên, chạy `database/member_activation_rpc.sql`.
+4. Nếu cần upload avatar/hình ảnh, tạo bucket `pics` và chạy `database/storage_pics_policies.sql`.
 
-Chi tiet mapping bang theo tung portal nam trong `database/README.md`.
+Chi tiết mapping bảng theo từng portal nằm trong `database/README.md`.
 
-## Route chinh
+## Route Chính
 
 - `/`: Landing page
-- `/login`: Dang nhap
-- `/register`: Dang ky
+- `/login`: Đăng nhập
+- `/register`: Đăng ký
 - `/auth/callback`: OAuth callback
-- `/auth/complete-profile`: Hoan tat profile sau OAuth
-- `/onboarding/status`: Trang thai dang ky hoi vien
-- `/onboarding/packages`: Chon goi tap
-- `/onboarding/trainers`: Chon PT
-- `/onboarding/payment`: Thanh toan onboarding
-- `/onboarding/success`: Hoan tat onboarding
+- `/auth/complete-profile`: Hoàn tất profile sau OAuth
+- `/onboarding/status`: Trạng thái đăng ký hội viên
+- `/onboarding/packages`: Chọn gói tập
+- `/onboarding/trainers`: Chọn PT
+- `/onboarding/payment`: Thanh toán onboarding
+- `/onboarding/success`: Hoàn tất onboarding
 - `/admin/*`: Portal admin/owner
-- `/staff/*`: Portal nhan vien
+- `/staff/*`: Portal nhân viên
 - `/pt/*`: Portal PT/trainer
-- `/member/*`: Portal hoi vien
+- `/member/*`: Portal hội viên
 
-Route guard se dieu huong nguoi dung theo role. Role `owner` duoc map ve admin, role `trainer` duoc map ve PT.
+Route guard sẽ điều hướng người dùng theo role. Role `owner` được map về admin, role `trainer` được map về PT.
 
-## Tai khoan demo
+## Tài Khoản Demo
 
-Seed database co san mot so tai khoan mau:
+Seed database có sẵn một số tài khoản mẫu:
 
 | Role | Email | Username | Password |
 | --- | --- | --- | --- |
@@ -147,25 +153,25 @@ Seed database co san mot so tai khoan mau:
 | Trainer/PT | `trainer@gymster.local` | `trainer00` | `Trainer@123` |
 | Member | `member@gymster.local` | `member00` | `Member@123` |
 
-Trong `frontend/src/test_data/users.json` cung co fallback demo users cho cac luong cu. Luu y file fallback hien co mot so chu tieng Viet bi mojibake; nen uu tien du lieu seed Supabase khi test nghiep vu that.
+Trong `frontend/src/test_data/users.json` cũng có fallback demo users cho các luồng cũ. Lưu ý file fallback hiện có một số chữ tiếng Việt bị mojibake; nên ưu tiên dữ liệu seed Supabase khi test nghiệp vụ thật.
 
-## Quy uoc phat trien
+## Quy Ước Phát Triển
 
-- Giu thay doi gon trong module/portal lien quan.
-- Uu tien viet logic truy xuat du lieu trong `frontend/src/services` thay vi goi Supabase truc tiep trong component.
-- Khong xoa mock/fallback data khi chua co yeu cau ro.
-- Giao dien theo phong cach premium gym dark red/black dang co.
-- UI text hien tai uu tien tieng Anh, tru khi task yeu cau tieng Viet.
-- Khi sua UI, kiem tra responsive va cac trang portal khac de tranh vo route/role guard.
-- Neu cap nhat file design system `DESIGN.md` trong tuong lai, chay:
+- Giữ thay đổi gọn trong module/portal liên quan.
+- Ưu tiên viết logic truy xuất dữ liệu trong `frontend/src/services` thay vì gọi Supabase trực tiếp trong component.
+- Không xóa mock/fallback data khi chưa có yêu cầu rõ.
+- Giao diện theo phong cách premium gym dark red/black đang có.
+- UI text hiện tại ưu tiên tiếng Anh, trừ khi task yêu cầu tiếng Việt.
+- Khi sửa UI, kiểm tra responsive và các trang portal khác để tránh vỡ route/role guard.
+- Nếu cập nhật file design system `DESIGN.md` trong tương lai, chạy:
 
 ```bash
 npx "@google/design.md" lint DESIGN.md
 ```
 
-## Ghi chu hien trang
+## Ghi Chú Hiện Trạng
 
-- Project frontend dang dung ca `.jsx` va `.tsx`.
-- Supabase Auth da co luong OAuth/callback, dong thoi app van luu current user/session metadata trong localStorage cho route guard hien tai.
-- Mot so service da co fallback khi Supabase chua cau hinh, nhung cac chuc nang database day du can `.env.local` hop le va SQL schema/seed da duoc chay.
-- `source_figma/` la source tham khao UI theo tung portal, khong phai app chinh de chay production.
+- Project frontend đang dùng cả `.jsx` và `.tsx`.
+- Supabase Auth đã có luồng OAuth/callback, đồng thời app vẫn lưu current user/session metadata trong localStorage cho route guard hiện tại.
+- Một số service đã có fallback khi Supabase chưa cấu hình, nhưng các chức năng database đầy đủ cần `.env.local` hợp lệ và SQL schema/seed đã được chạy.
+- `source_figma/` là source tham khảo UI theo từng portal, không phải app chính để chạy production.

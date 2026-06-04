@@ -21,6 +21,7 @@ import { logoutUser } from '../../services/authService';
 import { useAppearance } from './AppearanceContext';
 import { useRoleTranslationEffect } from './LanguageContext';
 import { useRoleNotifications, type RoleNotification } from './notificationStore';
+import { openMedicalHistoryForm } from '../../services/medicalHistoryApi';
 
 export type RoleShellItem = {
   id: string;
@@ -193,7 +194,7 @@ export default function RoleShell({
                 ? 'w-10 h-10 rounded-2xl ml-auto'
                 : 'w-8 h-8 rounded-xl bg-[#EF233C]/10 border-[#EF233C]/30 text-white'
             }`}
-            aria-label={sidebarOpen ? 'Thu gọn sidebar' : 'Mở rộng sidebar'}
+            aria-label={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
           >
             {sidebarOpen ? <ChevronsLeft className="w-5 h-5" /> : <ChevronsRight className="w-4 h-4" />}
           </button>
@@ -266,7 +267,7 @@ export default function RoleShell({
                 type="button"
                 onClick={() => setNotificationOpen((current) => !current)}
                 className="relative p-3 glass rounded-2xl border border-white/5 hover:border-[#EF233C]/30 transition-all duration-300 group"
-                aria-label="Thông báo"
+                aria-label="Notifications"
               >
                 {renderNotificationIcon()}
               </button>
@@ -274,7 +275,7 @@ export default function RoleShell({
               {notificationOpen && (
                 <div className="absolute right-0 top-16 z-[120] w-[420px] max-h-[680px] overflow-hidden rounded-3xl border border-white/10 bg-[#151515] shadow-[0_24px_80px_rgba(0,0,0,0.65)]">
                   <div className="flex items-center justify-between px-5 pt-5 pb-3">
-                    <h2 className="text-2xl font-black text-white">Thông báo</h2>
+                    <h2 className="text-2xl font-black text-white">Notifications</h2>
                     <button type="button" className="text-sm font-semibold text-[#EF233C] hover:text-white" onClick={markAllNotificationsRead}>
                       Mark all as read
                     </button>
@@ -287,7 +288,7 @@ export default function RoleShell({
                         notificationFilter === 'all' ? 'bg-[#EF233C]/20 text-[#EF233C]' : 'text-white/70 hover:bg-white/5 hover:text-white'
                       }`}
                     >
-                      Tất cả
+                      All
                     </button>
                     <button
                       type="button"
@@ -296,7 +297,7 @@ export default function RoleShell({
                         notificationFilter === 'unread' ? 'bg-[#EF233C]/20 text-[#EF233C]' : 'text-white/70 hover:bg-white/5 hover:text-white'
                       }`}
                     >
-                      Chưa đọc
+                      Unread
                     </button>
                   </div>
                   <div className="role-sidebar-scroll max-h-[500px] overflow-y-auto px-3 pb-3">
@@ -333,7 +334,7 @@ export default function RoleShell({
                       </div>
                     )) : (
                       <div className="px-4 py-10 text-center text-sm font-semibold text-white/50">
-                        Không có thông báo chưa đọc.
+                        No unread notifications.
                       </div>
                     )}
                   </div>
@@ -343,7 +344,7 @@ export default function RoleShell({
                       onClick={openAllNotifications}
                       className="w-full rounded-2xl bg-white/10 px-4 py-3 text-sm font-bold text-white transition-colors hover:bg-[#EF233C]/20"
                     >
-                      Xem tất cả
+                      See all
                     </button>
                   </div>
                 </div>
@@ -392,8 +393,20 @@ export default function RoleShell({
             </div>
             <p className="text-base leading-7 text-white/80">{selectedNotification.message}</p>
             <div className="mt-5 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm leading-6 text-white/70">
-              {selectedNotification.detail ?? 'Thông báo này đã được ghi nhận trong hệ thống. Vui lòng kiểm tra module liên quan để xử lý chi tiết.'}
+              {selectedNotification.detail ?? 'This notification has been recorded. Open the related module for more details.'}
             </div>
+            {selectedNotification.actionType === 'complete_medical_history' && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedNotification(null);
+                  openMedicalHistoryForm();
+                }}
+                className="mt-5 w-full rounded-2xl bg-[#EF233C] px-5 py-3 text-sm font-black text-white transition hover:bg-[#c91930]"
+              >
+                Complete medical history
+              </button>
+            )}
           </div>
         </div>
       )}
