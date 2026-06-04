@@ -13,6 +13,8 @@ export type RoleNotification = {
   type?: 'success' | 'warning' | 'error' | 'info';
   read?: boolean;
   detail?: string;
+  actionType?: string;
+  actionPayload?: Record<string, unknown>;
 };
 
 const NOTIFICATION_CHANGE_EVENT = 'gymster-role-notifications-change';

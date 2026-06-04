@@ -776,7 +776,8 @@ export function OnboardingPaymentPage() {
         packageId: state.selectedPackage.id,
         memberPackageId,
         selectedSchedule: state.selectedSchedule,
-        sessionCount: 4,
+        startDate,
+        endDate,
       });
       workoutSessions = createdSessions;
 

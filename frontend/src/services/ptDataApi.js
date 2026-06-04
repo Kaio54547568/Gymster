@@ -1,5 +1,6 @@
 import { supabase } from "./supabaseClient";
 import { getCurrentUser } from "./authService";
+import { getSessionStatusLabel } from "./sessionModel";
 
 function fullName(row, fallback = "Member") {
   const name = [row?.first_name, row?.last_name].filter(Boolean).join(" ").trim();
@@ -85,11 +86,7 @@ function initials(name) {
 }
 
 function mapSessionStatus(status) {
-  if (status === "completed") return "Done";
-  if (status === "cancelled") return "Cancelled";
-  if (status === "missed" || status === "no_show") return "No Show";
-  if (status === "pending_reschedule" || status === "rescheduled") return "Pending Reschedule";
-  return "Scheduled";
+  return getSessionStatusLabel(status);
 }
 
 export async function fetchPtPortalData() {
@@ -222,6 +219,12 @@ export async function fetchPtPortalData() {
         packageName: pkg.package_name || "",
         roomName: row.room_name || "",
         notes: row.note || row.notes || "",
+        workoutContent: Array.isArray(row.workout_content) ? row.workout_content : [],
+        hasContent: Boolean(
+          (row.session_title || row.title || "").trim()
+          || (row.note || row.notes || "").trim()
+          || (Array.isArray(row.workout_content) && row.workout_content.length),
+        ),
         source: "supabase",
       };
     });
@@ -341,9 +344,8 @@ export async function fetchPtPortalData() {
     });
 
     const attendanceCounts = {
-      Completed: schedules.filter((row) => row.status === "Done").length,
-      Missed: schedules.filter((row) => row.status === "No Show").length,
-      Cancelled: schedules.filter((row) => row.status === "Cancelled").length,
+      Completed: schedules.filter((row) => row.status === "Completed").length,
+      Incomplete: schedules.filter((row) => row.status === "Incomplete").length,
     };
     const attendanceTotal = Math.max(1, Object.values(attendanceCounts).reduce((sum, value) => sum + value, 0));
 
@@ -375,8 +377,7 @@ export async function fetchPtPortalData() {
         })),
         attendanceData: [
           { name: "Completed", value: Math.round((attendanceCounts.Completed / attendanceTotal) * 100), color: "#FF3B3B" },
-          { name: "Missed", value: Math.round((attendanceCounts.Missed / attendanceTotal) * 100), color: "#3a3a3a" },
-          { name: "Cancelled", value: Math.round((attendanceCounts.Cancelled / attendanceTotal) * 100), color: "#555555" },
+          { name: "Incomplete", value: Math.round((attendanceCounts.Incomplete / attendanceTotal) * 100), color: "#555555" },
         ],
       },
       error: null,

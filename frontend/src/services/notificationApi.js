@@ -9,10 +9,26 @@ const notificationColumns = `
   notification_type,
   title,
   message,
+  action_type,
+  action_payload,
   is_read,
   read_at,
   created_at
 `;
+const legacyNotificationColumns = `
+  notification_id,
+  user_id,
+  notification_type,
+  title,
+  message,
+  is_read,
+  read_at,
+  created_at
+`;
+
+function isMissingActionColumn(error) {
+  return error?.code === "42703" && String(error?.message || "").includes("notifications.action_");
+}
 
 function mapNotificationType(type, title = "", message = "") {
   const normalized = String(type || "").toLowerCase();
@@ -58,6 +74,8 @@ export function mapNotificationRow(row) {
     type: mapNotificationType(row.notification_type, row.title, row.message),
     title: row.title,
     message: row.message,
+    actionType: row.action_type || "",
+    actionPayload: row.action_payload || {},
     time: formatNotificationTime(row.created_at),
     read: Boolean(row.is_read),
     readAt: row.read_at,
@@ -119,11 +137,18 @@ export async function getNotificationsForCurrentUser() {
       return { data: [], error: new Error("Unable to resolve current h\u1ec7 th\u1ed1ng user.") };
     }
 
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from("notifications")
       .select(notificationColumns)
       .eq("user_id", user.user_id)
       .order("created_at", { ascending: false });
+    if (isMissingActionColumn(error)) {
+      ({ data, error } = await supabase
+        .from("notifications")
+        .select(legacyNotificationColumns)
+        .eq("user_id", user.user_id)
+        .order("created_at", { ascending: false }));
+    }
 
     if (error) throw error;
 
@@ -140,12 +165,20 @@ export async function markNotificationReadInSupabase(notificationId) {
   }
 
   try {
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from("notifications")
       .update({ is_read: true, read_at: new Date().toISOString() })
       .eq("notification_id", notificationId)
       .select(notificationColumns)
       .single();
+    if (isMissingActionColumn(error)) {
+      ({ data, error } = await supabase
+        .from("notifications")
+        .update({ is_read: true, read_at: new Date().toISOString() })
+        .eq("notification_id", notificationId)
+        .select(legacyNotificationColumns)
+        .single());
+    }
 
     if (error) throw error;
 
@@ -167,12 +200,20 @@ export async function markAllNotificationsReadInSupabase() {
       return { data: [], error: new Error("Unable to resolve current h\u1ec7 th\u1ed1ng user.") };
     }
 
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from("notifications")
       .update({ is_read: true, read_at: new Date().toISOString() })
       .eq("user_id", user.user_id)
       .eq("is_read", false)
       .select(notificationColumns);
+    if (isMissingActionColumn(error)) {
+      ({ data, error } = await supabase
+        .from("notifications")
+        .update({ is_read: true, read_at: new Date().toISOString() })
+        .eq("user_id", user.user_id)
+        .eq("is_read", false)
+        .select(legacyNotificationColumns));
+    }
 
     if (error) throw error;
 
@@ -196,18 +237,36 @@ export async function createNotification(notification) {
       return { data: null, error: new Error("A valid h\u1ec7 th\u1ed1ng user_id is required to create a notification.") };
     }
 
-    const { data, error } = await supabase
+    const payload = {
+      user_id: userId,
+      notification_type: notification.notificationType || notification.notification_type || "system",
+      title: notification.title,
+      message: notification.message,
+      action_type: notification.actionType || notification.action_type || null,
+      action_payload: notification.actionPayload || notification.action_payload || {},
+      is_read: Boolean(notification.read || notification.is_read),
+      read_at: notification.read || notification.is_read ? new Date().toISOString() : null,
+    };
+    let { data, error } = await supabase
       .from("notifications")
-      .insert({
-        user_id: userId,
-        notification_type: notification.notificationType || notification.notification_type || "system",
-        title: notification.title,
-        message: notification.message,
-        is_read: Boolean(notification.read || notification.is_read),
-        read_at: notification.read || notification.is_read ? new Date().toISOString() : null,
-      })
+      .insert(payload)
       .select(notificationColumns)
       .single();
+    if (isMissingActionColumn(error)) {
+      const legacyPayload = {
+        user_id: payload.user_id,
+        notification_type: payload.notification_type,
+        title: payload.title,
+        message: payload.message,
+        is_read: payload.is_read,
+        read_at: payload.read_at,
+      };
+      ({ data, error } = await supabase
+        .from("notifications")
+        .insert(legacyPayload)
+        .select(legacyNotificationColumns)
+        .single());
+    }
 
     if (error) throw error;
 

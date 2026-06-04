@@ -1,12 +1,13 @@
 import { AlertTriangle, Bell, CheckCheck, CheckCircle, Info, X } from 'lucide-react';
 import { useState } from 'react';
 import { useRoleNotifications, type RoleNotification } from './notificationStore';
+import { openMedicalHistoryForm } from '../../services/medicalHistoryApi';
 
 type NotificationFilter = 'all' | 'unread';
 
 const filterCopy: Record<NotificationFilter, string> = {
-  all: 'Tất cả',
-  unread: 'Chưa đọc',
+  all: 'All',
+  unread: 'Unread',
 };
 
 export default function RoleNotificationsPage() {
@@ -40,10 +41,10 @@ export default function RoleNotificationsPage() {
       <div className="mx-auto max-w-5xl">
         <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div>
-            <p className="mb-2 text-sm font-bold uppercase tracking-widest text-primary">Hệ thống thông báo</p>
-            <h1 className="text-4xl font-black tracking-tight text-white">Thông báo</h1>
+            <p className="mb-2 text-sm font-bold uppercase tracking-widest text-primary">Notification center</p>
+            <h1 className="text-4xl font-black tracking-tight text-white">Notifications</h1>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
-              Xem toàn bộ thông báo về gia hạn, thanh toán, lịch tập, thiết bị và các hoạt động quan trọng.
+              Review package, payment, workout, equipment, and other important updates.
             </p>
           </div>
 
@@ -54,27 +55,27 @@ export default function RoleNotificationsPage() {
             className="inline-flex items-center justify-center gap-2 rounded-2xl border border-primary/30 bg-primary/10 px-4 py-3 text-sm font-bold text-primary transition-colors hover:bg-primary/20 disabled:cursor-not-allowed disabled:border-white/10 disabled:bg-white/5 disabled:text-white/35"
           >
             <CheckCheck className="h-4 w-4" />
-            Đánh dấu tất cả đã đọc
+            Mark all as read
           </button>
         </div>
 
         <div className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-4">
           <div className="rounded-2xl border border-border/50 bg-card/80 p-5">
-            <p className="mb-1 text-sm text-muted-foreground">Tổng</p>
+            <p className="mb-1 text-sm text-muted-foreground">Total</p>
             <p className="text-3xl font-black text-primary">{notifications.length}</p>
           </div>
           <div className="rounded-2xl border border-border/50 bg-card/80 p-5">
-            <p className="mb-1 text-sm text-muted-foreground">Chưa đọc</p>
+            <p className="mb-1 text-sm text-muted-foreground">Unread</p>
             <p className="text-3xl font-black text-destructive">{unreadCount}</p>
           </div>
           <div className="rounded-2xl border border-border/50 bg-card/80 p-5">
-            <p className="mb-1 text-sm text-muted-foreground">Cảnh báo</p>
+            <p className="mb-1 text-sm text-muted-foreground">Warnings</p>
             <p className="text-3xl font-black text-yellow-400">
               {notifications.filter((notification) => notification.type === 'warning').length}
             </p>
           </div>
           <div className="rounded-2xl border border-border/50 bg-card/80 p-5">
-            <p className="mb-1 text-sm text-muted-foreground">Lỗi</p>
+            <p className="mb-1 text-sm text-muted-foreground">Errors</p>
             <p className="text-3xl font-black text-destructive">
               {notifications.filter((notification) => notification.type === 'error').length}
             </p>
@@ -128,13 +129,18 @@ export default function RoleNotificationsPage() {
                             className="inline-flex items-center gap-2 self-start rounded-full px-3 py-1.5 text-xs font-bold text-primary transition-colors hover:bg-primary/10"
                           >
                             <CheckCircle className="h-3.5 w-3.5" />
-                            Đánh dấu đã đọc
+                            Mark as read
                           </button>
                         )}
                       </div>
                       <div className="mt-3 rounded-xl border border-white/10 bg-white/5 p-3 text-sm leading-6 text-white/65">
                         {notification.detail}
                       </div>
+                      {notification.actionType === 'complete_medical_history' && (
+                        <button type="button" onClick={openMedicalHistoryForm} className="mt-3 rounded-xl bg-primary px-4 py-2.5 text-sm font-black text-white">
+                          Complete medical history
+                        </button>
+                      )}
                     </div>
                   </div>
                 </article>
@@ -143,7 +149,7 @@ export default function RoleNotificationsPage() {
           ) : (
             <div className="rounded-2xl border border-border/50 bg-card/80 p-10 text-center">
               <Bell className="mx-auto mb-3 h-8 w-8 text-white/35" />
-              <p className="text-sm font-bold text-white/55">Không có thông báo.</p>
+              <p className="text-sm font-bold text-white/55">No notifications.</p>
             </div>
           )}
         </div>
