@@ -1,4 +1,5 @@
 import { supabase } from "./supabaseClient";
+import testUsers from "../test_data/users.json";
 
 const USERS_KEY = "gymster_test_data_users";
 const CURRENT_USER_KEY = "gymster_current_user";
@@ -7,6 +8,111 @@ const OAUTH_REMEMBER_KEY = "gymster_oauth_remember";
 const LEGACY_PASSWORD_PREFIX = String.fromCharCode(100, 101, 109, 111, 45, 111, 110, 108, 121, 58);
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 const TWO_WEEKS_MS = 14 * ONE_DAY_MS;
+
+const SEEDED_DEMO_USERS = [
+  {
+    id: "00000000-0000-4000-8000-000000000001",
+    userId: "00000000-0000-4000-8000-000000000001",
+    username: "owner01",
+    email: "owner@gymster.local",
+    password: "Owner@123",
+    fullName: "Minh Tran",
+    firstName: "Minh",
+    lastName: "Tran",
+    phone: "0901000001",
+    dob: "1984-04-12",
+    gender: "male",
+    role: "admin",
+    sourceRole: "owner",
+    accountStatus: "Active",
+    account_status: "active",
+  },
+  {
+    id: "00000000-0000-4000-8000-000000000002",
+    userId: "00000000-0000-4000-8000-000000000002",
+    username: "admin01",
+    email: "admin@gymster.local",
+    password: "Admin@123",
+    fullName: "Linh Pham",
+    firstName: "Linh",
+    lastName: "Pham",
+    phone: "0901000002",
+    dob: "1988-08-09",
+    gender: "female",
+    role: "admin",
+    accountStatus: "Active",
+    account_status: "active",
+  },
+  {
+    id: "00000000-0000-4000-8000-000000000003",
+    userId: "00000000-0000-4000-8000-000000000003",
+    username: "staff00",
+    email: "staff@gymster.local",
+    password: "Staff@123",
+    fullName: "An Nguyen",
+    firstName: "An",
+    lastName: "Nguyen",
+    phone: "0901000003",
+    dob: "1994-02-20",
+    gender: "female",
+    role: "staff",
+    accountStatus: "Active",
+    account_status: "active",
+  },
+  {
+    id: "00000000-0000-4000-8000-000000000004",
+    userId: "00000000-0000-4000-8000-000000000004",
+    username: "trainer00",
+    email: "trainer@gymster.local",
+    password: "Trainer@123",
+    fullName: "Khoa Le",
+    firstName: "Khoa",
+    lastName: "Le",
+    phone: "0901000004",
+    dob: "1990-11-03",
+    gender: "male",
+    role: "pt",
+    sourceRole: "trainer",
+    accountStatus: "Active",
+    account_status: "active",
+  },
+  {
+    id: "00000000-0000-4000-8000-000000000005",
+    userId: "00000000-0000-4000-8000-000000000005",
+    username: "member00",
+    email: "member@gymster.local",
+    password: "Member@123",
+    fullName: "Mai Do",
+    firstName: "Mai",
+    lastName: "Do",
+    phone: "0901000005",
+    dob: "1998-05-18",
+    gender: "female",
+    role: "member",
+    accountStatus: "Active",
+    account_status: "active",
+  },
+];
+
+const SEEDED_MEMBER_DEMO_USERS = Array.from({ length: 24 }, (_, index) => {
+  const memberNumber = String(index + 1).padStart(2, "0");
+  return {
+    id: `seed-member-${memberNumber}`,
+    userId: `seed-member-${memberNumber}`,
+    username: `member${memberNumber}`,
+    email: `member${memberNumber}@gymster.local`,
+    password: "Member@123",
+    fullName: `Member ${memberNumber}`,
+    firstName: "Member",
+    lastName: memberNumber,
+    phone: `09100000${memberNumber}`,
+    dob: "1998-01-01",
+    gender: "other",
+    role: "member",
+    accountStatus: index >= 10 && index <= 12 ? "PendingOnboarding" : "Active",
+    account_status: index >= 10 && index <= 12 ? "pending_onboarding" : "active",
+  };
+});
 
 const ROLE_HOME = {
   admin: "/admin",
@@ -242,11 +348,43 @@ function persistCurrentUser(user, options = {}) {
   }
 }
 
+function getDefaultDemoUsers() {
+  return [...SEEDED_DEMO_USERS, ...SEEDED_MEMBER_DEMO_USERS, ...testUsers];
+}
+
+function mergeUsers(defaultUsers, storedUsers) {
+  const usersByIdentifier = new Map();
+
+  [...defaultUsers, ...storedUsers].forEach((user) => {
+    const identifier = String(user.email || user.username || user.id || "").toLowerCase();
+    if (identifier) {
+      usersByIdentifier.set(identifier, user);
+    }
+  });
+
+  return [...usersByIdentifier.values()];
+}
+
 export function getUsers() {
-  return [];
+  const defaultUsers = getDefaultDemoUsers();
+  if (!canUseStorage()) return defaultUsers;
+
+  const storedUsers = window.localStorage.getItem(USERS_KEY);
+  if (!storedUsers) return defaultUsers;
+
+  try {
+    const parsedUsers = JSON.parse(storedUsers);
+    return Array.isArray(parsedUsers) ? mergeUsers(defaultUsers, parsedUsers) : defaultUsers;
+  } catch (error) {
+    window.localStorage.removeItem(USERS_KEY);
+    return defaultUsers;
+  }
 }
 
 export function saveUsers(users) {
+  if (canUseStorage()) {
+    window.localStorage.setItem(USERS_KEY, JSON.stringify(users));
+  }
   return users;
 }
 
@@ -560,6 +698,10 @@ async function loginSupabaseUser(identifier, password, options = {}) {
 }
 
 export async function loginUser(identifier, password, options = {}) {
+  if (!supabase) {
+    return loginLocalUser(identifier, password, options);
+  }
+
   const supabaseResult = await loginSupabaseUser(identifier, password, options);
   return supabaseResult;
 }

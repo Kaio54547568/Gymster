@@ -3,12 +3,16 @@
   "private": true,
   "version": "0.0.0",
   "scripts": {
+    "dev:backend": "node backend/server.js",
     "dev": "npm --prefix frontend run dev",
     "build": "npm --prefix frontend run build",
     "preview": "npm --prefix frontend run preview",
     "lint": "npm --prefix frontend run lint"
   },
   "dependencies": {
-    "@google/design.md": "^0.1.1"
+    "@anthropic-ai/sdk": "^0.100.1",
+    "@google/design.md": "^0.1.1",
+    "@supabase/supabase-js": "^2.107.0",
+    "dotenv": "^17.4.2"
   }
 }

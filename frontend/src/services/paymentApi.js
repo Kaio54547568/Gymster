@@ -263,9 +263,7 @@ export async function getPaymentById(paymentId) {
 
 export async function getPaymentsByMemberId(memberId) {
   if (!supabase) {
-    const error = new Error("Missing h\u1ec7 th\u1ed1ng environment variables.");
-    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to load member payments:", error);
-    return { data: [], error };
+    return { data: [], error: null };
   }
 
   if (!memberId || !uuidPattern.test(String(memberId))) {
@@ -288,9 +286,7 @@ export async function getPaymentsByMemberId(memberId) {
 
 export async function getPaymentsForMember(memberLookup) {
   if (!supabase) {
-    const error = new Error("Missing h\u1ec7 th\u1ed1ng environment variables.");
-    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to load member payments:", error);
-    return { data: [], error };
+    return { data: [], error: null };
   }
 
   const memberId = await resolveCurrentMemberId(memberLookup);

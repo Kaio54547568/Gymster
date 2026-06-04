@@ -8,6 +8,7 @@ import { formatSessionExerciseContent, getSessionStatusLabel, normalizeSessionSt
 import { findConflictingPtSession } from "./workoutSessionConflict";
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const LOCAL_WORKOUT_SESSIONS_KEY = "gymster_local_workout_sessions";
 
 function mapWorkoutSessionRow(row) {
   if (!row) return null;
@@ -37,6 +38,94 @@ function mapWorkoutSessionRow(row) {
       || (Array.isArray(row.workout_content) && row.workout_content.length),
     ),
   };
+}
+
+function canUseStorage() {
+  return typeof window !== "undefined" && Boolean(window.localStorage);
+}
+
+function readLocalWorkoutSessions() {
+  if (!canUseStorage()) return [];
+
+  try {
+    const storedRows = JSON.parse(window.localStorage.getItem(LOCAL_WORKOUT_SESSIONS_KEY) || "[]");
+    return Array.isArray(storedRows) ? storedRows : [];
+  } catch {
+    window.localStorage.removeItem(LOCAL_WORKOUT_SESSIONS_KEY);
+    return [];
+  }
+}
+
+function writeLocalWorkoutSessions(rows) {
+  if (!canUseStorage()) return;
+
+  window.localStorage.setItem(LOCAL_WORKOUT_SESSIONS_KEY, JSON.stringify(rows));
+  window.dispatchEvent(new CustomEvent("gymster:schedule-updated"));
+}
+
+function mapAiSessionToWorkoutRow(session) {
+  return {
+    workout_session_id: session.sessionId,
+    session_id: session.sessionId,
+    member_id: session.memberId,
+    trainer_id: session.trainerId,
+    title: session.title || "AI Booking",
+    exercise_type: "Personal Training",
+    room_name: session.room || "PT Room",
+    session_date: session.date,
+    start_time: session.time,
+    end_time: session.endTime,
+    status: normalizeSessionStatus(session.status || "scheduled"),
+    notes: session.note || "Created by Gymster AI Assistant.",
+    memberName: "Member",
+    trainerName: "Trainer",
+    packageName: "",
+  };
+}
+
+export function saveAiWorkoutSession(session) {
+  if (!session?.sessionId) return;
+
+  const rows = readLocalWorkoutSessions();
+  const row = mapAiSessionToWorkoutRow(session);
+  const nextRows = [row, ...rows.filter((item) => (
+    (item.session_id || item.workout_session_id) !== session.sessionId
+  ))];
+  writeLocalWorkoutSessions(nextRows);
+}
+
+export function updateLocalWorkoutSessionStatus(sessionId, status) {
+  if (!sessionId) return;
+
+  const rows = readLocalWorkoutSessions();
+  const nextRows = rows.map((row) => (
+    (row.session_id || row.workout_session_id) === sessionId
+      ? { ...row, status: normalizeSessionStatus(status) }
+      : row
+  ));
+  writeLocalWorkoutSessions(nextRows);
+}
+
+function mapAndSortLocalWorkoutSessions(memberId = null) {
+  return readLocalWorkoutSessions()
+    .map(mapWorkoutSessionRow)
+    .filter(Boolean)
+    .filter((row) => !memberId || !row.memberId || row.memberId === memberId)
+    .sort((left, right) => (
+      `${left.sessionDate || ""}T${left.startTime || ""}`
+        .localeCompare(`${right.sessionDate || ""}T${right.startTime || ""}`)
+    ));
+}
+
+function mergeWorkoutSessionRows(localRows, databaseRows) {
+  const databaseIds = new Set(databaseRows.map((row) => row.sessionId).filter(Boolean));
+  return [
+    ...databaseRows,
+    ...localRows.filter((row) => !databaseIds.has(row.sessionId)),
+  ].sort((left, right) => (
+    `${left.sessionDate || ""}T${left.startTime || ""}`
+      .localeCompare(`${right.sessionDate || ""}T${right.startTime || ""}`)
+  ));
 }
 
 export function getWorkoutSessionStatusLabel(status) {
@@ -371,25 +460,25 @@ export async function createWorkoutSessionsForSchedule(data) {
 
 export async function getWorkoutSessionsForMember(currentUser) {
   if (!supabase) {
-    const error = new Error("Missing h\u1ec7 th\u1ed1ng environment variables.");
-    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to load member workout sessions:", error);
-    return { data: [], error };
+    return { data: mapAndSortLocalWorkoutSessions(), error: null };
   }
 
   const memberId = await resolveCurrentMemberId(currentUser);
+  const localRows = mapAndSortLocalWorkoutSessions(memberId);
   if (!memberId) {
-    return { data: [], error: null };
+    return { data: localRows, error: null };
   }
 
   const { data, error } = await selectWorkoutSessions("member_id", memberId);
 
   if (error) {
     console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to load member workout sessions:", error);
-    return { data: [], error };
+    return { data: localRows, error };
   }
 
+  const databaseRows = await enrichWorkoutSessions(data || []);
   return {
-    data: await enrichWorkoutSessions(data || []),
+    data: mergeWorkoutSessionRows(localRows, databaseRows),
     error: null,
   };
 }
@@ -490,10 +579,16 @@ export async function getWorkoutSessionsForTrainer(currentUser) {
 }
 
 export async function updateWorkoutSessionStatus(sessionId, status) {
-  if (!supabase || !sessionId) {
+  if (!sessionId) {
     const error = new Error("Missing h\u1ec7 th\u1ed1ng configuration or workout session id.");
     console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to update workout session:", error);
     return { data: null, error };
+  }
+
+  if (!supabase) {
+    updateLocalWorkoutSessionStatus(sessionId, status);
+    const row = mapAndSortLocalWorkoutSessions().find((item) => item.sessionId === sessionId) || null;
+    return { data: row, error: row ? null : new Error("Workout session was not found.") };
   }
 
   const { data, error } = await supabase
@@ -521,6 +616,15 @@ export async function updateWorkoutSessionStatus(sessionId, status) {
     .single();
 
   if (error) {
+    const localRow = mapAndSortLocalWorkoutSessions().find((item) => item.sessionId === sessionId);
+    if (localRow) {
+      updateLocalWorkoutSessionStatus(sessionId, status);
+      return {
+        data: { ...localRow, status: normalizeSessionStatus(status) },
+        error: null,
+      };
+    }
+
     console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to update workout session:", error);
     return { data: null, error };
   }

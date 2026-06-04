@@ -156,9 +156,7 @@ async function enrichInvoiceRows(rows) {
 
 export async function getInvoicesForMember(currentUser) {
   if (!supabase) {
-    const error = new Error("Missing h\u1ec7 th\u1ed1ng environment variables.");
-    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to load member invoices:", error);
-    return { data: [], error };
+    return { data: [], error: null };
   }
 
   const memberId = await resolveCurrentMemberId(currentUser);
