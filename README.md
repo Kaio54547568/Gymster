@@ -2,6 +2,7 @@
 
 Gymster là ứng dụng quản lý phòng gym được xây dựng theo mô hình nhiều cổng portal: khách/landing, đăng nhập, hội viên, nhân viên, PT/trainer và admin/owner. Project hiện tại tập trung vào frontend React/Vite và đang migrate dần các luồng dữ liệu từ mock/localStorage sang Supabase.
 
+Link web deployed: https://gymster-vert.vercel.app/
 ## Tổng Quan
 
 Gymster hỗ trợ các nghiệp vụ chính của phòng gym:
