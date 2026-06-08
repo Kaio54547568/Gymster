@@ -12,6 +12,15 @@ const CONFIRMATION_INTENTS = new Set(["create_booking", "cancel_booking", "creat
 const CONFIRMATION_WORDS = ["xác nhận", "xac nhan", "đồng ý", "dong y", "ok", "okay", "đúng rồi", "dung roi", "yes"];
 const CANCEL_WORDS = ["hủy", "huỷ", "huy", "cancel", "không", "khong"];
 
+const GYM_OPEN_TIME = "08:00";
+const GYM_CLOSE_TIME = "20:00";
+const ACTION_REDIRECT_URLS = {
+  create_booking: "/member/my-schedule",
+  cancel_booking: "/member/my-schedule",
+  create_review: "/member/rate-service",
+  update_review: "/member/rate-service",
+};
+
 function toDateValue(date) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -116,6 +125,25 @@ function normalizeTime(time) {
   return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
 }
 
+function addHours(time, hours) {
+  const [hour, minute] = String(time || GYM_OPEN_TIME).split(":").map(Number);
+  return `${String(Math.min(23, (hour || 8) + hours)).padStart(2, "0")}:${String(minute || 0).padStart(2, "0")}`;
+}
+
+function minutesFromTime(time) {
+  const [hour, minute] = String(time || "").slice(0, 5).split(":").map(Number);
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return null;
+  return hour * 60 + minute;
+}
+
+function isWithinGymHours(startTime, endTime = addHours(startTime, 1)) {
+  const start = minutesFromTime(startTime);
+  const end = minutesFromTime(endTime);
+  const open = minutesFromTime(GYM_OPEN_TIME);
+  const close = minutesFromTime(GYM_CLOSE_TIME);
+  return start !== null && end !== null && start >= open && end <= close && start < end;
+}
+
 function isConfirmation(message) {
   const normalized = normalizeVietnamese(message);
   return CONFIRMATION_WORDS.some((word) => normalized.includes(normalizeVietnamese(word)));
@@ -128,6 +156,9 @@ function isCancellation(message) {
 
 function requiredDataForIntent(intent, entities) {
   if (intent === "create_booking") {
+    if (entities.trainer) {
+      return { ok: false, reply: "Lịch tập với PT là lịch cố định và không thể tạo, hủy hoặc thay đổi bằng AI chat. AI chat chỉ thêm buổi tập cá nhân." };
+    }
     const date = resolveDate(entities.date_text);
     const time = normalizeTime(entities.time);
     const partialBookingData = {
@@ -145,6 +176,9 @@ function requiredDataForIntent(intent, entities) {
         return { ok: false, reply: "Bạn muốn đặt lịch vào ngày nào?" };
       }
       return { ok: false, reply: "Bạn muốn đặt lịch vào ngày nào và lúc mấy giờ?" };
+    }
+    if (!isWithinGymHours(time)) {
+      return { ok: false, reply: "Phòng gym chỉ mở từ 08:00 đến 20:00. Bạn vui lòng chọn giờ tập trong khung này." };
     }
     return { ok: true, data: { date, time, note: entities.note || null } };
   }
@@ -179,7 +213,7 @@ function requiredDataForIntent(intent, entities) {
 
 function confirmationReply(action) {
   const data = action.data || {};
-  if (action.name === "create_booking") return `Bạn xác nhận muốn đặt lịch tập vào ${data.date} lúc ${data.time} không?`;
+  if (action.name === "create_booking") return `Bạn xác nhận muốn thêm buổi tập cá nhân vào ${data.date} lúc ${data.time} không? Lịch PT cố định sẽ không bị thay đổi.`;
   if (action.name === "cancel_booking") return `Bạn xác nhận muốn hủy lịch tập ngày ${data.date} không?`;
   if (action.name === "create_review") return `Bạn xác nhận muốn đánh giá buổi tập ${data.date} ${data.rating} sao với nội dung "${data.comment}" không?`;
   if (action.name === "update_review") return `Bạn xác nhận muốn cập nhật đánh giá thành ${data.rating} sao với nội dung "${data.comment}" không?`;
@@ -188,13 +222,36 @@ function confirmationReply(action) {
 
 function successReply(action, result) {
   const data = action.data || {};
-  if (action.name === "create_booking") return `Đã đặt lịch tập cho bạn vào ${data.date} lúc ${data.time}.`;
+  if (action.name === "create_booking") return `Đã thêm buổi tập cá nhân cho bạn vào ${data.date} lúc ${data.time}. Lịch PT cố định vẫn giữ nguyên.`;
   if (action.name === "cancel_booking") return `Đã hủy lịch tập ngày ${data.date}.`;
   if (action.name === "create_review") return `Đã lưu đánh giá ${data.rating} sao của bạn.`;
   if (action.name === "update_review") return `Đã cập nhật đánh giá của bạn.`;
   if (action.name === "view_membership") return result ? `Gói tập hiện tại: ${result.packageName}, trạng thái ${result.status}, còn ${result.remainingSessions ?? "-"} buổi.` : "Bạn chưa có gói tập đang hoạt động.";
   if (action.name === "view_schedule") return result.length ? `Bạn có ${result.length} buổi tập trong khoảng đã chọn.` : "Không có lịch tập trong khoảng đã chọn.";
   return "Đã thực hiện xong.";
+}
+
+function affectedIdForResult(action, result) {
+  if (!result) return null;
+  if (action.name === "create_booking" || action.name === "cancel_booking") {
+    return result.sessionId || result.workout_session_id || result.session_id || null;
+  }
+  if (action.name === "create_review" || action.name === "update_review") {
+    return result.feedback_id || result.feedbackId || null;
+  }
+  return null;
+}
+
+function successResponse(action, result, extra = {}) {
+  return {
+    type: "success",
+    reply: successReply(action, result),
+    action: action.name,
+    redirectUrl: ACTION_REDIRECT_URLS[action.name] || null,
+    affectedId: affectedIdForResult(action, result),
+    result,
+    ...extra,
+  };
 }
 
 async function executeAction(user, action) {
@@ -223,7 +280,7 @@ export async function handleAiChat({ message, pendingAction, user }) {
 
   if (pendingAction) {
     if (isCancellation(message)) {
-      return { type: "cancelled", reply: "Đã hủy thao tác đang chờ xác nhận." };
+      return { type: "cancelled", reply: "Thao tác đã được từ chối." };
     }
     if (pendingAction.status === "collecting") {
       const parsed = await parseGymsterIntent(message);
@@ -240,6 +297,14 @@ export async function handleAiChat({ message, pendingAction, user }) {
         };
 
         if (data.date && data.time) {
+          if (!isWithinGymHours(data.time)) {
+            return {
+              type: "question",
+              reply: "Phòng gym chỉ mở từ 08:00 đến 20:00. Bạn vui lòng chọn giờ tập trong khung này.",
+              pendingAction: { ...pendingAction, data: { ...data, time: null } },
+              parsed,
+            };
+          }
           const action = { name: "create_booking", data };
           return {
             type: "confirmation_required",
@@ -267,7 +332,7 @@ export async function handleAiChat({ message, pendingAction, user }) {
 
     try {
       const result = await executeAction(user, pendingAction);
-      return { type: "success", reply: successReply(pendingAction, result), result };
+      return successResponse(pendingAction, result);
     } catch (error) {
       return { type: "error", reply: error.message || "Không thể thực hiện thao tác." };
     }
@@ -291,7 +356,7 @@ export async function handleAiChat({ message, pendingAction, user }) {
 
   try {
     const result = await executeAction(user, action);
-    return { type: "success", reply: successReply(action, result), result, parsed };
+    return successResponse(action, result, { parsed });
   } catch (error) {
     return { type: "error", reply: error.message || "Không thể thực hiện thao tác.", parsed };
   }

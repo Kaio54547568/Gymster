@@ -10,11 +10,27 @@ import {
 } from "./localGymsterStore.js";
 
 let supabaseClient;
+const GYM_OPEN_TIME = "08:00";
+const GYM_CLOSE_TIME = "20:00";
+
+function isConfiguredSupabaseUrl(value) {
+  try {
+    const url = new URL(String(value || ""));
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+function isConfiguredSupabaseKey(value) {
+  const key = String(value || "").trim();
+  return key.length > 0 && !key.startsWith("your_");
+}
 
 function getSupabaseClient() {
   const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
   const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-  if (!supabaseUrl || !supabaseKey) return null;
+  if (!isConfiguredSupabaseUrl(supabaseUrl) || !isConfiguredSupabaseKey(supabaseKey)) return null;
 
   if (!supabaseClient) {
     supabaseClient = createClient(supabaseUrl, supabaseKey);
@@ -22,9 +38,33 @@ function getSupabaseClient() {
   return supabaseClient;
 }
 
-function addOneHour(time) {
-  const [hour, minute] = String(time || "08:00").split(":").map(Number);
-  return `${String(Math.min(23, (hour || 8) + 1)).padStart(2, "0")}:${String(minute || 0).padStart(2, "0")}`;
+function addHours(time, hours) {
+  const [hour, minute] = String(time || GYM_OPEN_TIME).split(":").map(Number);
+  const endHour = Math.min(23, (hour || 8) + hours);
+  return `${String(endHour).padStart(2, "0")}:${String(minute || 0).padStart(2, "0")}`;
+}
+
+function minutesFromTime(time) {
+  const [hour, minute] = String(time || "").slice(0, 5).split(":").map(Number);
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return null;
+  return hour * 60 + minute;
+}
+
+function assertWithinGymHours(startTime, endTime) {
+  const start = minutesFromTime(startTime);
+  const end = minutesFromTime(endTime);
+  const open = minutesFromTime(GYM_OPEN_TIME);
+  const close = minutesFromTime(GYM_CLOSE_TIME);
+
+  if (start === null || end === null || start < open || end > close || start >= end) {
+    throw new Error("Phòng gym chỉ mở từ 08:00 đến 20:00. Vui lòng chọn thời gian trong khung giờ này.");
+  }
+}
+
+function isPtSession(session) {
+  const title = String(session.title || "").toLowerCase();
+  const exerciseType = String(session.exercise_type || session.exerciseType || "").toLowerCase();
+  return Boolean(session.trainerId || session.trainer_id) || title.includes("pt") || exerciseType.includes("personal training");
 }
 
 function mapSession(row) {
@@ -109,30 +149,27 @@ export async function createBooking(user, data) {
   const memberId = await resolveMemberId(client, context);
   if (!memberId) throw new Error("Current member could not be resolved.");
 
-  const endTime = data.endTime || addOneHour(data.time);
-  const existing = await getUserSchedule(user, { startDate: data.date, endDate: data.date });
-  const conflict = existing.find((item) => item.status !== "cancelled" && item.time === data.time);
-  if (conflict) throw new Error("You already have a workout session at that time.");
+  const endTime = data.endTime || addHours(data.time, 1);
+  assertWithinGymHours(data.time, endTime);
 
   if (!client) {
     return mapSession(createLocalBooking(memberId, { ...data, endTime }));
   }
 
-  const memberPackage = await getActiveMemberPackage(client, memberId);
   const { data: row, error } = await client
     .from("workout_sessions")
     .insert({
       member_id: memberId,
-      trainer_id: memberPackage?.trainer_id || null,
-      member_package_id: memberPackage?.member_package_id || null,
-      title: "AI Booking",
-      exercise_type: "Personal Training",
-      room_name: "PT Room",
+      trainer_id: null,
+      member_package_id: null,
+      title: "Self Workout",
+      exercise_type: "Manual Workout",
+      room_name: "Gym Floor",
       session_date: data.date,
       start_time: data.time,
       end_time: endTime,
       status: "scheduled",
-      notes: data.note || "Created by Gymster AI Assistant.",
+      notes: data.note || "Self-added by Gymster AI Assistant.",
     })
     .select("*")
     .single();
@@ -155,6 +192,9 @@ export async function cancelBooking(user, data) {
   const sessions = await getUserSchedule(user, { startDate: data.date, endDate: data.date });
   const target = data.sessionId ? sessions.find((item) => item.sessionId === data.sessionId) : sessions.find((item) => item.status === "scheduled");
   if (!target) throw new Error("No scheduled workout session was found to cancel.");
+  if (isPtSession(target)) {
+    throw new Error("Lịch tập với PT là lịch cố định nên không thể hủy hoặc thay đổi bằng AI chat.");
+  }
 
   const { data: row, error } = await client
     .from("workout_sessions")

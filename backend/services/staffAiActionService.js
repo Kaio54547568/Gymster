@@ -3,6 +3,20 @@ import { createClient } from "@supabase/supabase-js";
 let supabaseClient;
 const localPackageHistory = [];
 
+function isConfiguredSupabaseUrl(value) {
+  try {
+    const url = new URL(String(value || ""));
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+function isConfiguredSupabaseKey(value) {
+  const key = String(value || "").trim();
+  return key.length > 0 && !key.startsWith("your_");
+}
+
 const localMembers = [
   {
     memberId: "local-member-001",
@@ -47,7 +61,7 @@ const localMembers = [
 function getSupabaseClient() {
   const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
   const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-  if (!supabaseUrl || !supabaseKey) return null;
+  if (!isConfiguredSupabaseUrl(supabaseUrl) || !isConfiguredSupabaseKey(supabaseKey)) return null;
 
   if (!supabaseClient) {
     supabaseClient = createClient(supabaseUrl, supabaseKey);

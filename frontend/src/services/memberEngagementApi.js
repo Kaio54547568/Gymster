@@ -1,10 +1,70 @@
 import { supabase } from "./supabaseClient";
 import { getCurrentUser } from "./authService";
 
+const LOCAL_SERVICE_FEEDBACK_KEY = "gymster_local_service_feedback";
+
 function missingSupabase(feature) {
   const error = new Error(`Missing h\u1ec7 th\u1ed1ng configuration for ${feature}.`);
   console.error("[Gymster h\u1ec7 th\u1ed1ng]", error);
   return error;
+}
+
+function canUseStorage() {
+  return typeof window !== "undefined" && Boolean(window.localStorage);
+}
+
+function readLocalServiceFeedback() {
+  if (!canUseStorage()) return [];
+
+  try {
+    const rows = JSON.parse(window.localStorage.getItem(LOCAL_SERVICE_FEEDBACK_KEY) || "[]");
+    return Array.isArray(rows) ? rows : [];
+  } catch {
+    window.localStorage.removeItem(LOCAL_SERVICE_FEEDBACK_KEY);
+    return [];
+  }
+}
+
+function writeLocalServiceFeedback(rows) {
+  if (!canUseStorage()) return;
+
+  window.localStorage.setItem(LOCAL_SERVICE_FEEDBACK_KEY, JSON.stringify(rows));
+  window.dispatchEvent(new CustomEvent("gymster:feedback-updated"));
+}
+
+function currentLocalMemberId() {
+  const currentUser = getCurrentUser();
+  return currentUser?.memberId || currentUser?.member_id || currentUser?.id || null;
+}
+
+function mapLocalFeedback(row) {
+  return {
+    target: row.target_type || "trainer",
+    date: formatDate(row.created_at),
+    rating: Number(row.rating || 0),
+    comment: row.comment || "",
+    status: "Submitted",
+    response: "",
+  };
+}
+
+export function saveAiServiceFeedback(feedback) {
+  if (!feedback?.feedback_id && !feedback?.feedbackId) return;
+
+  const rows = readLocalServiceFeedback();
+  const row = {
+    feedback_id: feedback.feedback_id || feedback.feedbackId,
+    member_id: feedback.member_id || currentLocalMemberId(),
+    trainer_id: feedback.trainer_id || null,
+    workout_session_id: feedback.workout_session_id || null,
+    target_type: feedback.target_type || "trainer",
+    rating: Number(feedback.rating || 0),
+    comment: feedback.comment || "",
+    status: feedback.status || "submitted",
+    created_at: feedback.created_at || new Date().toISOString(),
+  };
+  const nextRows = [row, ...rows.filter((item) => item.feedback_id !== row.feedback_id)];
+  writeLocalServiceFeedback(nextRows);
 }
 
 function formatDate(value) {
@@ -74,7 +134,14 @@ async function fetchUsersByIds(userIds) {
 }
 
 export async function getMemberFeedbackPortalData() {
-  if (!supabase) return { data: null, error: missingSupabase("member feedback") };
+  if (!supabase) {
+    const memberId = currentLocalMemberId();
+    const feedback = readLocalServiceFeedback()
+      .filter((row) => !memberId || !row.member_id || row.member_id === memberId)
+      .map(mapLocalFeedback);
+
+    return { data: { feedback, complaints: [], trainers: ["Khoa Le"], sessions: [], equipmentRooms: [] }, error: null };
+  }
 
   try {
     const member = await resolveCurrentMember();
@@ -143,7 +210,19 @@ export async function getMemberFeedbackPortalData() {
 }
 
 export async function createMemberServiceFeedback(payload) {
-  if (!supabase) return { data: null, error: missingSupabase("create feedback") };
+  if (!supabase) {
+    const row = {
+      feedback_id: `local-feedback-${Date.now()}`,
+      member_id: currentLocalMemberId(),
+      target_type: payload.serviceType || "service",
+      rating: Number(payload.rating || 1),
+      comment: payload.comment || "",
+      status: "submitted",
+      created_at: new Date().toISOString(),
+    };
+    saveAiServiceFeedback(row);
+    return { data: row, error: null };
+  }
 
   try {
     const member = await resolveCurrentMember();

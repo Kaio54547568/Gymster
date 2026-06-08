@@ -9,9 +9,21 @@ import { findConflictingPtSession } from "./workoutSessionConflict";
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const LOCAL_WORKOUT_SESSIONS_KEY = "gymster_local_workout_sessions";
+const LOCAL_MAKEUP_SESSIONS_KEY = "gymster_local_makeup_sessions";
+const LOCAL_DEMO_MEMBER_ID = "00000000-0000-4000-8000-000000000005";
+const LOCAL_DEMO_TRAINER_ID = "local-trainer-khoa";
+const FIXED_PT_DAYS = [1, 4];
+const FIXED_PT_START_TIME = "08:00";
+const FIXED_PT_END_TIME = "10:00";
+const MAKEUP_MONTHLY_LIMIT = 1;
+const MAKEUP_RESET_BALANCE = 3;
 
 function mapWorkoutSessionRow(row) {
   if (!row) return null;
+  const isPtSession = Boolean(row.trainer_id);
+  const title = row.session_title || row.title;
+  const exerciseType = !isPtSession && row.exercise_type === "Personal Training" ? "Manual Workout" : row.exercise_type;
+  const roomName = !isPtSession && row.room_name === "PT Room" ? "Gym Floor" : row.room_name;
 
   return {
     sessionId: row.workout_session_id || row.session_id,
@@ -19,9 +31,9 @@ function mapWorkoutSessionRow(row) {
     trainerId: row.trainer_id,
     packageId: row.package_id,
     memberPackageId: row.member_package_id,
-    sessionTitle: row.session_title || row.title,
-    exerciseType: row.exercise_type,
-    roomName: row.room_name,
+    sessionTitle: !isPtSession && title === "AI Booking" ? "Self Workout" : title,
+    exerciseType,
+    roomName,
     sessionDate: row.session_date,
     startTime: row.start_time,
     endTime: row.end_time,
@@ -31,7 +43,7 @@ function mapWorkoutSessionRow(row) {
     memberName: row.memberName || "Member",
     trainerName: row.trainerName || "Trainer",
     packageName: row.packageName || "",
-    isPtSession: Boolean(row.trainer_id),
+    isPtSession,
     hasContent: Boolean(
       (row.session_title || row.title || "").trim()
       || (row.note || row.notes || "").trim()
@@ -63,22 +75,133 @@ function writeLocalWorkoutSessions(rows) {
   window.dispatchEvent(new CustomEvent("gymster:schedule-updated"));
 }
 
+function currentMakeupPeriod() {
+  return new Date().toISOString().slice(0, 7);
+}
+
+function defaultMakeupState(memberId = LOCAL_DEMO_MEMBER_ID) {
+  return {
+    memberId,
+    period: currentMakeupPeriod(),
+    credits: 0,
+    grantedThisMonth: 0,
+    monthlyLimit: MAKEUP_MONTHLY_LIMIT,
+    resetBalance: MAKEUP_RESET_BALANCE,
+    history: [],
+  };
+}
+
+function normalizeMakeupState(rawState, memberId = LOCAL_DEMO_MEMBER_ID) {
+  const state = {
+    ...defaultMakeupState(memberId),
+    ...(rawState && typeof rawState === "object" ? rawState : {}),
+  };
+
+  if (state.period !== currentMakeupPeriod()) {
+    return {
+      ...state,
+      period: currentMakeupPeriod(),
+      credits: MAKEUP_RESET_BALANCE,
+      grantedThisMonth: 0,
+      monthlyLimit: MAKEUP_MONTHLY_LIMIT,
+      resetBalance: MAKEUP_RESET_BALANCE,
+    };
+  }
+
+  return {
+    ...state,
+    memberId,
+    credits: Math.max(0, Number(state.credits || 0)),
+    grantedThisMonth: Math.max(0, Number(state.grantedThisMonth || 0)),
+    monthlyLimit: MAKEUP_MONTHLY_LIMIT,
+    resetBalance: MAKEUP_RESET_BALANCE,
+    history: Array.isArray(state.history) ? state.history : [],
+  };
+}
+
+function readMakeupState(memberId = LOCAL_DEMO_MEMBER_ID) {
+  if (!canUseStorage()) return defaultMakeupState(memberId);
+
+  try {
+    return normalizeMakeupState(JSON.parse(window.localStorage.getItem(LOCAL_MAKEUP_SESSIONS_KEY) || "null"), memberId);
+  } catch {
+    window.localStorage.removeItem(LOCAL_MAKEUP_SESSIONS_KEY);
+    return defaultMakeupState(memberId);
+  }
+}
+
+function writeMakeupState(state) {
+  if (!canUseStorage()) return;
+
+  window.localStorage.setItem(LOCAL_MAKEUP_SESSIONS_KEY, JSON.stringify(state));
+  window.dispatchEvent(new CustomEvent("gymster:makeup-updated"));
+}
+
+export function getMakeupSessionSummary(currentUser = null) {
+  return readMakeupState(resolveLocalMemberId(currentUser));
+}
+
+export function recordMakeupForCancelledSession(session, currentUser = null) {
+  const memberId = session?.memberId || resolveLocalMemberId(currentUser);
+  const state = readMakeupState(memberId);
+  const sessionId = session?.sessionId || session?.id || "";
+
+  if (sessionId && state.history.some((item) => item.sessionId === sessionId)) {
+    return { ...state, granted: false, reason: "already_recorded" };
+  }
+
+  const historyItem = {
+    sessionId,
+    date: session?.date || session?.sessionDate || "",
+    time: session?.time || session?.startTime || "",
+    recordedAt: new Date().toISOString(),
+  };
+
+  if (state.grantedThisMonth >= MAKEUP_MONTHLY_LIMIT) {
+    const nextState = {
+      ...state,
+      history: [{ ...historyItem, granted: false, reason: "monthly_limit" }, ...state.history],
+    };
+    writeMakeupState(nextState);
+    return { ...nextState, granted: false, reason: "monthly_limit" };
+  }
+
+  const nextState = {
+    ...state,
+    credits: Math.min(MAKEUP_RESET_BALANCE, Number(state.credits || 0) + 1),
+    grantedThisMonth: Number(state.grantedThisMonth || 0) + 1,
+    history: [{ ...historyItem, granted: true }, ...state.history],
+  };
+  writeMakeupState(nextState);
+  return { ...nextState, granted: true };
+}
+
+function isCancelledWorkoutStatus(status) {
+  return ["cancelled", "canceled"].includes(String(status || "").trim().toLowerCase());
+}
+
+function normalizeStoredWorkoutStatus(status) {
+  return isCancelledWorkoutStatus(status) ? "cancelled" : normalizeSessionStatus(status);
+}
+
 function mapAiSessionToWorkoutRow(session) {
+  const isPtSession = Boolean(session.trainerId);
+
   return {
     workout_session_id: session.sessionId,
     session_id: session.sessionId,
     member_id: session.memberId,
     trainer_id: session.trainerId,
-    title: session.title || "AI Booking",
-    exercise_type: "Personal Training",
-    room_name: session.room || "PT Room",
+    title: session.title || (isPtSession ? "PT Session" : "Self Workout"),
+    exercise_type: session.exerciseType || (isPtSession ? "Personal Training" : "Manual Workout"),
+    room_name: session.room || (isPtSession ? "PT Room" : "Gym Floor"),
     session_date: session.date,
     start_time: session.time,
     end_time: session.endTime,
-    status: normalizeSessionStatus(session.status || "scheduled"),
-    notes: session.note || "Created by Gymster AI Assistant.",
+    status: normalizeStoredWorkoutStatus(session.status || "scheduled"),
+    notes: session.note || (isPtSession ? "Fixed PT session." : "Self-added by Gymster AI Assistant."),
     memberName: "Member",
-    trainerName: "Trainer",
+    trainerName: isPtSession ? "Trainer" : "",
     packageName: "",
   };
 }
@@ -100,14 +223,81 @@ export function updateLocalWorkoutSessionStatus(sessionId, status) {
   const rows = readLocalWorkoutSessions();
   const nextRows = rows.map((row) => (
     (row.session_id || row.workout_session_id) === sessionId
-      ? { ...row, status: normalizeSessionStatus(status) }
+      ? { ...row, status: normalizeStoredWorkoutStatus(status) }
       : row
   ));
   writeLocalWorkoutSessions(nextRows);
 }
 
+function toDateValue(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function resolveLocalMemberId(currentUser) {
+  return currentUser?.memberId || currentUser?.member_id || currentUser?.id || LOCAL_DEMO_MEMBER_ID;
+}
+
+function generateLocalFixedPtSessions(memberId = LOCAL_DEMO_MEMBER_ID) {
+  const targetMemberId = memberId || LOCAL_DEMO_MEMBER_ID;
+  const today = new Date();
+  const start = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  start.setDate(start.getDate() - (start.getDay() === 0 ? 6 : start.getDay() - 1) - 28);
+
+  const end = new Date(start);
+  end.setDate(start.getDate() + 140);
+
+  const rows = [];
+  const cursor = new Date(start);
+  while (cursor <= end) {
+    if (FIXED_PT_DAYS.includes(cursor.getDay())) {
+      const sessionDate = toDateValue(cursor);
+      rows.push({
+        workout_session_id: `local-fixed-pt-${targetMemberId}-${sessionDate}`,
+        session_id: `local-fixed-pt-${targetMemberId}-${sessionDate}`,
+        member_id: targetMemberId,
+        trainer_id: LOCAL_DEMO_TRAINER_ID,
+        title: "PT Session",
+        exercise_type: "Personal Training",
+        room_name: "PT Room",
+        session_date: sessionDate,
+        start_time: FIXED_PT_START_TIME,
+        end_time: FIXED_PT_END_TIME,
+        status: "scheduled",
+        notes: "Fixed PT schedule: Monday and Thursday, 08:00 - 10:00.",
+        memberName: "Member",
+        trainerName: "Khoa Le",
+        packageName: "PT Progress 3 Months",
+      });
+    }
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  return rows;
+}
+
+function mergeLocalWorkoutRows(storedRows, fixedRows) {
+  const seen = new Set();
+  return [...fixedRows, ...storedRows].filter((row) => {
+    const id = row.session_id || row.workout_session_id;
+    const key = id || [
+      row.member_id,
+      row.trainer_id || "manual",
+      row.session_date,
+      row.start_time,
+      row.end_time,
+    ].join("|");
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 function mapAndSortLocalWorkoutSessions(memberId = null) {
-  return readLocalWorkoutSessions()
+  return mergeLocalWorkoutRows(readLocalWorkoutSessions(), generateLocalFixedPtSessions(memberId))
+    .filter((row) => !isCancelledWorkoutStatus(row.status))
     .map(mapWorkoutSessionRow)
     .filter(Boolean)
     .filter((row) => !memberId || !row.memberId || row.memberId === memberId)
@@ -460,7 +650,7 @@ export async function createWorkoutSessionsForSchedule(data) {
 
 export async function getWorkoutSessionsForMember(currentUser) {
   if (!supabase) {
-    return { data: mapAndSortLocalWorkoutSessions(), error: null };
+    return { data: mapAndSortLocalWorkoutSessions(resolveLocalMemberId(currentUser)), error: null };
   }
 
   const memberId = await resolveCurrentMemberId(currentUser);
@@ -478,7 +668,7 @@ export async function getWorkoutSessionsForMember(currentUser) {
 
   const databaseRows = await enrichWorkoutSessions(data || []);
   return {
-    data: mergeWorkoutSessionRows(localRows, databaseRows),
+    data: mergeWorkoutSessionRows(localRows, databaseRows).filter((row) => !isCancelledWorkoutStatus(row.status)),
     error: null,
   };
 }

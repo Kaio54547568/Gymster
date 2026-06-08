@@ -67,6 +67,8 @@ export default function RateServicePage() {
 
   useEffect(() => {
     void loadFeedbackData();
+    window.addEventListener('gymster:feedback-updated', loadFeedbackData);
+    return () => window.removeEventListener('gymster:feedback-updated', loadFeedbackData);
   }, []);
 
   const submitFeedback = async () => {

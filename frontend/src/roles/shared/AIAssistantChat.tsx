@@ -1,7 +1,9 @@
 import { FormEvent, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router';
 import { Bot, Loader2, Send, X } from 'lucide-react';
 import { sendAiChatMessage } from '../../services/aiChatApi';
-import { saveAiWorkoutSession, updateLocalWorkoutSessionStatus } from '../../services/workoutSessionApi';
+import { saveAiServiceFeedback } from '../../services/memberEngagementApi';
+import { recordMakeupForCancelledSession, saveAiWorkoutSession, updateLocalWorkoutSessionStatus } from '../../services/workoutSessionApi';
 
 type ChatMessage = {
   id: string;
@@ -25,7 +27,14 @@ function makeMessage(role: ChatMessage['role'], text: string, type?: string): Ch
   };
 }
 
+function redirectMessage(redirectUrl: string) {
+  if (redirectUrl.includes('rate-service')) return 'Đang chuyển bạn đến trang đánh giá...';
+  if (redirectUrl.includes('schedule')) return 'Đang chuyển bạn đến trang lịch...';
+  return 'Đang chuyển bạn đến trang kết quả...';
+}
+
 export default function AIAssistantChat() {
+  const navigate = useNavigate();
   const [isOpen, setIsOpen] = useState(false);
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([
@@ -46,14 +55,42 @@ export default function AIAssistantChat() {
 
     try {
       const result = await sendAiChatMessage(trimmed, action);
-      if (result.type === 'success' && action?.name === 'create_booking' && result.result) {
+      const successfulAction = result.action || action?.name;
+
+      if (result.type === 'success' && successfulAction === 'create_booking' && result.result) {
         saveAiWorkoutSession(result.result);
       }
-      if (result.type === 'success' && action?.name === 'cancel_booking' && result.result?.sessionId) {
+      if (result.type === 'success' && successfulAction === 'cancel_booking' && result.result?.sessionId) {
         updateLocalWorkoutSessionStatus(result.result.sessionId, 'cancelled');
+        const makeupResult = recordMakeupForCancelledSession(result.result);
+        setMessages((current) => [
+          ...current,
+          makeMessage(
+            'assistant',
+            makeupResult.granted
+              ? `Đã cộng 1 buổi bù cho buổi nghỉ này. Số buổi bù hiện có: ${makeupResult.credits}/${makeupResult.resetBalance}.`
+              : 'Buổi nghỉ đã được ghi nhận, nhưng tháng này bạn đã dùng quyền cộng buổi bù. Mỗi tháng chỉ được bù 1 buổi.',
+            makeupResult.granted ? 'success' : 'error',
+          ),
+        ]);
       }
       setMessages((current) => [...current, makeMessage('assistant', result.reply || 'Đã xử lý xong.', result.type)]);
+      if (result.type === 'success' && (successfulAction === 'create_review' || successfulAction === 'update_review') && result.result) {
+        saveAiServiceFeedback(result.result);
+      }
       setPendingAction(result.pendingAction ?? null);
+      if (result.type === 'success' && result.redirectUrl) {
+        setMessages((current) => [...current, makeMessage('assistant', redirectMessage(result.redirectUrl), 'success')]);
+        window.setTimeout(() => {
+          navigate(result.redirectUrl);
+          if (result.redirectUrl.includes('schedule')) {
+            setMessages((current) => [
+              ...current,
+              makeMessage('assistant', 'Đã chuyển sang trang lịch tập, vui lòng kiểm tra lại lịch tập của bạn.', 'success'),
+            ]);
+          }
+        }, 800);
+      }
     } catch (error: any) {
       setMessages((current) => [...current, makeMessage('assistant', error.message || 'AI Assistant gặp lỗi.', 'error')]);
     } finally {
