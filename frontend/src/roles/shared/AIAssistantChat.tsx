@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router';
 import { Bot, Loader2, Send, X } from 'lucide-react';
 import { sendAiChatMessage } from '../../services/aiChatApi';
 import { saveAiServiceFeedback } from '../../services/memberEngagementApi';
+import { saveAiTrainingRequest } from '../../services/trainingRequestApi';
 import { recordMakeupForCancelledSession, saveAiWorkoutSession, updateLocalWorkoutSessionStatus } from '../../services/workoutSessionApi';
 
 type ChatMessage = {
@@ -33,6 +34,32 @@ function redirectMessage(redirectUrl: string) {
   return 'Đang chuyển bạn đến trang kết quả...';
 }
 
+function makeupCancelMessage(makeupResult: any) {
+  const remaining = Number(makeupResult?.remainingMakeupCount ?? makeupResult?.credits ?? 0);
+  const limit = Number(makeupResult?.resetBalance ?? 3);
+
+  if (makeupResult?.granted) {
+    return {
+      text: `Da ghi nhan 1 lan huy lich co dinh. So buoi bu con lai: ${remaining}/${limit}.`,
+      type: 'success',
+    };
+  }
+
+  if (makeupResult?.reason === 'already_recorded') {
+    return {
+      text: `Buoi nay da duoc ghi nhan truoc do. So buoi bu con lai: ${remaining}/${limit}.`,
+      type: 'success',
+    };
+  }
+
+  return {
+    text: remaining > 0
+      ? `Buoi nghi da duoc ghi nhan. So buoi bu con lai: ${remaining}/${limit}.`
+      : 'Ban da su dung het so buoi bu trong thang nay. Moi thang chi duoc bu toi da 3 buoi.',
+    type: remaining > 0 ? 'success' : 'error',
+  };
+}
+
 export default function AIAssistantChat() {
   const navigate = useNavigate();
   const [isOpen, setIsOpen] = useState(false);
@@ -58,21 +85,23 @@ export default function AIAssistantChat() {
       const successfulAction = result.action || action?.name;
 
       if (result.type === 'success' && successfulAction === 'create_booking' && result.result) {
-        saveAiWorkoutSession(result.result);
+        saveAiTrainingRequest(result.result);
       }
       if (result.type === 'success' && successfulAction === 'cancel_booking' && result.result?.sessionId) {
+        saveAiWorkoutSession(result.result);
         updateLocalWorkoutSessionStatus(result.result.sessionId, 'cancelled');
         const makeupResult = recordMakeupForCancelledSession(result.result);
-        setMessages((current) => [
-          ...current,
-          makeMessage(
-            'assistant',
-            makeupResult.granted
-              ? `Đã cộng 1 buổi bù cho buổi nghỉ này. Số buổi bù hiện có: ${makeupResult.credits}/${makeupResult.resetBalance}.`
-              : 'Buổi nghỉ đã được ghi nhận, nhưng tháng này bạn đã dùng quyền cộng buổi bù. Mỗi tháng chỉ được bù 1 buổi.',
-            makeupResult.granted ? 'success' : 'error',
-          ),
-        ]);
+        if (makeupResult.granted || makeupResult.reason !== 'not_fixed_pt_session') {
+          const makeupMessage = makeupCancelMessage(makeupResult);
+          setMessages((current) => [
+            ...current,
+            makeMessage(
+              'assistant',
+              makeupMessage.text,
+              makeupMessage.type,
+            ),
+          ]);
+        }
       }
       setMessages((current) => [...current, makeMessage('assistant', result.reply || 'Đã xử lý xong.', result.type)]);
       if (result.type === 'success' && (successfulAction === 'create_review' || successfulAction === 'update_review') && result.result) {

@@ -9,6 +9,7 @@ const INTENTS = [
   "create_review",
   "update_review",
   "view_membership",
+  "view_makeup_balance",
   "unknown",
 ];
 
@@ -138,9 +139,15 @@ function fallbackParseIntent(message) {
     }
   }
 
+  const isoDateMatch = normalizedText.match(/\b\d{4}-\d{1,2}-\d{1,2}\b/);
   const numericDateMatch = normalizedText.match(/(?:ngay\s*)?(\d{1,2})\s*(?:\/|-|thang\s+)(\d{1,2})(?:\s*(?:\/|-|nam\s+)(\d{2,4}))?/i);
-  if (numericDateMatch) {
+  const dayOnlyDateMatch = normalizedText.match(/\bngay\s+(\d{1,2})\b/i);
+  if (isoDateMatch) {
+    entities.date_text = isoDateMatch[0];
+  } else if (numericDateMatch) {
     entities.date_text = numericDateMatch[0].trim();
+  } else if (dayOnlyDateMatch) {
+    entities.date_text = dayOnlyDateMatch[0].trim();
   } else {
     const looseDateMatch = normalizedText.match(/ng\S*\s+(\d{1,2})\s+\S{2,12}\s+(\d{1,2})(?:\s+\S{2,12}\s+(\d{2,4}))?/i);
     if (looseDateMatch) {
@@ -195,6 +202,9 @@ function fallbackParseIntent(message) {
   if (normalizedText.includes("goi") || normalizedText.includes("membership")) {
     return normalizeIntentResult({ intent: "view_membership", confidence: 0.65, entities });
   }
+  if (normalizedText.includes("bu bu") || normalizedText.includes("makeup")) {
+    return normalizeIntentResult({ intent: "view_makeup_balance", confidence: 0.75, entities });
+  }
 
   if (entities.date_text && entities.time) {
     return normalizeIntentResult({ intent: "create_booking", confidence: 0.55, entities });
@@ -222,6 +232,7 @@ Supported intents:
 - create_review
 - update_review
 - view_membership
+- view_makeup_balance
 - unknown
 
 Extract entities:
@@ -233,6 +244,9 @@ Extract entities:
 - comment: review comment, else null
 - session_text: natural reference to session, e.g. "hôm nay", "ngày mai", else null
 - target_type: service/trainer/class/equipment/facility/staff if clear, else null
+
+Booking means a makeup PT session request. Do not classify booking as self workout.
+Use view_makeup_balance when the user asks how many makeup sessions they have, used, remaining, or earned this month.
 
 User message: ${JSON.stringify(message)}
 
@@ -260,6 +274,9 @@ JSON shape:
     });
     const parsed = normalizeIntentResult(safeParseJson(result.text));
     const fallback = fallbackParseIntent(message);
+    if (fallback.intent === "cancel_booking") {
+      return fallback;
+    }
     if (parsed.intent === "unknown" && fallback.intent !== "unknown") {
       return fallback;
     }

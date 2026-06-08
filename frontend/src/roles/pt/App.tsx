@@ -693,6 +693,8 @@ function TrainingRequestsPanel({ showToast }: { showToast: (msg: string) => void
 
   useEffect(() => {
     loadRequests();
+    window.addEventListener("gymster:training-requests-updated", loadRequests);
+    return () => window.removeEventListener("gymster:training-requests-updated", loadRequests);
   }, []);
 
   const refreshRequests = () => {
@@ -720,7 +722,7 @@ function TrainingRequestsPanel({ showToast }: { showToast: (msg: string) => void
       return;
     }
 
-    showToast(`${request.type === "reschedule" ? "Reschedule" : "Assignment"} request accepted.`);
+    showToast(`${request.type === "makeup_pt_session" ? "Makeup PT session" : request.type === "reschedule" ? "Reschedule" : "Assignment"} request accepted.`);
   };
 
   const submitDecline = async () => {
@@ -754,7 +756,7 @@ function TrainingRequestsPanel({ showToast }: { showToast: (msg: string) => void
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <div className="text-sm font-bold text-white">{request.memberName}</div>
-                <div className="mt-1 text-xs text-[#777]">{request.type === "reschedule" ? "Reschedule request" : "New member assignment"}</div>
+                <div className="mt-1 text-xs text-[#777]">{request.type === "makeup_pt_session" ? "Makeup PT session request" : request.type === "reschedule" ? "Reschedule request" : "New member assignment"}</div>
                 <div className="mt-2 text-xs text-[#BDBDBD]">Preferred: {request.preferredSchedule}</div>
                 {request.currentSchedule && <div className="mt-1 text-xs text-[#777]">Current: {request.currentSchedule}</div>}
                 {request.declineReason && <div className="mt-2 text-xs text-amber-300">Reason: {request.declineReason}</div>}

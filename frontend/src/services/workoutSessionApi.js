@@ -15,7 +15,6 @@ const LOCAL_DEMO_TRAINER_ID = "local-trainer-khoa";
 const FIXED_PT_DAYS = [1, 4];
 const FIXED_PT_START_TIME = "08:00";
 const FIXED_PT_END_TIME = "10:00";
-const MAKEUP_MONTHLY_LIMIT = 1;
 const MAKEUP_RESET_BALANCE = 3;
 
 function mapWorkoutSessionRow(row) {
@@ -75,6 +74,32 @@ function writeLocalWorkoutSessions(rows) {
   window.dispatchEvent(new CustomEvent("gymster:schedule-updated"));
 }
 
+function isSelfWorkoutRow(row) {
+  if (!row) return false;
+  const hasTrainer = Boolean(row.trainer_id || row.trainerId);
+  if (hasTrainer) return false;
+  const title = String(row.session_title || row.title || row.sessionTitle || "").toLowerCase();
+  const exerciseType = String(row.exercise_type || row.exerciseType || "").toLowerCase();
+  const roomName = String(row.room_name || row.roomName || "").toLowerCase();
+  return (
+    title.includes("self workout")
+    || title.includes("ai booking")
+    || title.includes("personal workout")
+    || exerciseType.includes("manual workout")
+    || exerciseType.includes("personal workout")
+    || roomName.includes("gym floor")
+    || roomName.includes("personal workout")
+  );
+}
+
+function removeLocalSelfWorkouts(rows) {
+  const nextRows = rows.filter((row) => !isSelfWorkoutRow(row));
+  if (nextRows.length !== rows.length) {
+    writeLocalWorkoutSessions(nextRows);
+  }
+  return nextRows;
+}
+
 function currentMakeupPeriod() {
   return new Date().toISOString().slice(0, 7);
 }
@@ -83,9 +108,12 @@ function defaultMakeupState(memberId = LOCAL_DEMO_MEMBER_ID) {
   return {
     memberId,
     period: currentMakeupPeriod(),
+    fixedScheduleCancelCount: 0,
+    usedMakeupCount: 0,
+    remainingMakeupCount: 0,
     credits: 0,
     grantedThisMonth: 0,
-    monthlyLimit: MAKEUP_MONTHLY_LIMIT,
+    monthlyLimit: MAKEUP_RESET_BALANCE,
     resetBalance: MAKEUP_RESET_BALANCE,
     history: [],
   };
@@ -99,21 +127,26 @@ function normalizeMakeupState(rawState, memberId = LOCAL_DEMO_MEMBER_ID) {
 
   if (state.period !== currentMakeupPeriod()) {
     return {
-      ...state,
+      ...defaultMakeupState(memberId),
       period: currentMakeupPeriod(),
-      credits: MAKEUP_RESET_BALANCE,
-      grantedThisMonth: 0,
-      monthlyLimit: MAKEUP_MONTHLY_LIMIT,
-      resetBalance: MAKEUP_RESET_BALANCE,
     };
   }
+
+  const fixedScheduleCancelCount = Math.max(0, Number(state.fixedScheduleCancelCount ?? state.grantedThisMonth ?? 0));
+  const usedMakeupCount = Math.max(0, Number(state.usedMakeupCount || 0));
+  const maxMakeupAllowed = Math.min(fixedScheduleCancelCount, MAKEUP_RESET_BALANCE);
+  const remainingMakeupCount = Math.max(0, maxMakeupAllowed - usedMakeupCount);
 
   return {
     ...state,
     memberId,
-    credits: Math.max(0, Number(state.credits || 0)),
-    grantedThisMonth: Math.max(0, Number(state.grantedThisMonth || 0)),
-    monthlyLimit: MAKEUP_MONTHLY_LIMIT,
+    fixedScheduleCancelCount,
+    maxMakeupAllowed,
+    usedMakeupCount,
+    remainingMakeupCount,
+    credits: remainingMakeupCount,
+    grantedThisMonth: fixedScheduleCancelCount,
+    monthlyLimit: MAKEUP_RESET_BALANCE,
     resetBalance: MAKEUP_RESET_BALANCE,
     history: Array.isArray(state.history) ? state.history : [],
   };
@@ -142,6 +175,14 @@ export function getMakeupSessionSummary(currentUser = null) {
 }
 
 export function recordMakeupForCancelledSession(session, currentUser = null) {
+  const isFixedPtSession = Boolean(session?.trainerId || session?.trainer_id)
+    || String(session?.title || session?.sessionTitle || "").toLowerCase().includes("pt")
+    || String(session?.exerciseType || session?.exercise_type || "").toLowerCase().includes("personal training");
+  if (!isFixedPtSession) {
+    const memberId = session?.memberId || resolveLocalMemberId(currentUser);
+    return { ...readMakeupState(memberId), granted: false, reason: "not_fixed_pt_session" };
+  }
+
   const memberId = session?.memberId || resolveLocalMemberId(currentUser);
   const state = readMakeupState(memberId);
   const sessionId = session?.sessionId || session?.id || "";
@@ -157,23 +198,42 @@ export function recordMakeupForCancelledSession(session, currentUser = null) {
     recordedAt: new Date().toISOString(),
   };
 
-  if (state.grantedThisMonth >= MAKEUP_MONTHLY_LIMIT) {
-    const nextState = {
-      ...state,
-      history: [{ ...historyItem, granted: false, reason: "monthly_limit" }, ...state.history],
-    };
-    writeMakeupState(nextState);
-    return { ...nextState, granted: false, reason: "monthly_limit" };
-  }
-
   const nextState = {
     ...state,
-    credits: Math.min(MAKEUP_RESET_BALANCE, Number(state.credits || 0) + 1),
-    grantedThisMonth: Number(state.grantedThisMonth || 0) + 1,
-    history: [{ ...historyItem, granted: true }, ...state.history],
+    fixedScheduleCancelCount: Number(state.fixedScheduleCancelCount || 0) + 1,
+    history: [{ ...historyItem, granted: true, type: "fixed_session_cancelled" }, ...state.history],
   };
+  const normalized = normalizeMakeupState(nextState, memberId);
+  writeMakeupState(normalized);
+  return { ...normalized, granted: true };
+}
+
+export function markMakeupSessionUsedForAcceptedRequest(request, currentUser = null) {
+  const memberId = request?.memberId || request?.member_id || resolveLocalMemberId(currentUser);
+  const state = readMakeupState(memberId);
+  const requestId = request?.requestId || request?.id || request?.trainingRequestId || "";
+
+  if (requestId && state.history.some((item) => item.requestId === requestId && item.type === "makeup_used")) {
+    return { ...state, used: false, reason: "already_used" };
+  }
+
+  if (state.remainingMakeupCount <= 0) {
+    return { ...state, used: false, reason: "no_remaining_makeup" };
+  }
+
+  const nextState = normalizeMakeupState({
+    ...state,
+    usedMakeupCount: Number(state.usedMakeupCount || 0) + 1,
+    history: [{
+      requestId,
+      date: request?.date || request?.requestedDate || "",
+      time: request?.time || request?.startTime || "",
+      recordedAt: new Date().toISOString(),
+      type: "makeup_used",
+    }, ...state.history],
+  }, memberId);
   writeMakeupState(nextState);
-  return { ...nextState, granted: true };
+  return { ...nextState, used: true };
 }
 
 function isCancelledWorkoutStatus(status) {
@@ -229,6 +289,34 @@ export function updateLocalWorkoutSessionStatus(sessionId, status) {
   writeLocalWorkoutSessions(nextRows);
 }
 
+export function saveAcceptedLocalPtSessionFromRequest(request) {
+  const requestId = request?.requestId || request?.id || request?.trainingRequestId || Date.now();
+  const sessionId = `local-makeup-pt-${requestId}`;
+  const row = {
+    workout_session_id: sessionId,
+    session_id: sessionId,
+    member_id: request?.memberId || request?.member_id || LOCAL_DEMO_MEMBER_ID,
+    trainer_id: request?.trainerId || request?.trainer_id || LOCAL_DEMO_TRAINER_ID,
+    title: "PT Session",
+    exercise_type: "Personal Training",
+    room_name: "PT Room",
+    session_date: request?.date || request?.requestedDate || request?.requested_date,
+    start_time: request?.time || request?.startTime || request?.start_time,
+    end_time: request?.endTime || request?.end_time,
+    status: "scheduled",
+    notes: "Makeup PT session accepted by PT.",
+    memberName: request?.memberName || "Member",
+    trainerName: request?.trainerName || "Khoa Le",
+    packageName: request?.packageName || "PT Progress 3 Months",
+  };
+
+  const rows = readLocalWorkoutSessions();
+  writeLocalWorkoutSessions([row, ...rows.filter((item) => (
+    (item.session_id || item.workout_session_id) !== sessionId
+  ))]);
+  return mapWorkoutSessionRow(row);
+}
+
 function toDateValue(date) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -280,7 +368,7 @@ function generateLocalFixedPtSessions(memberId = LOCAL_DEMO_MEMBER_ID) {
 
 function mergeLocalWorkoutRows(storedRows, fixedRows) {
   const seen = new Set();
-  return [...fixedRows, ...storedRows].filter((row) => {
+  return [...storedRows, ...fixedRows].filter((row) => {
     const id = row.session_id || row.workout_session_id;
     const key = id || [
       row.member_id,
@@ -296,8 +384,9 @@ function mergeLocalWorkoutRows(storedRows, fixedRows) {
 }
 
 function mapAndSortLocalWorkoutSessions(memberId = null) {
-  return mergeLocalWorkoutRows(readLocalWorkoutSessions(), generateLocalFixedPtSessions(memberId))
+  return mergeLocalWorkoutRows(removeLocalSelfWorkouts(readLocalWorkoutSessions()), generateLocalFixedPtSessions(memberId))
     .filter((row) => !isCancelledWorkoutStatus(row.status))
+    .filter((row) => !isSelfWorkoutRow(row))
     .map(mapWorkoutSessionRow)
     .filter(Boolean)
     .filter((row) => !memberId || !row.memberId || row.memberId === memberId)
@@ -668,7 +757,7 @@ export async function getWorkoutSessionsForMember(currentUser) {
 
   const databaseRows = await enrichWorkoutSessions(data || []);
   return {
-    data: mergeWorkoutSessionRows(localRows, databaseRows).filter((row) => !isCancelledWorkoutStatus(row.status)),
+    data: mergeWorkoutSessionRows(localRows, databaseRows).filter((row) => !isCancelledWorkoutStatus(row.status) && row.isPtSession),
     error: null,
   };
 }
@@ -745,9 +834,10 @@ export async function createManualWorkoutSessionForMember(payload, currentUser) 
 
 export async function getWorkoutSessionsForTrainer(currentUser) {
   if (!supabase) {
-    const error = new Error("Missing h\u1ec7 th\u1ed1ng environment variables.");
-    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to load trainer workout sessions:", error);
-    return { data: [], error };
+    const trainerId = currentUser?.trainerId || currentUser?.trainer_id || LOCAL_DEMO_TRAINER_ID;
+    const rows = mapAndSortLocalWorkoutSessions()
+      .filter((session) => session.trainerId === trainerId || (!currentUser?.trainerId && session.trainerId === LOCAL_DEMO_TRAINER_ID));
+    return { data: rows, error: null };
   }
 
   const trainerId = await resolveCurrentTrainerId(currentUser);

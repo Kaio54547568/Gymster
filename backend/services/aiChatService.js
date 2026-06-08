@@ -4,6 +4,7 @@ import {
   createBooking,
   createReview,
   getMembership,
+  getMakeupBalance,
   getUserSchedule,
   updateReview,
 } from "./aiActionService.js";
@@ -15,7 +16,7 @@ const CANCEL_WORDS = ["hủy", "huỷ", "huy", "cancel", "không", "khong"];
 const GYM_OPEN_TIME = "08:00";
 const GYM_CLOSE_TIME = "20:00";
 const ACTION_REDIRECT_URLS = {
-  create_booking: "/member/my-schedule",
+  create_booking: null,
   cancel_booking: "/member/my-schedule",
   create_review: "/member/rate-service",
   update_review: "/member/rate-service",
@@ -49,9 +50,24 @@ function nextWeekdayDate(dayIndex) {
 }
 
 function parseVietnameseDate(normalizedDateText) {
+  const isoMatch = normalizedDateText.match(/\b(\d{4})-(\d{1,2})-(\d{1,2})\b/);
+  if (isoMatch) {
+    const parsed = new Date(Number(isoMatch[1]), Number(isoMatch[2]) - 1, Number(isoMatch[3]));
+    if (
+      parsed.getFullYear() === Number(isoMatch[1])
+      && parsed.getMonth() === Number(isoMatch[2]) - 1
+      && parsed.getDate() === Number(isoMatch[3])
+    ) return parsed;
+  }
+
+  const dayOnlyMatch = normalizedDateText.match(/\b(?:ngay\s*)?(\d{1,2})\b/i);
   let match = normalizedDateText.match(/(?:ngay\s*)?(\d{1,2})\s*(?:\/|-|thang\s+)(\d{1,2})(?:\s*(?:\/|-|nam\s+)(\d{2,4}))?/i);
   if (!match) {
     match = normalizedDateText.match(/ng\S*\s+(\d{1,2})\s+\S{2,12}\s+(\d{1,2})(?:\s+\S{2,12}\s+(\d{2,4}))?/i);
+  }
+  if (!match && dayOnlyMatch && normalizedDateText.includes("ngay")) {
+    const now = new Date();
+    match = [dayOnlyMatch[0], dayOnlyMatch[1], String(now.getMonth() + 1), String(now.getFullYear())];
   }
   if (!match) return null;
 
@@ -154,11 +170,13 @@ function isCancellation(message) {
   return CANCEL_WORDS.some((word) => normalized.includes(normalizeVietnamese(word)));
 }
 
+function isExplicitCancelRequest(message) {
+  const normalized = normalizeVietnamese(message);
+  return ["huy", "cancel"].some((word) => normalized.includes(word));
+}
+
 function requiredDataForIntent(intent, entities) {
   if (intent === "create_booking") {
-    if (entities.trainer) {
-      return { ok: false, reply: "Lịch tập với PT là lịch cố định và không thể tạo, hủy hoặc thay đổi bằng AI chat. AI chat chỉ thêm buổi tập cá nhân." };
-    }
     const date = resolveDate(entities.date_text);
     const time = normalizeTime(entities.time);
     const partialBookingData = {
@@ -208,12 +226,16 @@ function requiredDataForIntent(intent, entities) {
     return { ok: true, data: {} };
   }
 
+  if (intent === "view_makeup_balance") {
+    return { ok: true, data: {} };
+  }
+
   return { ok: false, reply: "Tôi chưa hiểu yêu cầu này. Bạn có thể nói rõ hơn không?" };
 }
 
 function confirmationReply(action) {
   const data = action.data || {};
-  if (action.name === "create_booking") return `Bạn xác nhận muốn thêm buổi tập cá nhân vào ${data.date} lúc ${data.time} không? Lịch PT cố định sẽ không bị thay đổi.`;
+  if (action.name === "create_booking") return `Bạn xác nhận muốn gửi yêu cầu đặt lịch bù với PT vào ${data.date} lúc ${data.time} không? AI sẽ kiểm tra số buổi bù còn lại và gửi yêu cầu cho PT, chưa tạo lịch ngay.`;
   if (action.name === "cancel_booking") return `Bạn xác nhận muốn hủy lịch tập ngày ${data.date} không?`;
   if (action.name === "create_review") return `Bạn xác nhận muốn đánh giá buổi tập ${data.date} ${data.rating} sao với nội dung "${data.comment}" không?`;
   if (action.name === "update_review") return `Bạn xác nhận muốn cập nhật đánh giá thành ${data.rating} sao với nội dung "${data.comment}" không?`;
@@ -222,19 +244,20 @@ function confirmationReply(action) {
 
 function successReply(action, result) {
   const data = action.data || {};
-  if (action.name === "create_booking") return `Đã thêm buổi tập cá nhân cho bạn vào ${data.date} lúc ${data.time}. Lịch PT cố định vẫn giữ nguyên.`;
+  if (action.name === "create_booking") return `Đã gửi yêu cầu đặt lịch bù với PT vào ${data.date} lúc ${data.time}. PT sẽ nhận thông báo để đồng ý hoặc từ chối. Lịch chỉ được tạo sau khi PT xác nhận.`;
   if (action.name === "cancel_booking") return `Đã hủy lịch tập ngày ${data.date}.`;
   if (action.name === "create_review") return `Đã lưu đánh giá ${data.rating} sao của bạn.`;
   if (action.name === "update_review") return `Đã cập nhật đánh giá của bạn.`;
   if (action.name === "view_membership") return result ? `Gói tập hiện tại: ${result.packageName}, trạng thái ${result.status}, còn ${result.remainingSessions ?? "-"} buổi.` : "Bạn chưa có gói tập đang hoạt động.";
   if (action.name === "view_schedule") return result.length ? `Bạn có ${result.length} buổi tập trong khoảng đã chọn.` : "Không có lịch tập trong khoảng đã chọn.";
+  if (action.name === "view_makeup_balance") return `Trong tháng ${result.month}/${result.year}, bạn đã hủy ${result.fixedScheduleCancelCount} lịch tập cố định. Theo quy định, bạn được bù tối đa ${result.maxMakeupAllowed} buổi/tháng. Bạn đã sử dụng ${result.usedMakeupCount} buổi, hiện còn ${result.remainingMakeupCount} buổi bù.`;
   return "Đã thực hiện xong.";
 }
 
 function affectedIdForResult(action, result) {
   if (!result) return null;
   if (action.name === "create_booking" || action.name === "cancel_booking") {
-    return result.sessionId || result.workout_session_id || result.session_id || null;
+    return result.sessionId || result.requestId || result.trainingRequestId || result.workout_session_id || result.session_id || null;
   }
   if (action.name === "create_review" || action.name === "update_review") {
     return result.feedback_id || result.feedbackId || null;
@@ -268,6 +291,8 @@ async function executeAction(user, action) {
       return updateReview(user, action.data);
     case "view_membership":
       return getMembership(user);
+    case "view_makeup_balance":
+      return getMakeupBalance(user);
     default:
       throw new Error("Unsupported AI action.");
   }
@@ -321,6 +346,31 @@ export async function handleAiChat({ message, pendingAction, user }) {
           parsed,
         };
       }
+
+      if (pendingAction.name === "cancel_booking") {
+        const parsedDate = resolveDate(parsed.entities.date_text);
+        const data = {
+          ...currentData,
+          date: currentData.date || (parsedDate && typeof parsedDate !== "object" ? parsedDate : null),
+        };
+
+        if (data.date) {
+          const action = { name: "cancel_booking", data };
+          return {
+            type: "confirmation_required",
+            reply: confirmationReply(action),
+            pendingAction: action,
+            parsed,
+          };
+        }
+
+        return {
+          type: "question",
+          reply: "Ban muon huy lich tap ngay nao?",
+          pendingAction: { ...pendingAction, data },
+          parsed,
+        };
+      }
     }
     if (!isConfirmation(message)) {
       return {
@@ -338,10 +388,18 @@ export async function handleAiChat({ message, pendingAction, user }) {
     }
   }
 
-  const parsed = await parseGymsterIntent(message);
+  let parsed = await parseGymsterIntent(message);
+  if (isExplicitCancelRequest(message)) {
+    parsed = { ...parsed, intent: "cancel_booking" };
+  }
   const requirement = requiredDataForIntent(parsed.intent, parsed.entities);
   if (!requirement.ok) {
-    return { type: "question", reply: requirement.reply, pendingAction: requirement.pendingAction || null, parsed };
+    return {
+      type: "question",
+      reply: requirement.reply,
+      pendingAction: requirement.pendingAction || (parsed.intent === "cancel_booking" ? { status: "collecting", name: "cancel_booking", data: {} } : null),
+      parsed,
+    };
   }
 
   const action = { name: parsed.intent, data: requirement.data };
