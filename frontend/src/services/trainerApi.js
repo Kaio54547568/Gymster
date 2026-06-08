@@ -1,5 +1,50 @@
 import { supabase } from "./supabaseClient";
 
+const LOCAL_TRAINERS = [
+  {
+    id: "local-trainer-khoa",
+    name: "Khoa Le",
+    specialty: "PT Strength & Conditioning",
+    rating: 4.9,
+    maxActiveMembers: 12,
+    currentActiveMembers: 6,
+    status: "active",
+    avatarUrl: "",
+    availableSlots: [
+      { day: "Monday", startTime: "08:00", endTime: "10:00" },
+      { day: "Thursday", startTime: "08:00", endTime: "10:00" },
+    ],
+  },
+  {
+    id: "local-trainer-lan",
+    name: "Lan Anh",
+    specialty: "Yoga & Mobility",
+    rating: 4.8,
+    maxActiveMembers: 10,
+    currentActiveMembers: 4,
+    status: "active",
+    avatarUrl: "",
+    availableSlots: [
+      { day: "Tuesday", startTime: "17:00", endTime: "19:00" },
+      { day: "Saturday", startTime: "09:00", endTime: "11:00" },
+    ],
+  },
+  {
+    id: "local-trainer-minh",
+    name: "Minh Tuan",
+    specialty: "Weight Loss Coaching",
+    rating: 4.7,
+    maxActiveMembers: 10,
+    currentActiveMembers: 8,
+    status: "active",
+    avatarUrl: "",
+    availableSlots: [
+      { day: "Wednesday", startTime: "18:00", endTime: "20:00" },
+      { day: "Friday", startTime: "07:00", endTime: "09:00" },
+    ],
+  },
+];
+
 function getRelatedName(row) {
   const userName = [row.users?.first_name, row.users?.last_name].filter(Boolean).join(" ").trim();
   return row.full_name || userName || row.employees?.full_name || row.trainer_code || "Trainer";
@@ -65,9 +110,7 @@ async function fetchRelatedTrainerRows() {
 
 export async function fetchTrainersFromSupabase() {
   if (!supabase) {
-    const error = new Error("Missing h\u1ec7 th\u1ed1ng environment variables.");
-    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to load trainers:", error);
-    return { data: [], error };
+    return { data: LOCAL_TRAINERS, error: null };
   }
 
   let { data, error } = await fetchDirectTrainerRows();

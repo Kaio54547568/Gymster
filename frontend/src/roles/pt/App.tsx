@@ -708,20 +708,13 @@ function TrainingRequestsPanel({ showToast }: { showToast: (msg: string) => void
   const getRequestStatus = (request: any) => request.statusLabel || request.status;
 
   const acceptRequest = async (request: any) => {
-    if (request.source === "supabase") {
-      const { error } = await updateTrainingRequestStatus(request.requestId || request.id, "accepted", "");
-      if (error) {
-        showToast("Cập nhật thất bại. Yêu cầu chưa được thay đổi.");
-        return;
-      }
-
-      await loadRequests();
-    } else {
-      showToast("Only valid requests can be accepted.");
-      refreshRequests();
+    const { error } = await updateTrainingRequestStatus(request.requestId || request.id, "accepted", "");
+    if (error) {
+      showToast("Cập nhật thất bại. Yêu cầu chưa được thay đổi.");
       return;
     }
 
+    await loadRequests();
     showToast(`${request.type === "makeup_pt_session" ? "Makeup PT session" : request.type === "reschedule" ? "Reschedule" : "Assignment"} request accepted.`);
   };
 
@@ -729,17 +722,12 @@ function TrainingRequestsPanel({ showToast }: { showToast: (msg: string) => void
     if (!declineTarget) return;
     const nextDeclineReason = declineReason.trim() || "PT declined this request.";
 
-    if (declineTarget.source === "supabase") {
-      const { error } = await updateTrainingRequestStatus(declineTarget.requestId || declineTarget.id, "declined", nextDeclineReason);
-      if (error) {
-        showToast("Cập nhật thất bại. Yêu cầu chưa được thay đổi.");
-      } else {
-        await loadRequests();
-        showToast("Request declined and member notified.");
-      }
+    const { error } = await updateTrainingRequestStatus(declineTarget.requestId || declineTarget.id, "declined", nextDeclineReason);
+    if (error) {
+      showToast("Cập nhật thất bại. Yêu cầu chưa được thay đổi.");
     } else {
-      showToast("Only valid requests can be declined.");
-      refreshRequests();
+      await loadRequests();
+      showToast("Request declined and member notified.");
     }
 
     setDeclineTarget(null);

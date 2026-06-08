@@ -523,9 +523,10 @@ export async function getTrainingRequestsForTrainer(trainerLookup) {
 
 export async function getTrainingRequestsForMember(memberLookup) {
   if (!supabase) {
-    const error = new Error("Missing h\u1ec7 th\u1ed1ng environment variables.");
-    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to load member training requests:", error);
-    return { data: [], error };
+    const memberId = String(memberLookup?.memberId || memberLookup?.member_id || memberLookup?.id || memberLookup || "");
+    const rows = readLocalTrainingRequests()
+      .filter((request) => !memberId || !request.memberId || request.memberId === memberId);
+    return { data: rows, error: null };
   }
 
   const memberId = await resolveMemberIdFromLookup(memberLookup);
