@@ -1,6 +1,11 @@
 import { supabase } from "./supabaseClient";
+import {
+  markMakeupSessionUsedForAcceptedRequest,
+  saveAcceptedLocalPtSessionFromRequest,
+} from "./workoutSessionApi";
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const LOCAL_TRAINING_REQUESTS_KEY = "gymster_local_training_requests";
 
 function getRequestId(row) {
   return row?.request_id || row?.training_request_id;
@@ -17,6 +22,46 @@ function getMemberName(row) {
 
 function getTrainerName(row) {
   return combineUserName(row?.trainers?.users, row?.trainers?.employees?.full_name || row?.trainers?.trainer_code || row?.trainer_id || "Trainer");
+}
+
+function canUseStorage() {
+  return typeof window !== "undefined" && Boolean(window.localStorage);
+}
+
+function readLocalTrainingRequests() {
+  if (!canUseStorage()) return [];
+  try {
+    const rows = JSON.parse(window.localStorage.getItem(LOCAL_TRAINING_REQUESTS_KEY) || "[]");
+    return Array.isArray(rows) ? rows : [];
+  } catch {
+    window.localStorage.removeItem(LOCAL_TRAINING_REQUESTS_KEY);
+    return [];
+  }
+}
+
+function writeLocalTrainingRequests(rows) {
+  if (!canUseStorage()) return;
+  window.localStorage.setItem(LOCAL_TRAINING_REQUESTS_KEY, JSON.stringify(rows));
+  window.dispatchEvent(new CustomEvent("gymster:training-requests-updated"));
+}
+
+export function saveAiTrainingRequest(request) {
+  if (!request?.requestId && !request?.trainingRequestId) return;
+  const row = {
+    ...request,
+    id: request.requestId || request.trainingRequestId,
+    requestId: request.requestId || request.trainingRequestId,
+    trainingRequestId: request.trainingRequestId || request.requestId,
+    type: request.type || "makeup_pt_session",
+    status: request.status || "pending_pt_approval",
+    rawStatus: request.status || "pending_pt_approval",
+    statusLabel: getTrainingRequestStatusLabel(request.status || "pending_pt_approval"),
+    preferredSchedule: request.requestedSchedule || `${request.date || ""} ${request.time || ""}`.trim(),
+    requestedSchedule: request.requestedSchedule || `${request.date || ""} ${request.time || ""}`.trim(),
+    source: "local",
+  };
+  const rows = readLocalTrainingRequests();
+  writeLocalTrainingRequests([row, ...rows.filter((item) => item.requestId !== row.requestId)]);
 }
 
 async function createTrainerSelectionNotification(row) {
@@ -100,7 +145,7 @@ function mapTrainingRequestRow(row) {
   return {
     requestId: getRequestId(row),
     id: getRequestId(row),
-    type: "assignment",
+    type: row.request_type || "assignment",
     memberId: row.member_id,
     memberName: getMemberName(row),
     trainerId: row.trainer_id,
@@ -109,6 +154,11 @@ function mapTrainingRequestRow(row) {
     packageName: row.packages?.package_name || "",
     requestedSchedule: row.requested_schedule,
     preferredSchedule: row.requested_schedule,
+    requestedDate: row.requested_date,
+    date: row.requested_date,
+    startTime: String(row.start_time || "").slice(0, 5),
+    time: String(row.start_time || "").slice(0, 5),
+    endTime: String(row.end_time || "").slice(0, 5),
     status: row.status,
     statusLabel: getTrainingRequestStatusLabel(row.status),
     rawStatus: row.status,
@@ -182,14 +232,20 @@ async function updateTrainingRequestByColumn(idColumn, requestId, updates) {
 function baseTrainingRequestSelect() {
   return `
     training_request_id,
+    request_id,
+    request_type,
     member_id,
     trainer_id,
     package_id,
     member_package_id,
     requested_schedule,
+    requested_date,
+    start_time,
+    end_time,
     status,
     decline_reason,
     created_at,
+    expires_at,
     members (
       member_id,
       member_code,
@@ -305,6 +361,113 @@ async function selectTrainingRequests(filters = {}) {
   return query;
 }
 
+async function notifyMemberAboutMakeupRequest(row, outcome) {
+  if (!row?.member_id) return;
+  try {
+    const { data: member } = await supabase
+      .from("members")
+      .select("user_id")
+      .eq("member_id", row.member_id)
+      .maybeSingle();
+    if (!member?.user_id) return;
+
+    const date = row.requested_date || String(row.requested_schedule || "").split(" ")[0] || "";
+    const time = String(row.start_time || "").slice(0, 5);
+    const accepted = outcome === "accepted";
+    await supabase.from("notifications").insert({
+      user_id: member.user_id,
+      notification_type: "schedule",
+      title: accepted ? "PT đã đồng ý lịch tập" : "PT đã từ chối lịch tập",
+      message: accepted
+        ? `PT đã đồng ý buổi tập của bạn vào ${date} lúc ${time}.`
+        : `PT đã từ chối buổi tập vào ${date} lúc ${time}. Vui lòng chọn thời gian khác.`,
+      action_type: accepted ? "view_schedule" : "book_makeup_session_again",
+      action_payload: { requestId: row.request_id || row.training_request_id },
+      is_read: false,
+    });
+  } catch (error) {
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to notify member about makeup request:", error);
+  }
+}
+
+async function createAcceptedMakeupPtSession(row) {
+  const date = row.requested_date || null;
+  const startTime = String(row.start_time || "").slice(0, 5);
+  const endTime = String(row.end_time || "").slice(0, 5);
+  if (!date || !startTime || !endTime) return null;
+
+  const { data: existing } = await supabase
+    .from("workout_sessions")
+    .select("workout_session_id")
+    .eq("member_id", row.member_id)
+    .eq("trainer_id", row.trainer_id)
+    .eq("session_date", date)
+    .eq("start_time", startTime)
+    .maybeSingle();
+  if (existing?.workout_session_id) return existing;
+
+  const { data, error } = await supabase
+    .from("workout_sessions")
+    .insert({
+      member_id: row.member_id,
+      trainer_id: row.trainer_id,
+      package_id: row.package_id || null,
+      member_package_id: row.member_package_id || null,
+      title: "PT Session",
+      session_title: "PT Session",
+      exercise_type: "Personal Training",
+      room_name: "PT Room",
+      session_date: date,
+      start_time: startTime,
+      end_time: endTime,
+      status: "scheduled",
+      notes: "Makeup PT session accepted by PT.",
+    })
+    .select("workout_session_id")
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+async function recordMakeupUsage(row) {
+  try {
+    const now = new Date();
+    const month = now.getMonth() + 1;
+    const year = now.getFullYear();
+    const { count } = await supabase
+      .from("workout_sessions")
+      .select("workout_session_id", { count: "exact", head: true })
+      .eq("member_id", row.member_id)
+      .not("trainer_id", "is", null)
+      .eq("status", "cancelled")
+      .gte("session_date", `${year}-${String(month).padStart(2, "0")}-01`)
+      .lte("session_date", `${year}-${String(month).padStart(2, "0")}-31`);
+    const fixedScheduleCancelCount = Number(count || 0);
+    const maxMakeupAllowed = Math.min(fixedScheduleCancelCount, 3);
+    const { count: usedCount } = await supabase
+      .from("training_requests")
+      .select("training_request_id", { count: "exact", head: true })
+      .eq("member_id", row.member_id)
+      .eq("request_type", "makeup_pt_session")
+      .in("status", ["accepted", "approved", "completed"])
+      .gte("created_at", `${year}-${String(month).padStart(2, "0")}-01T00:00:00`)
+      .lte("created_at", `${year}-${String(month).padStart(2, "0")}-31T23:59:59`);
+
+    await supabase.from("makeup_sessions").upsert({
+      customer_id: row.member_id,
+      month,
+      year,
+      fixed_schedule_cancel_count: fixedScheduleCancelCount,
+      max_makeup_allowed: maxMakeupAllowed,
+      used_makeup_count: Number(usedCount || 0),
+      remaining_makeup_count: Math.max(0, maxMakeupAllowed - Number(usedCount || 0)),
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "customer_id,month,year" });
+  } catch (error) {
+    console.warn("[Gymster h\u1ec7 th\u1ed1ng] Makeup summary table could not be updated:", error);
+  }
+}
+
 export async function createTrainingRequest(request) {
   if (!supabase) {
     const error = new Error("Missing h\u1ec7 th\u1ed1ng environment variables.");
@@ -319,6 +482,10 @@ export async function createTrainingRequest(request) {
     package_id: request.packageId,
     member_package_id: request.memberPackageId || null,
     requested_schedule: request.requestedSchedule,
+    request_type: request.requestType || request.type || "assignment",
+    requested_date: request.requestedDate || request.date || null,
+    start_time: request.startTime || request.time || null,
+    end_time: request.endTime || null,
     status: "pending_pt_approval",
     decline_reason: "",
   };
@@ -337,9 +504,7 @@ export async function createTrainingRequest(request) {
 
 export async function getTrainingRequestsForTrainer(trainerLookup) {
   if (!supabase) {
-    const error = new Error("Missing h\u1ec7 th\u1ed1ng environment variables.");
-    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to load trainer training requests:", error);
-    return { data: [], error };
+    return { data: readLocalTrainingRequests(), error: null };
   }
 
   const trainerId = await resolveTrainerIdFromLookup(trainerLookup);
@@ -358,9 +523,10 @@ export async function getTrainingRequestsForTrainer(trainerLookup) {
 
 export async function getTrainingRequestsForMember(memberLookup) {
   if (!supabase) {
-    const error = new Error("Missing h\u1ec7 th\u1ed1ng environment variables.");
-    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to load member training requests:", error);
-    return { data: [], error };
+    const memberId = String(memberLookup?.memberId || memberLookup?.member_id || memberLookup?.id || memberLookup || "");
+    const rows = readLocalTrainingRequests()
+      .filter((request) => !memberId || !request.memberId || request.memberId === memberId);
+    return { data: rows, error: null };
   }
 
   const memberId = await resolveMemberIdFromLookup(memberLookup);
@@ -404,9 +570,23 @@ export async function getTrainingRequestById(requestId) {
 
 export async function updateTrainingRequestStatus(requestId, status, declineReason = "") {
   if (!supabase) {
-    const error = new Error("Missing h\u1ec7 th\u1ed1ng environment variables.");
-    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to update training request:", error);
-    return { data: null, error };
+    const rows = readLocalTrainingRequests();
+    const target = rows.find((item) => item.requestId === requestId || item.id === requestId);
+    if (!target) return { data: null, error: new Error("Training request was not found.") };
+    const normalizedStatus = status === "approved" ? "accepted" : status;
+    const nextTarget = {
+      ...target,
+      status: normalizedStatus,
+      rawStatus: normalizedStatus,
+      statusLabel: getTrainingRequestStatusLabel(normalizedStatus),
+      declineReason,
+    };
+    if (normalizedStatus === "accepted") {
+      saveAcceptedLocalPtSessionFromRequest(nextTarget);
+      markMakeupSessionUsedForAcceptedRequest(nextTarget);
+    }
+    writeLocalTrainingRequests(rows.map((item) => (item.requestId === target.requestId ? nextTarget : item)));
+    return { data: nextTarget, error: null };
   }
 
   const updates = {
@@ -438,7 +618,20 @@ export async function updateTrainingRequestStatus(requestId, status, declineReas
     return { data: null, error };
   }
 
-  if (["accepted", "approved"].includes(String(status || "").toLowerCase())) {
+  const normalizedStatus = String(status || "").toLowerCase();
+  const requestType = String(data?.request_type || "").toLowerCase();
+  if (requestType === "makeup_pt_session" && ["accepted", "approved"].includes(normalizedStatus)) {
+    try {
+      await createAcceptedMakeupPtSession(data);
+      await recordMakeupUsage(data);
+      await notifyMemberAboutMakeupRequest(data, "accepted");
+    } catch (actionError) {
+      console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to finalize makeup PT request:", actionError);
+      return { data: null, error: actionError };
+    }
+  } else if (requestType === "makeup_pt_session" && ["declined", "rejected"].includes(normalizedStatus)) {
+    await notifyMemberAboutMakeupRequest(data, "declined");
+  } else if (["accepted", "approved"].includes(normalizedStatus)) {
     await createTrainerSelectionNotification(data);
   }
 

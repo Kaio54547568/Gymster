@@ -5,16 +5,33 @@ import {
   createLocalReview,
   getDefaultMemberId,
   getLocalMembership,
+  getLocalMakeupBalance,
   listLocalBookings,
   updateLocalReview,
 } from "./localGymsterStore.js";
 
 let supabaseClient;
+const GYM_OPEN_TIME = "08:00";
+const GYM_CLOSE_TIME = "20:00";
+
+function isConfiguredSupabaseUrl(value) {
+  try {
+    const url = new URL(String(value || ""));
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+function isConfiguredSupabaseKey(value) {
+  const key = String(value || "").trim();
+  return key.length > 0 && !key.startsWith("your_");
+}
 
 function getSupabaseClient() {
   const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
   const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-  if (!supabaseUrl || !supabaseKey) return null;
+  if (!isConfiguredSupabaseUrl(supabaseUrl) || !isConfiguredSupabaseKey(supabaseKey)) return null;
 
   if (!supabaseClient) {
     supabaseClient = createClient(supabaseUrl, supabaseKey);
@@ -22,9 +39,33 @@ function getSupabaseClient() {
   return supabaseClient;
 }
 
-function addOneHour(time) {
-  const [hour, minute] = String(time || "08:00").split(":").map(Number);
-  return `${String(Math.min(23, (hour || 8) + 1)).padStart(2, "0")}:${String(minute || 0).padStart(2, "0")}`;
+function addHours(time, hours) {
+  const [hour, minute] = String(time || GYM_OPEN_TIME).split(":").map(Number);
+  const endHour = Math.min(23, (hour || 8) + hours);
+  return `${String(endHour).padStart(2, "0")}:${String(minute || 0).padStart(2, "0")}`;
+}
+
+function minutesFromTime(time) {
+  const [hour, minute] = String(time || "").slice(0, 5).split(":").map(Number);
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return null;
+  return hour * 60 + minute;
+}
+
+function assertWithinGymHours(startTime, endTime) {
+  const start = minutesFromTime(startTime);
+  const end = minutesFromTime(endTime);
+  const open = minutesFromTime(GYM_OPEN_TIME);
+  const close = minutesFromTime(GYM_CLOSE_TIME);
+
+  if (start === null || end === null || start < open || end > close || start >= end) {
+    throw new Error("Phòng gym chỉ mở từ 08:00 đến 20:00. Vui lòng chọn thời gian trong khung giờ này.");
+  }
+}
+
+function isPtSession(session) {
+  const title = String(session.title || "").toLowerCase();
+  const exerciseType = String(session.exercise_type || session.exerciseType || "").toLowerCase();
+  return Boolean(session.trainerId || session.trainer_id) || title.includes("pt") || exerciseType.includes("personal training");
 }
 
 function mapSession(row) {
@@ -39,6 +80,24 @@ function mapSession(row) {
     status: row.status,
     room: row.room_name || "Training Room",
     note: row.note || row.notes || "",
+  };
+}
+
+function mapBookingRequest(row, balance = null) {
+  return {
+    requestId: row.request_id || row.training_request_id,
+    trainingRequestId: row.training_request_id,
+    memberId: row.member_id,
+    trainerId: row.trainer_id,
+    memberName: row.memberName || row.member_name || "Member",
+    trainerName: row.trainerName || row.trainer_name || "PT",
+    date: row.requested_date || row.session_date,
+    time: String(row.start_time || "").slice(0, 5),
+    endTime: String(row.end_time || "").slice(0, 5),
+    requestedSchedule: row.requested_schedule,
+    type: row.request_type || "makeup_pt_session",
+    status: row.status,
+    makeupBalance: balance || row.makeupBalance || null,
   };
 }
 
@@ -78,6 +137,134 @@ async function getActiveMemberPackage(client, memberId) {
   return data || null;
 }
 
+async function resolveMemberProfile(client, memberId) {
+  if (!client) return { memberName: "Member", memberUserId: null };
+  const { data: member } = await client
+    .from("members")
+    .select("member_id,user_id,member_code,full_name")
+    .eq("member_id", memberId)
+    .maybeSingle();
+  if (!member) return { memberName: "Member", memberUserId: null };
+
+  let memberName = member.full_name || member.member_code || "Member";
+  if (member.user_id) {
+    const { data: user } = await client
+      .from("users")
+      .select("first_name,last_name,email")
+      .eq("user_id", member.user_id)
+      .maybeSingle();
+    const name = [user?.first_name, user?.last_name].filter(Boolean).join(" ").trim();
+    memberName = name || memberName;
+  }
+
+  return { memberName, memberUserId: member.user_id || null };
+}
+
+async function resolveTrainerForMember(client, memberId, memberPackage) {
+  if (!client) return { trainerId: "local-trainer-khoa", trainerUserId: "00000000-0000-4000-8000-000000000004", trainerName: "Khoa Le" };
+
+  let trainerId = memberPackage?.trainer_id || null;
+  if (!trainerId) {
+    const { data: assignment } = await client
+      .from("trainer_assignments")
+      .select("trainer_id")
+      .eq("member_id", memberId)
+      .eq("status", "active")
+      .order("assigned_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    trainerId = assignment?.trainer_id || null;
+  }
+  if (!trainerId) {
+    const { data: trainer } = await client
+      .from("trainers")
+      .select("trainer_id")
+      .neq("status", "inactive")
+      .limit(1)
+      .maybeSingle();
+    trainerId = trainer?.trainer_id || null;
+  }
+  if (!trainerId) throw new Error("Không tìm thấy PT phù hợp để gửi yêu cầu đặt lịch.");
+
+  const { data: trainer } = await client
+    .from("trainers")
+    .select("trainer_id,user_id,employee_id,trainer_code,full_name")
+    .eq("trainer_id", trainerId)
+    .maybeSingle();
+  let trainerName = trainer?.full_name || trainer?.trainer_code || "PT";
+  let trainerUserId = trainer?.user_id || null;
+  if (trainer?.user_id) {
+    const { data: user } = await client
+      .from("users")
+      .select("first_name,last_name")
+      .eq("user_id", trainer.user_id)
+      .maybeSingle();
+    trainerName = [user?.first_name, user?.last_name].filter(Boolean).join(" ").trim() || trainerName;
+  } else if (trainer?.employee_id) {
+    const { data: employee } = await client
+      .from("employees")
+      .select("user_id,full_name")
+      .eq("employee_id", trainer.employee_id)
+      .maybeSingle();
+    trainerUserId = employee?.user_id || null;
+    trainerName = employee?.full_name || trainerName;
+  }
+
+  return { trainerId, trainerUserId, trainerName };
+}
+
+function monthRange() {
+  const now = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth(), 1);
+  const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+  return {
+    month: now.getMonth() + 1,
+    year: now.getFullYear(),
+    startDate: `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, "0")}-01`,
+    endDate: `${end.getFullYear()}-${String(end.getMonth() + 1).padStart(2, "0")}-${String(end.getDate()).padStart(2, "0")}`,
+  };
+}
+
+export async function getMakeupBalance(user) {
+  const context = resolveUserContext(user);
+  const client = getSupabaseClient();
+  const memberId = await resolveMemberId(client, context);
+  if (!memberId) throw new Error("Current member could not be resolved.");
+
+  if (!client) return getLocalMakeupBalance(memberId);
+
+  const range = monthRange();
+  const { count: fixedScheduleCancelCount, error: cancelError } = await client
+    .from("workout_sessions")
+    .select("workout_session_id", { count: "exact", head: true })
+    .eq("member_id", memberId)
+    .not("trainer_id", "is", null)
+    .eq("status", "cancelled")
+    .gte("session_date", range.startDate)
+    .lte("session_date", range.endDate);
+  if (cancelError) throw cancelError;
+
+  const { count: usedMakeupCount, error: usedError } = await client
+    .from("training_requests")
+    .select("training_request_id", { count: "exact", head: true })
+    .eq("member_id", memberId)
+    .eq("request_type", "makeup_pt_session")
+    .in("status", ["accepted", "approved", "completed"])
+    .gte("created_at", `${range.startDate}T00:00:00`)
+    .lte("created_at", `${range.endDate}T23:59:59`);
+  if (usedError) throw usedError;
+
+  const maxMakeupAllowed = Math.min(Number(fixedScheduleCancelCount || 0), 3);
+  return {
+    month: range.month,
+    year: range.year,
+    fixedScheduleCancelCount: Number(fixedScheduleCancelCount || 0),
+    maxMakeupAllowed,
+    usedMakeupCount: Number(usedMakeupCount || 0),
+    remainingMakeupCount: Math.max(0, maxMakeupAllowed - Number(usedMakeupCount || 0)),
+  };
+}
+
 export async function getUserSchedule(user, data = {}) {
   const context = resolveUserContext(user);
   const client = getSupabaseClient();
@@ -109,35 +296,57 @@ export async function createBooking(user, data) {
   const memberId = await resolveMemberId(client, context);
   if (!memberId) throw new Error("Current member could not be resolved.");
 
-  const endTime = data.endTime || addOneHour(data.time);
-  const existing = await getUserSchedule(user, { startDate: data.date, endDate: data.date });
-  const conflict = existing.find((item) => item.status !== "cancelled" && item.time === data.time);
-  if (conflict) throw new Error("You already have a workout session at that time.");
+  const endTime = data.endTime || addHours(data.time, 1);
+  assertWithinGymHours(data.time, endTime);
+  const balance = await getMakeupBalance(user);
+  if (balance.remainingMakeupCount <= 0) {
+    throw new Error("Bạn đã sử dụng hết số buổi bù trong tháng này. Mỗi tháng chỉ được bù tối đa 3 buổi.");
+  }
 
   if (!client) {
-    return mapSession(createLocalBooking(memberId, { ...data, endTime }));
+    return mapBookingRequest(createLocalBooking(memberId, { ...data, endTime, makeupBalance: balance }), balance);
   }
 
   const memberPackage = await getActiveMemberPackage(client, memberId);
+  if (!memberPackage?.package_id) {
+    throw new Error("Bạn cần có gói tập đang hoạt động trước khi gửi yêu cầu đặt lịch bù với PT.");
+  }
+  const member = await resolveMemberProfile(client, memberId);
+  const trainer = await resolveTrainerForMember(client, memberId, memberPackage);
+  const requestedSchedule = `${data.date} ${data.time} - ${endTime}`;
+
   const { data: row, error } = await client
-    .from("workout_sessions")
+    .from("training_requests")
     .insert({
       member_id: memberId,
-      trainer_id: memberPackage?.trainer_id || null,
-      member_package_id: memberPackage?.member_package_id || null,
-      title: "AI Booking",
-      exercise_type: "Personal Training",
-      room_name: "PT Room",
-      session_date: data.date,
+      trainer_id: trainer.trainerId,
+      package_id: memberPackage.package_id,
+      member_package_id: memberPackage.member_package_id || null,
+      requested_schedule: requestedSchedule,
+      requested_date: data.date,
       start_time: data.time,
       end_time: endTime,
-      status: "scheduled",
-      notes: data.note || "Created by Gymster AI Assistant.",
+      request_type: "makeup_pt_session",
+      status: "pending_pt_approval",
+      decline_reason: "",
     })
     .select("*")
     .single();
   if (error) throw error;
-  return mapSession(row);
+
+  if (trainer.trainerUserId) {
+    await client.from("notifications").insert({
+      user_id: trainer.trainerUserId,
+      notification_type: "training_request",
+      title: "Yêu cầu đặt lịch bù với PT",
+      message: `Khách hàng ${member.memberName} yêu cầu tập với PT vào ${data.date} lúc ${data.time}. Bạn có đồng ý nhận ca không?`,
+      action_type: "review_makeup_pt_request",
+      action_payload: { requestId: row.request_id || row.training_request_id },
+      is_read: false,
+    });
+  }
+
+  return mapBookingRequest({ ...row, memberName: member.memberName, trainerName: trainer.trainerName }, balance);
 }
 
 export async function cancelBooking(user, data) {
@@ -155,6 +364,9 @@ export async function cancelBooking(user, data) {
   const sessions = await getUserSchedule(user, { startDate: data.date, endDate: data.date });
   const target = data.sessionId ? sessions.find((item) => item.sessionId === data.sessionId) : sessions.find((item) => item.status === "scheduled");
   if (!target) throw new Error("No scheduled workout session was found to cancel.");
+  if (false && isPtSession(target)) {
+    throw new Error("Lịch tập với PT là lịch cố định nên không thể hủy hoặc thay đổi bằng AI chat.");
+  }
 
   const { data: row, error } = await client
     .from("workout_sessions")

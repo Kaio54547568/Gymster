@@ -693,6 +693,8 @@ function TrainingRequestsPanel({ showToast }: { showToast: (msg: string) => void
 
   useEffect(() => {
     loadRequests();
+    window.addEventListener("gymster:training-requests-updated", loadRequests);
+    return () => window.removeEventListener("gymster:training-requests-updated", loadRequests);
   }, []);
 
   const refreshRequests = () => {
@@ -706,38 +708,26 @@ function TrainingRequestsPanel({ showToast }: { showToast: (msg: string) => void
   const getRequestStatus = (request: any) => request.statusLabel || request.status;
 
   const acceptRequest = async (request: any) => {
-    if (request.source === "supabase") {
-      const { error } = await updateTrainingRequestStatus(request.requestId || request.id, "accepted", "");
-      if (error) {
-        showToast("Cập nhật thất bại. Yêu cầu chưa được thay đổi.");
-        return;
-      }
-
-      await loadRequests();
-    } else {
-      showToast("Only valid requests can be accepted.");
-      refreshRequests();
+    const { error } = await updateTrainingRequestStatus(request.requestId || request.id, "accepted", "");
+    if (error) {
+      showToast("Cập nhật thất bại. Yêu cầu chưa được thay đổi.");
       return;
     }
 
-    showToast(`${request.type === "reschedule" ? "Reschedule" : "Assignment"} request accepted.`);
+    await loadRequests();
+    showToast(`${request.type === "makeup_pt_session" ? "Makeup PT session" : request.type === "reschedule" ? "Reschedule" : "Assignment"} request accepted.`);
   };
 
   const submitDecline = async () => {
     if (!declineTarget) return;
     const nextDeclineReason = declineReason.trim() || "PT declined this request.";
 
-    if (declineTarget.source === "supabase") {
-      const { error } = await updateTrainingRequestStatus(declineTarget.requestId || declineTarget.id, "declined", nextDeclineReason);
-      if (error) {
-        showToast("Cập nhật thất bại. Yêu cầu chưa được thay đổi.");
-      } else {
-        await loadRequests();
-        showToast("Request declined and member notified.");
-      }
+    const { error } = await updateTrainingRequestStatus(declineTarget.requestId || declineTarget.id, "declined", nextDeclineReason);
+    if (error) {
+      showToast("Cập nhật thất bại. Yêu cầu chưa được thay đổi.");
     } else {
-      showToast("Only valid requests can be declined.");
-      refreshRequests();
+      await loadRequests();
+      showToast("Request declined and member notified.");
     }
 
     setDeclineTarget(null);
@@ -754,7 +744,7 @@ function TrainingRequestsPanel({ showToast }: { showToast: (msg: string) => void
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <div className="text-sm font-bold text-white">{request.memberName}</div>
-                <div className="mt-1 text-xs text-[#777]">{request.type === "reschedule" ? "Reschedule request" : "New member assignment"}</div>
+                <div className="mt-1 text-xs text-[#777]">{request.type === "makeup_pt_session" ? "Makeup PT session request" : request.type === "reschedule" ? "Reschedule request" : "New member assignment"}</div>
                 <div className="mt-2 text-xs text-[#BDBDBD]">Preferred: {request.preferredSchedule}</div>
                 {request.currentSchedule && <div className="mt-1 text-xs text-[#777]">Current: {request.currentSchedule}</div>}
                 {request.declineReason && <div className="mt-2 text-xs text-amber-300">Reason: {request.declineReason}</div>}

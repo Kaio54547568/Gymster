@@ -11,13 +11,14 @@ const state = {
       room_name: "PT Room",
       session_date: new Date().toISOString().slice(0, 10),
       start_time: "08:00",
-      end_time: "09:00",
+      end_time: "10:00",
       status: "completed",
       notes: "Local demo session.",
       created_at: new Date().toISOString(),
     },
   ],
   reviews: [],
+  trainingRequests: [],
 };
 
 function toDateValue(date) {
@@ -40,22 +41,54 @@ export function listLocalBookings(memberId, { startDate, endDate } = {}) {
 }
 
 export function createLocalBooking(memberId, data) {
+  const requestId = `local-request-${Date.now()}`;
   const row = {
-    workout_session_id: `local-session-${Date.now()}`,
+    request_id: requestId,
+    training_request_id: requestId,
     member_id: memberId,
     trainer_id: data.trainerId || "local-trainer-khoa",
-    title: "AI Booking",
-    exercise_type: "Personal Training",
-    room_name: "PT Room",
-    session_date: data.date,
+    requested_date: data.date,
     start_time: data.time,
     end_time: data.endTime,
-    status: "scheduled",
-    notes: data.note || "Created by Gymster AI Assistant.",
+    requested_schedule: `${data.date} ${data.time} - ${data.endTime}`,
+    request_type: "makeup_pt_session",
+    status: "pending_pt_approval",
+    memberName: data.memberName || "Member",
+    trainerName: "Khoa Le",
+    makeupBalance: data.makeupBalance || null,
     created_at: new Date().toISOString(),
   };
-  state.bookings.push(row);
+  state.trainingRequests.push(row);
   return row;
+}
+
+export function getLocalMakeupBalance(memberId) {
+  const now = new Date();
+  const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+  const monthEnd = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-31`;
+  const fixedScheduleCancelCount = state.bookings.filter((item) => (
+    item.member_id === memberId
+    && item.trainer_id
+    && item.status === "cancelled"
+    && item.session_date >= monthStart
+    && item.session_date <= monthEnd
+  )).length;
+  const maxMakeupAllowed = Math.min(fixedScheduleCancelCount, 3);
+  const usedMakeupCount = state.trainingRequests.filter((item) => (
+    item.member_id === memberId
+    && item.request_type === "makeup_pt_session"
+    && ["accepted", "approved", "completed"].includes(String(item.status || "").toLowerCase())
+    && String(item.requested_date || item.created_at || "").slice(0, 7) === monthStart.slice(0, 7)
+  )).length;
+
+  return {
+    month: now.getMonth() + 1,
+    year: now.getFullYear(),
+    fixedScheduleCancelCount,
+    maxMakeupAllowed,
+    usedMakeupCount,
+    remainingMakeupCount: Math.max(0, maxMakeupAllowed - usedMakeupCount),
+  };
 }
 
 export function cancelLocalBooking(memberId, data) {
@@ -65,7 +98,31 @@ export function cancelLocalBooking(memberId, data) {
     ? state.bookings.find((item) => item.workout_session_id === data.sessionId && item.member_id === memberId)
     : rows[0];
 
-  if (!target) return null;
+  if (!target) {
+    const date = new Date(`${data.date}T00:00:00`);
+    if (![1, 4].includes(date.getDay())) return null;
+    const sessionId = `local-fixed-pt-${memberId}-${data.date}`;
+    const fixedSession = {
+      workout_session_id: sessionId,
+      session_id: sessionId,
+      member_id: memberId,
+      trainer_id: "local-trainer-khoa",
+      title: "PT Session",
+      exercise_type: "Personal Training",
+      room_name: "PT Room",
+      session_date: data.date,
+      start_time: "08:00",
+      end_time: "10:00",
+      status: "cancelled",
+      notes: "Fixed PT session cancelled by Gymster AI Assistant.",
+      created_at: new Date().toISOString(),
+    };
+    state.bookings.push(fixedSession);
+    return fixedSession;
+  }
+  if (false && (target.trainer_id || String(target.title || "").toLowerCase().includes("pt") || String(target.exercise_type || "").toLowerCase().includes("personal training"))) {
+    throw new Error("Lịch tập với PT là lịch cố định nên không thể hủy hoặc thay đổi bằng AI chat.");
+  }
   target.status = "cancelled";
   return target;
 }

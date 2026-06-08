@@ -1,7 +1,10 @@
 import { FormEvent, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router';
 import { Bot, Loader2, Send, X } from 'lucide-react';
 import { sendAiChatMessage } from '../../services/aiChatApi';
-import { saveAiWorkoutSession, updateLocalWorkoutSessionStatus } from '../../services/workoutSessionApi';
+import { saveAiServiceFeedback } from '../../services/memberEngagementApi';
+import { saveAiTrainingRequest } from '../../services/trainingRequestApi';
+import { recordMakeupForCancelledSession, saveAiWorkoutSession, updateLocalWorkoutSessionStatus } from '../../services/workoutSessionApi';
 
 type ChatMessage = {
   id: string;
@@ -25,7 +28,40 @@ function makeMessage(role: ChatMessage['role'], text: string, type?: string): Ch
   };
 }
 
+function redirectMessage(redirectUrl: string) {
+  if (redirectUrl.includes('rate-service')) return 'Đang chuyển bạn đến trang đánh giá...';
+  if (redirectUrl.includes('schedule')) return 'Đang chuyển bạn đến trang lịch...';
+  return 'Đang chuyển bạn đến trang kết quả...';
+}
+
+function makeupCancelMessage(makeupResult: any) {
+  const remaining = Number(makeupResult?.remainingMakeupCount ?? makeupResult?.credits ?? 0);
+  const limit = Number(makeupResult?.resetBalance ?? 3);
+
+  if (makeupResult?.granted) {
+    return {
+      text: `Da ghi nhan 1 lan huy lich co dinh. So buoi bu con lai: ${remaining}/${limit}.`,
+      type: 'success',
+    };
+  }
+
+  if (makeupResult?.reason === 'already_recorded') {
+    return {
+      text: `Buoi nay da duoc ghi nhan truoc do. So buoi bu con lai: ${remaining}/${limit}.`,
+      type: 'success',
+    };
+  }
+
+  return {
+    text: remaining > 0
+      ? `Buoi nghi da duoc ghi nhan. So buoi bu con lai: ${remaining}/${limit}.`
+      : 'Ban da su dung het so buoi bu trong thang nay. Moi thang chi duoc bu toi da 3 buoi.',
+    type: remaining > 0 ? 'success' : 'error',
+  };
+}
+
 export default function AIAssistantChat() {
+  const navigate = useNavigate();
   const [isOpen, setIsOpen] = useState(false);
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([
@@ -46,14 +82,44 @@ export default function AIAssistantChat() {
 
     try {
       const result = await sendAiChatMessage(trimmed, action);
-      if (result.type === 'success' && action?.name === 'create_booking' && result.result) {
-        saveAiWorkoutSession(result.result);
+      const successfulAction = result.action || action?.name;
+
+      if (result.type === 'success' && successfulAction === 'create_booking' && result.result) {
+        saveAiTrainingRequest(result.result);
       }
-      if (result.type === 'success' && action?.name === 'cancel_booking' && result.result?.sessionId) {
+      if (result.type === 'success' && successfulAction === 'cancel_booking' && result.result?.sessionId) {
+        saveAiWorkoutSession(result.result);
         updateLocalWorkoutSessionStatus(result.result.sessionId, 'cancelled');
+        const makeupResult = recordMakeupForCancelledSession(result.result);
+        if (makeupResult.granted || makeupResult.reason !== 'not_fixed_pt_session') {
+          const makeupMessage = makeupCancelMessage(makeupResult);
+          setMessages((current) => [
+            ...current,
+            makeMessage(
+              'assistant',
+              makeupMessage.text,
+              makeupMessage.type,
+            ),
+          ]);
+        }
       }
       setMessages((current) => [...current, makeMessage('assistant', result.reply || 'Đã xử lý xong.', result.type)]);
+      if (result.type === 'success' && (successfulAction === 'create_review' || successfulAction === 'update_review') && result.result) {
+        saveAiServiceFeedback(result.result);
+      }
       setPendingAction(result.pendingAction ?? null);
+      if (result.type === 'success' && result.redirectUrl) {
+        setMessages((current) => [...current, makeMessage('assistant', redirectMessage(result.redirectUrl), 'success')]);
+        window.setTimeout(() => {
+          navigate(result.redirectUrl);
+          if (result.redirectUrl.includes('schedule')) {
+            setMessages((current) => [
+              ...current,
+              makeMessage('assistant', 'Đã chuyển sang trang lịch tập, vui lòng kiểm tra lại lịch tập của bạn.', 'success'),
+            ]);
+          }
+        }, 800);
+      }
     } catch (error: any) {
       setMessages((current) => [...current, makeMessage('assistant', error.message || 'AI Assistant gặp lỗi.', 'error')]);
     } finally {

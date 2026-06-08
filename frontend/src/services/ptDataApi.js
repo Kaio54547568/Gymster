@@ -89,8 +89,108 @@ function mapSessionStatus(status) {
   return getSessionStatusLabel(status);
 }
 
+function toDateValue(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function displayDate(dateValue) {
+  return formatDisplayDate(`${dateValue}T00:00:00`);
+}
+
+function nextWeekday(dayIndex) {
+  const today = new Date();
+  const date = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const diff = (dayIndex - date.getDay() + 7) % 7;
+  date.setDate(date.getDate() + diff);
+  return toDateValue(date);
+}
+
+function buildLocalPtPortalData() {
+  const memberId = "00000000-0000-4000-8000-000000000005";
+  const trainerId = "local-trainer-khoa";
+  const monday = nextWeekday(1);
+  const thursday = nextWeekday(4);
+  const schedules = [monday, thursday].map((dateValue) => ({
+    scheduleId: `local-fixed-pt-${memberId}-${dateValue}`,
+    memberId,
+    trainingDate: displayDate(dateValue),
+    trainingDateIso: dateValue,
+    trainingTime: "08:00 - 10:00",
+    exerciseType: "Personal Training",
+    status: "Scheduled",
+    duration: 120,
+    memberName: "Mai Do",
+    packageName: "PT Progress 3 Months",
+    roomName: "PT Room",
+    notes: "Fixed PT schedule.",
+    workoutContent: [],
+    hasContent: true,
+    source: "local",
+  }));
+
+  return {
+    trainer: {
+      name: "Khoa Le",
+      specialty: "PT Strength & Conditioning",
+      phone: "0901000004",
+      email: "trainer@gymster.local",
+      avatar: "KL",
+    },
+    members: [{
+      id: memberId,
+      name: "Mai Do",
+      phone: "0901000005",
+      email: "member@gymster.local",
+      package: "PT Progress 3 Months",
+      avatar: "MD",
+      joinDate: "01/06/2026",
+      age: 28,
+      gender: "female",
+    }],
+    assignments: [{
+      assignmentId: "local-assignment-member00",
+      memberId,
+      assignmentDate: "01/06/2026",
+      status: "Active",
+      sessionsRemaining: 21,
+      progress: 25,
+      totalSessions: 24,
+    }],
+    schedules,
+    progressRecords: [],
+    trainingGoals: [{
+      goalId: "local-goal-strength",
+      memberId,
+      goalName: "Build strength",
+      targetValue: "12 weeks",
+      deadline: "01/09/2026",
+      status: "In Progress",
+      progress: 25,
+    }],
+    bodyMetrics: [],
+    medicalHistories: [],
+    bodyMetricDetails: [],
+    mealPlans: [],
+    evaluations: [],
+    notifications: [],
+    exercises: [],
+    weeklySessions: [
+      { day: "Mon", sessions: 1, target: 1 },
+      { day: "Thu", sessions: 1, target: 1 },
+    ],
+    progressChart: [{ name: "Mai Do", progress: 25 }],
+    attendanceData: [
+      { name: "Completed", value: 0, color: "#FF3B3B" },
+      { name: "Incomplete", value: 0, color: "#555555" },
+    ],
+  };
+}
+
 export async function fetchPtPortalData() {
-  if (!supabase) return { data: null, error: new Error("Missing h\u1ec7 th\u1ed1ng configuration.") };
+  if (!supabase) return { data: buildLocalPtPortalData(), error: null };
 
   try {
     const trainer = await resolveCurrentTrainer();

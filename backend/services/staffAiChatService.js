@@ -212,7 +212,7 @@ export async function handleStaffAiChat({ message, pendingAction, user }) {
 
   if (pendingAction) {
     if (isCancellation(message)) {
-      return { type: "cancelled", reply: "Đã hủy thao tác đang chờ xác nhận.", intent: pendingAction.name };
+      return { type: "cancelled", reply: "Thao tác đã được từ chối.", intent: pendingAction.name };
     }
 
     if (pendingAction.status === "collecting") {

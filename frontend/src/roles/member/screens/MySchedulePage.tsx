@@ -3,6 +3,7 @@ import { Plus, X } from 'lucide-react';
 import { getCurrentUser } from '../../../services/authService';
 import {
   createManualWorkoutSessionForMember,
+  getMakeupSessionSummary,
   getWorkoutSessionStatusLabel,
   getWorkoutSessionsForMember,
 } from '../../../services/workoutSessionApi';
@@ -36,6 +37,7 @@ export default function MySchedulePage() {
   const [showAddWorkout, setShowAddWorkout] = useState(false);
   const [isCreatingWorkout, setIsCreatingWorkout] = useState(false);
   const [createWorkoutError, setCreateWorkoutError] = useState('');
+  const [makeupSummary, setMakeupSummary] = useState(() => getMakeupSessionSummary(getCurrentUser()));
   const [manualWorkout, setManualWorkout] = useState(() => ({
     sessionDate: new Date().toISOString().slice(0, 10),
     startTime: '07:00',
@@ -63,7 +65,7 @@ export default function MySchedulePage() {
     };
   });
   const weekLabel = `${weekDays[0].date} - ${weekDays[6].date}, ${new Date(`${weekDays[6].key}T00:00:00`).getFullYear()}`;
-  const timeSlots = ['06:00', '08:00', '10:00', '12:00', '14:00', '16:00', '18:00', '20:00'];
+  const timeSlots = Array.from({ length: 15 }, (_, index) => `${String(index + 6).padStart(2, '0')}:00`);
   const mapWorkoutSessionToSchedule = (session: any): ScheduleSession => {
     const date = session.sessionDate || '';
     const startTime = String(session.startTime || '').slice(0, 5);
@@ -121,34 +123,44 @@ export default function MySchedulePage() {
 
   useEffect(() => {
     let isMounted = true;
-    setIsLoadingSessions(true);
+    const loadSessions = () => {
+      setIsLoadingSessions(true);
 
-    getWorkoutSessionsForMember(getCurrentUser())
-      .then(({ data, error }) => {
-        if (!isMounted) return;
+      getWorkoutSessionsForMember(getCurrentUser())
+        .then(({ data, error }) => {
+          if (!isMounted) return;
 
-        if (error) {
+          if (error) {
+            setScheduleSessions([]);
+            setSessionLoadMessage('Some workout sessions could not be loaded.');
+          } else if (data.length) {
+            setScheduleSessions(data.map(mapWorkoutSessionToSchedule));
+            setSessionLoadMessage('');
+          } else {
+            setScheduleSessions([]);
+            setSessionLoadMessage('');
+          }
+
+          setIsLoadingSessions(false);
+        })
+        .catch(() => {
+          if (!isMounted) return;
           setScheduleSessions([]);
           setSessionLoadMessage('Some workout sessions could not be loaded.');
-        } else if (data.length) {
-          setScheduleSessions(data.map(mapWorkoutSessionToSchedule));
-          setSessionLoadMessage('');
-        } else {
-          setScheduleSessions([]);
-          setSessionLoadMessage('');
-        }
+          setIsLoadingSessions(false);
+        });
+    };
 
-        setIsLoadingSessions(false);
-      })
-      .catch(() => {
-        if (!isMounted) return;
-        setScheduleSessions([]);
-        setSessionLoadMessage('Some workout sessions could not be loaded.');
-        setIsLoadingSessions(false);
-      });
+    loadSessions();
+    const loadMakeupSummary = () => setMakeupSummary(getMakeupSessionSummary(getCurrentUser()));
+    loadMakeupSummary();
+    window.addEventListener('gymster:schedule-updated', loadSessions);
+    window.addEventListener('gymster:makeup-updated', loadMakeupSummary);
 
     return () => {
       isMounted = false;
+      window.removeEventListener('gymster:schedule-updated', loadSessions);
+      window.removeEventListener('gymster:makeup-updated', loadMakeupSummary);
     };
   }, []);
   const upcomingSessions = scheduleSessions.filter((session) => session.status === 'Scheduled');
@@ -162,10 +174,24 @@ export default function MySchedulePage() {
   };
 
   const getEventPosition = (session: ScheduleSession) => {
-    const startSlot = Math.max(0, Math.min(timeSlots.length - 1, Math.floor((session.startHour - 6) / 2)));
+    const [startText = '06:00', endText = startText] = session.time.split(' - ');
+    const toMinutes = (value: string) => {
+      const [hour, minute] = value.split(':').map(Number);
+      return (Number.isFinite(hour) ? hour : 6) * 60 + (Number.isFinite(minute) ? minute : 0);
+    };
+    const dayIndex = Math.max(0, weekDays.findIndex((day) => day.key === session.dateIso));
+    const calendarStart = 6 * 60;
+    const calendarEnd = 20 * 60;
+    const rowHeight = 76;
+    const slotMinutes = 60;
+    const startMinutes = Math.max(calendarStart, Math.min(calendarEnd, toMinutes(startText)));
+    const endMinutes = Math.max(startMinutes + 30, Math.min(calendarEnd, toMinutes(endText)));
+
     return {
-      gridColumn: weekDays.findIndex((day) => day.key === session.dateIso) + 2,
-      gridRow: startSlot + 2,
+      top: `${((startMinutes - calendarStart) / slotMinutes) * rowHeight}px`,
+      left: `calc(72px + ${(dayIndex * 100) / 7}% - ${(dayIndex * 72) / 7}px + 4px)`,
+      width: `calc(${100 / 7}% - ${72 / 7 + 8}px)`,
+      height: `${Math.max(48, ((endMinutes - startMinutes) / slotMinutes) * rowHeight)}px`,
     };
   };
 
@@ -182,7 +208,7 @@ export default function MySchedulePage() {
         </button>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-4">
         <div className="rounded-2xl border border-white/8 bg-[#181818] p-5">
           <div className="text-xs font-bold uppercase tracking-[0.18em] text-white/35">Current Package</div>
           <div className="mt-2 text-xl font-black text-white">{currentPackage.title}</div>
@@ -195,6 +221,13 @@ export default function MySchedulePage() {
           <div className="text-xs font-bold uppercase tracking-[0.18em] text-white/35">Next Session</div>
           <div className="mt-2 text-xl font-black text-white">{nextSession ? nextSession.title : 'No upcoming session'}</div>
           {nextSession && <div className="mt-1 text-sm text-white/50">{nextSession.date} - {nextSession.time}</div>}
+        </div>
+        <div className="rounded-2xl border border-[#9F1239]/25 bg-[#FFF1F2] p-5 text-[#3F0A16]">
+          <div className="text-xs font-bold uppercase tracking-[0.18em] text-[#9F1239]/70">Buổi bù</div>
+          <div className="mt-2 text-xl font-black">{makeupSummary.credits}/{makeupSummary.resetBalance}</div>
+          <div className="mt-1 text-xs font-semibold text-[#9F1239]/75">
+            Tháng này: {makeupSummary.grantedThisMonth}/{makeupSummary.monthlyLimit}
+          </div>
         </div>
       </div>
 
@@ -263,12 +296,12 @@ export default function MySchedulePage() {
                 {sessionsInVisibleWeek.map((session) => (
                   <button
                     key={session.id}
-                    className={`relative z-10 m-1 rounded-xl border px-3 py-2 text-left shadow-lg transition hover:scale-[1.01] ${
+                    className={`absolute z-10 rounded-xl border px-3 py-2 text-left shadow-lg transition hover:scale-[1.01] ${
                       session.status === 'Completed'
                         ? 'border-emerald-400/25 bg-emerald-500/15'
                         : session.status === 'Incomplete'
                           ? 'border-red-400/25 bg-red-500/15'
-                          : 'border-[#EF233C]/35 bg-[#EF233C]/20'
+                          : 'border-[#9F1239]/55 bg-[#FFF1F2] text-[#3F0A16] shadow-[#9F1239]/10'
                     }`}
                     style={getEventPosition(session)}
                     type="button"
