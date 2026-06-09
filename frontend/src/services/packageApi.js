@@ -1,4 +1,5 @@
 import { supabase } from "./supabaseClient";
+import { getAllowedLeaveDaysForPackage } from "./packageEntitlement";
 
 const packageTypeLabels = {
   gym: "Gym",
@@ -124,6 +125,7 @@ function mapPackageRow(row) {
   const isActive = typeof row.is_active === "boolean" ? row.is_active : statusValue ? statusValue === "active" : true;
   const sessionLimit = hasPersonalTrainer && row.session_limit ? `${row.session_limit} PT sessions` : hasPersonalTrainer ? "PT sessions included" : "Unlimited gym access";
   const packageTypeLabel = packageTypeLabels[packageType] || packageType || "Package";
+  const maxLeaveDays = getAllowedLeaveDaysForPackage({ durationMonths });
 
   return {
     id: row.package_id,
@@ -141,6 +143,8 @@ function mapPackageRow(row) {
     description: row.description || "",
     sessionLimitValue: row.session_limit ?? null,
     sessionLimit,
+    maxLeaveDays,
+    maxLeaveDaysText: `${maxLeaveDays} valid leave days`,
     hasPersonalTrainer,
     isPopular: Boolean(row.is_popular),
     popular: Boolean(row.is_popular),
@@ -150,6 +154,7 @@ function mapPackageRow(row) {
     features: [
       row.description || "Package benefits configured",
       sessionLimit,
+      `${maxLeaveDays} valid leave days for makeup sessions`,
       hasPersonalTrainer ? "Personal trainer included" : "Self-service training",
     ],
   };

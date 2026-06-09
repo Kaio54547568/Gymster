@@ -80,6 +80,19 @@ function buildBookedKeys(bookedRows) {
   }));
 }
 
+function toDateValue(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function buildDateBookedKeys(bookedRows, excludeSessionId = "") {
+  return new Set((bookedRows || [])
+    .filter((row) => (row.workout_session_id || row.session_id) !== excludeSessionId)
+    .map((row) => `${row.session_date}|${normalizeTime(row.start_time)}|${normalizeTime(row.end_time)}`));
+}
+
 export async function getTrainerWeeklyAvailability(trainerId) {
   if (!supabase || !trainerId) {
     return { data: [], error: null };
@@ -113,4 +126,70 @@ export async function getTrainerWeeklyAvailability(trainerId) {
   });
 
   return { data, error: null };
+}
+
+export async function getTrainerOpenScheduleSlots(trainerId, options = {}) {
+  const daysAhead = Number(options.daysAhead || 14);
+  const excludeSessionId = options.excludeSessionId || "";
+
+  if (!supabase || !trainerId || String(trainerId).startsWith("local-")) {
+    const start = new Date();
+    return {
+      data: Array.from({ length: daysAhead }, (_, index) => {
+        const date = new Date(start);
+        date.setDate(start.getDate() + index + 1);
+        const day = weeklyTrainingDays.find((item) => dayIndexes[item.key] === date.getDay());
+        return {
+          date: toDateValue(date),
+          label: date.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }),
+          dayKey: day?.key || "monday",
+          slots: weeklyTrainingSlots.map((slot) => ({ ...slot, available: true, booked: false })),
+        };
+      }),
+      error: null,
+    };
+  }
+
+  const start = new Date();
+  const end = new Date(start);
+  end.setDate(start.getDate() + daysAhead + 1);
+
+  const [availabilityRows, bookedResult] = await Promise.all([
+    fetchAvailabilityRows(trainerId),
+    supabase
+      .from("workout_sessions")
+      .select("workout_session_id,session_id,session_date,start_time,end_time,status")
+      .eq("trainer_id", trainerId)
+      .gte("session_date", toDateValue(start))
+      .lte("session_date", toDateValue(end))
+      .in("status", ["scheduled", "rescheduled", "pending_reschedule"]),
+  ]);
+  const bookedRows = bookedResult.error ? [] : bookedResult.data || [];
+  const bookedKeys = buildDateBookedKeys(bookedRows, excludeSessionId);
+
+  const data = Array.from({ length: daysAhead }, (_, index) => {
+    const date = new Date(start);
+    date.setDate(start.getDate() + index + 1);
+    const day = weeklyTrainingDays.find((item) => dayIndexes[item.key] === date.getDay()) || weeklyTrainingDays[0];
+    const dateValue = toDateValue(date);
+    const slots = weeklyTrainingSlots.map((slot) => {
+      const configured = availabilityRows.find((row) =>
+        row.day_of_week === day.key &&
+        normalizeTime(row.start_time) === slot.startTime &&
+        normalizeTime(row.end_time) === slot.endTime
+      );
+      const isConfiguredAvailable = configured ? configured.is_available !== false : true;
+      const isBooked = bookedKeys.has(`${dateValue}|${slot.startTime}|${slot.endTime}`);
+      return { ...slot, available: isConfiguredAvailable && !isBooked, booked: isBooked };
+    });
+
+    return {
+      date: dateValue,
+      label: date.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }),
+      dayKey: day.key,
+      slots,
+    };
+  });
+
+  return { data, error: bookedResult.error || null };
 }

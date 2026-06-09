@@ -2,7 +2,9 @@ import { supabase } from "./supabaseClient";
 import {
   markMakeupSessionUsedForAcceptedRequest,
   saveAcceptedLocalPtSessionFromRequest,
+  updateLocalWorkoutSessionSchedule,
 } from "./workoutSessionApi";
+import { getMonthlyLeaveLimit } from "./packageEntitlement";
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const LOCAL_TRAINING_REQUESTS_KEY = "gymster_local_training_requests";
@@ -22,6 +24,10 @@ function getMemberName(row) {
 
 function getTrainerName(row) {
   return combineUserName(row?.trainers?.users, row?.trainers?.employees?.full_name || row?.trainers?.trainer_code || row?.trainer_id || "Trainer");
+}
+
+function isMissingSchemaColumn(error) {
+  return error?.code === "42703" || /column .* does not exist/i.test(String(error?.message || ""));
 }
 
 function canUseStorage() {
@@ -58,6 +64,11 @@ export function saveAiTrainingRequest(request) {
     statusLabel: getTrainingRequestStatusLabel(request.status || "pending_pt_approval"),
     preferredSchedule: request.requestedSchedule || `${request.date || ""} ${request.time || ""}`.trim(),
     requestedSchedule: request.requestedSchedule || `${request.date || ""} ${request.time || ""}`.trim(),
+    currentSchedule: request.currentSchedule || "",
+    sourceWorkoutSessionId: request.sourceWorkoutSessionId || request.sessionId || "",
+    requestedDate: request.requestedDate || request.date || null,
+    startTime: request.startTime || request.time || null,
+    endTime: request.endTime || null,
     source: "local",
   };
   const rows = readLocalTrainingRequests();
@@ -124,6 +135,46 @@ async function createTrainerSelectionNotification(row) {
   }
 }
 
+async function createTrainerRequestNotification(row) {
+  if (!row?.trainer_id) return;
+  try {
+    const { data: trainer } = await supabase
+      .from("trainers")
+      .select("user_id,employee_id")
+      .eq("trainer_id", row.trainer_id)
+      .maybeSingle();
+
+    let trainerUserId = trainer?.user_id || null;
+    if (!trainerUserId && trainer?.employee_id) {
+      const { data: employee } = await supabase
+        .from("employees")
+        .select("user_id")
+        .eq("employee_id", trainer.employee_id)
+        .maybeSingle();
+      trainerUserId = employee?.user_id || null;
+    }
+    if (!trainerUserId) return;
+
+    const type = String(row.request_type || "").toLowerCase();
+    const title = type === "reschedule" ? "Member yêu cầu đổi lịch" : "Member gửi yêu cầu lịch tập";
+    const message = type === "reschedule"
+      ? `Member muốn đổi từ ${row.current_schedule || "lịch hiện tại"} sang ${row.requested_schedule}.`
+      : `Member gửi yêu cầu ${row.requested_schedule}.`;
+
+    await supabase.from("notifications").insert({
+      user_id: trainerUserId,
+      notification_type: "schedule",
+      title,
+      message,
+      action_type: "review_training_request",
+      action_payload: { requestId: row.request_id || row.training_request_id },
+      is_read: false,
+    });
+  } catch (error) {
+    console.error("[Gymster hệ thống] Failed to create trainer request notification:", error);
+  }
+}
+
 export function getTrainingRequestStatusLabel(status) {
   const normalized = String(status || "").toLowerCase();
   const labels = {
@@ -154,6 +205,8 @@ function mapTrainingRequestRow(row) {
     packageName: row.packages?.package_name || "",
     requestedSchedule: row.requested_schedule,
     preferredSchedule: row.requested_schedule,
+    currentSchedule: row.current_schedule || "",
+    sourceWorkoutSessionId: row.source_workout_session_id || "",
     requestedDate: row.requested_date,
     date: row.requested_date,
     startTime: String(row.start_time || "").slice(0, 5),
@@ -205,9 +258,25 @@ async function resolveMemberId(request) {
 }
 
 async function insertTrainingRequest(payload) {
-  return supabase
+  const result = await supabase
     .from("training_requests")
     .insert(payload)
+    .select("*")
+    .single();
+  if (!isMissingSchemaColumn(result.error)) return result;
+
+  const legacyPayload = {
+    member_id: payload.member_id,
+    trainer_id: payload.trainer_id,
+    package_id: payload.package_id,
+    member_package_id: payload.member_package_id,
+    requested_schedule: payload.requested_schedule,
+    status: payload.status,
+    decline_reason: payload.decline_reason,
+  };
+  return supabase
+    .from("training_requests")
+    .insert(legacyPayload)
     .select("*")
     .single();
 }
@@ -239,6 +308,8 @@ function baseTrainingRequestSelect() {
     package_id,
     member_package_id,
     requested_schedule,
+    current_schedule,
+    source_workout_session_id,
     requested_date,
     start_time,
     end_time,
@@ -246,6 +317,45 @@ function baseTrainingRequestSelect() {
     decline_reason,
     created_at,
     expires_at,
+    members (
+      member_id,
+      member_code,
+      users (
+        first_name,
+        last_name,
+        email
+      )
+    ),
+    trainers (
+      trainer_id,
+      trainer_code,
+      users (
+        first_name,
+        last_name,
+        email
+      ),
+      employees (
+        full_name,
+        email
+      )
+    ),
+    packages (
+      package_name
+    )
+  `;
+}
+
+function legacyTrainingRequestSelect() {
+  return `
+    training_request_id,
+    member_id,
+    trainer_id,
+    package_id,
+    member_package_id,
+    requested_schedule,
+    status,
+    decline_reason,
+    created_at,
     members (
       member_id,
       member_code,
@@ -358,7 +468,23 @@ async function selectTrainingRequests(filters = {}) {
     query = query.eq("member_id", filters.memberId);
   }
 
-  return query;
+  const result = await query;
+  if (!isMissingSchemaColumn(result.error)) return result;
+
+  let fallbackQuery = supabase
+    .from("training_requests")
+    .select(legacyTrainingRequestSelect())
+    .order("created_at", { ascending: false });
+
+  if (filters.trainerId) {
+    fallbackQuery = fallbackQuery.eq("trainer_id", filters.trainerId);
+  }
+
+  if (filters.memberId) {
+    fallbackQuery = fallbackQuery.eq("member_id", filters.memberId);
+  }
+
+  return fallbackQuery;
 }
 
 async function notifyMemberAboutMakeupRequest(row, outcome) {
@@ -443,7 +569,7 @@ async function recordMakeupUsage(row) {
       .gte("session_date", `${year}-${String(month).padStart(2, "0")}-01`)
       .lte("session_date", `${year}-${String(month).padStart(2, "0")}-31`);
     const fixedScheduleCancelCount = Number(count || 0);
-    const maxMakeupAllowed = Math.min(fixedScheduleCancelCount, 3);
+    const maxMakeupAllowed = Math.min(fixedScheduleCancelCount, getMonthlyLeaveLimit());
     const { count: usedCount } = await supabase
       .from("training_requests")
       .select("training_request_id", { count: "exact", head: true })
@@ -468,11 +594,105 @@ async function recordMakeupUsage(row) {
   }
 }
 
+async function notifyMemberAboutRequest(row, outcome) {
+  if (!row?.member_id) return;
+  try {
+    const { data: member } = await supabase
+      .from("members")
+      .select("user_id")
+      .eq("member_id", row.member_id)
+      .maybeSingle();
+    if (!member?.user_id) return;
+
+    const type = String(row.request_type || "").toLowerCase();
+    const accepted = outcome === "accepted";
+    const isReschedule = type === "reschedule";
+    const title = accepted
+      ? isReschedule ? "PT đã đồng ý đổi lịch" : "PT đã đồng ý yêu cầu"
+      : isReschedule ? "Yêu cầu đổi lịch chưa thành công" : "PT đã từ chối yêu cầu";
+    const message = accepted
+      ? isReschedule
+        ? `PT đã đồng ý đổi lịch sang ${row.requested_schedule}.`
+        : `PT đã đồng ý yêu cầu ${row.requested_schedule}.`
+      : isReschedule
+        ? `PT chưa đồng ý đổi lịch sang ${row.requested_schedule}.${row.decline_reason ? ` Lý do: ${row.decline_reason}` : ""}`
+        : `PT đã từ chối yêu cầu ${row.requested_schedule}.${row.decline_reason ? ` Lý do: ${row.decline_reason}` : ""}`;
+
+    await supabase.from("notifications").insert({
+      user_id: member.user_id,
+      notification_type: "schedule",
+      title,
+      message,
+      action_type: "view_schedule",
+      action_payload: { requestId: row.request_id || row.training_request_id },
+      is_read: false,
+    });
+  } catch (error) {
+    console.error("[Gymster hệ thống] Failed to notify member about training request:", error);
+  }
+}
+
+async function applyAcceptedReschedule(row) {
+  const sourceSessionId = row.source_workout_session_id;
+  const requestedDate = row.requested_date;
+  const startTime = String(row.start_time || "").slice(0, 5);
+  const endTime = String(row.end_time || "").slice(0, 5);
+  if (!sourceSessionId || !requestedDate || !startTime || !endTime) return null;
+
+  const { data, error } = await supabase
+    .from("workout_sessions")
+    .update({
+      session_date: requestedDate,
+      start_time: startTime,
+      end_time: endTime,
+      status: "scheduled",
+      notes: `Rescheduled by member request ${row.request_id || row.training_request_id}.`,
+    })
+    .eq("workout_session_id", sourceSessionId)
+    .select("workout_session_id")
+    .single();
+  if (error) throw error;
+  return data;
+}
+
 export async function createTrainingRequest(request) {
-  if (!supabase) {
-    const error = new Error("Missing h\u1ec7 th\u1ed1ng environment variables.");
-    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to create training request:", error);
-    return { data: null, error };
+  const requestType = request.requestType || request.type || "assignment";
+  const hasLocalIdentifiers = [
+    request.trainerId,
+    request.packageId,
+    request.memberPackageId,
+    request.sourceWorkoutSessionId || request.sessionId,
+  ].some((value) => value && !uuidPattern.test(String(value)));
+
+  if (!supabase || (String(requestType).toLowerCase() !== "assignment" && hasLocalIdentifiers)) {
+    const now = new Date().toISOString();
+    const localRequestId = `LOCAL-TR-${Date.now()}`;
+    const row = {
+      id: localRequestId,
+      requestId: localRequestId,
+      trainingRequestId: localRequestId,
+      type: requestType,
+      requestType,
+      memberId: request.memberId || request.member_id || "",
+      trainerId: request.trainerId || "",
+      packageId: request.packageId || "",
+      memberPackageId: request.memberPackageId || "",
+      preferredSchedule: request.requestedSchedule || `${request.requestedDate || request.date || ""} ${request.startTime || request.time || ""}`.trim(),
+      requestedSchedule: request.requestedSchedule || "",
+      currentSchedule: request.currentSchedule || "",
+      sourceWorkoutSessionId: request.sourceWorkoutSessionId || request.sessionId || "",
+      requestedDate: request.requestedDate || request.date || null,
+      startTime: request.startTime || request.time || null,
+      endTime: request.endTime || null,
+      status: "pending_pt_approval",
+      rawStatus: "pending_pt_approval",
+      statusLabel: getTrainingRequestStatusLabel("pending_pt_approval"),
+      createdAt: now,
+      updatedAt: now,
+      source: "local",
+    };
+    writeLocalTrainingRequests([row, ...readLocalTrainingRequests()]);
+    return { data: row, error: null };
   }
 
   const memberId = await resolveMemberId(request);
@@ -482,7 +702,9 @@ export async function createTrainingRequest(request) {
     package_id: request.packageId,
     member_package_id: request.memberPackageId || null,
     requested_schedule: request.requestedSchedule,
-    request_type: request.requestType || request.type || "assignment",
+    current_schedule: request.currentSchedule || null,
+    source_workout_session_id: uuidPattern.test(String(request.sourceWorkoutSessionId || request.sessionId || "")) ? (request.sourceWorkoutSessionId || request.sessionId) : null,
+    request_type: requestType,
     requested_date: request.requestedDate || request.date || null,
     start_time: request.startTime || request.time || null,
     end_time: request.endTime || null,
@@ -497,9 +719,14 @@ export async function createTrainingRequest(request) {
     return { data: null, error };
   }
 
-  await createTrainerSelectionNotification(data);
+  const normalizedRequestType = String(data?.request_type || payload.request_type || "").toLowerCase();
+  if (normalizedRequestType === "assignment") {
+    await createTrainerSelectionNotification(data);
+  } else {
+    await createTrainerRequestNotification({ ...data, ...payload });
+  }
 
-  return { data: mapTrainingRequestRow(data), error: null };
+  return { data: mapTrainingRequestRow({ ...payload, ...data }), error: null };
 }
 
 export async function getTrainingRequestsForTrainer(trainerLookup) {
@@ -512,7 +739,7 @@ export async function getTrainingRequestsForTrainer(trainerLookup) {
 
   if (error) {
     console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to load trainer training requests:", error);
-    return { data: [], error };
+    return { data: readLocalTrainingRequests(), error: null };
   }
 
   return {
@@ -538,7 +765,7 @@ export async function getTrainingRequestsForMember(memberLookup) {
 
   if (error) {
     console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to load member training requests:", error);
-    return { data: [], error };
+    return { data: readLocalTrainingRequests(), error: null };
   }
 
   return {
@@ -582,8 +809,12 @@ export async function updateTrainingRequestStatus(requestId, status, declineReas
       declineReason,
     };
     if (normalizedStatus === "accepted") {
-      saveAcceptedLocalPtSessionFromRequest(nextTarget);
-      markMakeupSessionUsedForAcceptedRequest(nextTarget);
+      if (nextTarget.type === "reschedule") {
+        updateLocalWorkoutSessionSchedule(nextTarget.sourceWorkoutSessionId, nextTarget);
+      } else {
+        saveAcceptedLocalPtSessionFromRequest(nextTarget);
+        markMakeupSessionUsedForAcceptedRequest(nextTarget);
+      }
     }
     writeLocalTrainingRequests(rows.map((item) => (item.requestId === target.requestId ? nextTarget : item)));
     return { data: nextTarget, error: null };
@@ -620,7 +851,17 @@ export async function updateTrainingRequestStatus(requestId, status, declineReas
 
   const normalizedStatus = String(status || "").toLowerCase();
   const requestType = String(data?.request_type || "").toLowerCase();
-  if (requestType === "makeup_pt_session" && ["accepted", "approved"].includes(normalizedStatus)) {
+  if (requestType === "reschedule" && ["accepted", "approved"].includes(normalizedStatus)) {
+    try {
+      await applyAcceptedReschedule(data);
+      await notifyMemberAboutRequest(data, "accepted");
+    } catch (actionError) {
+      console.error("[Gymster hệ thống] Failed to finalize reschedule request:", actionError);
+      return { data: null, error: actionError };
+    }
+  } else if (requestType === "reschedule" && ["declined", "rejected"].includes(normalizedStatus)) {
+    await notifyMemberAboutRequest(data, "declined");
+  } else if (requestType === "makeup_pt_session" && ["accepted", "approved"].includes(normalizedStatus)) {
     try {
       await createAcceptedMakeupPtSession(data);
       await recordMakeupUsage(data);
@@ -633,6 +874,11 @@ export async function updateTrainingRequestStatus(requestId, status, declineReas
     await notifyMemberAboutMakeupRequest(data, "declined");
   } else if (["accepted", "approved"].includes(normalizedStatus)) {
     await createTrainerSelectionNotification(data);
+  }
+
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("gymster:training-requests-updated"));
+    window.dispatchEvent(new CustomEvent("gymster:schedule-updated"));
   }
 
   return { data: mapTrainingRequestRow(data), error: null };

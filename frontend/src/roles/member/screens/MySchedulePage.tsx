@@ -2,11 +2,16 @@ import { useEffect, useState } from 'react';
 import { Plus, X } from 'lucide-react';
 import { getCurrentUser } from '../../../services/authService';
 import {
+  cancelWorkoutSessionForMember,
   createManualWorkoutSessionForMember,
   getMakeupSessionSummary,
   getWorkoutSessionStatusLabel,
   getWorkoutSessionsForMember,
 } from '../../../services/workoutSessionApi';
+import { getCurrentMemberPackageForUser } from '../../../services/memberPackageApi';
+import { createTrainingRequest } from '../../../services/trainingRequestApi';
+import { getTrainerOpenScheduleSlots } from '../../../services/trainerAvailabilityApi';
+import { getAllowedLeaveDaysForPackage } from '../../../services/packageEntitlement';
 import Section from '../components/Section';
 import { currentPackage } from '../domain/memberConstants';
 import { useMemberTrainingRequests } from '../hooks/useMemberTrainingRequests';
@@ -14,6 +19,10 @@ import { useMemberTrainingRequests } from '../hooks/useMemberTrainingRequests';
 export default function MySchedulePage() {
   type ScheduleSession = {
     id: string;
+    memberId: string;
+    trainerId: string;
+    packageId: string;
+    memberPackageId: string;
     title: string;
     trainer: string;
     dateIso: string;
@@ -35,9 +44,17 @@ export default function MySchedulePage() {
   const [isLoadingSessions, setIsLoadingSessions] = useState(true);
   const [sessionLoadMessage, setSessionLoadMessage] = useState('');
   const [showAddWorkout, setShowAddWorkout] = useState(false);
+  const [rescheduleSession, setRescheduleSession] = useState<ScheduleSession | null>(null);
+  const [availableDays, setAvailableDays] = useState<any[]>([]);
+  const [selectedSlot, setSelectedSlot] = useState<any>(null);
+  const [rescheduleMessage, setRescheduleMessage] = useState('');
+  const [isLoadingSlots, setIsLoadingSlots] = useState(false);
+  const [isSubmittingReschedule, setIsSubmittingReschedule] = useState(false);
+  const [isCancellingBooking, setIsCancellingBooking] = useState(false);
   const [isCreatingWorkout, setIsCreatingWorkout] = useState(false);
   const [createWorkoutError, setCreateWorkoutError] = useState('');
   const [makeupSummary, setMakeupSummary] = useState(() => getMakeupSessionSummary(getCurrentUser()));
+  const [activePackage, setActivePackage] = useState<any>(null);
   const [manualWorkout, setManualWorkout] = useState(() => ({
     sessionDate: new Date().toISOString().slice(0, 10),
     startTime: '07:00',
@@ -77,6 +94,10 @@ export default function MySchedulePage() {
 
     return {
       id: session.sessionId,
+      memberId: session.memberId || '',
+      trainerId: session.trainerId || '',
+      packageId: session.packageId || '',
+      memberPackageId: session.memberPackageId || '',
       title: session.sessionTitle || session.exerciseType || 'No workout session',
       trainer: session.isPtSession ? (session.trainerName || 'Trainer') : '',
       dateIso: date,
@@ -88,10 +109,81 @@ export default function MySchedulePage() {
       startHour: Number(startTime.split(':')[0]) || 6,
       room: session.roomName || (session.isPtSession ? 'Training Room' : 'Personal workout'),
       status: getWorkoutSessionStatusLabel(session.status) as ScheduleSession['status'],
-      packageName: session.packageName || currentPackage.title,
+      packageName: session.packageName || activePackage?.packageName || currentPackage.title || 'Membership package',
       notes: session.note || 'No workout session',
       isPtSession: Boolean(session.isPtSession || session.trainerId),
     };
+  };
+
+  const currentPackageInfo = activePackage || {
+    packageName: currentPackage.title || 'No active package',
+    remainingSessions: currentPackage.remainingSessions,
+    packageDurationMonths: 1,
+    maxLeaveDays: getAllowedLeaveDaysForPackage({ packageDurationMonths: 1 }),
+  };
+
+  const openRescheduleRequest = async (session: ScheduleSession) => {
+    setRescheduleSession(session);
+    setSelectedSlot(null);
+    setRescheduleMessage('');
+    setIsLoadingSlots(true);
+    const { data, error } = await getTrainerOpenScheduleSlots(session.trainerId, {
+      excludeSessionId: session.id,
+      daysAhead: 14,
+    });
+    setAvailableDays(data || []);
+    setIsLoadingSlots(false);
+    if (error) setRescheduleMessage('Không tải được lịch trống của PT. Bạn có thể thử lại sau.');
+  };
+
+  const submitRescheduleRequest = async () => {
+    if (!rescheduleSession || !selectedSlot) {
+      setRescheduleMessage('Chọn ngày và giờ muốn đổi sang.');
+      return;
+    }
+
+    const currentUser = getCurrentUser();
+    setIsSubmittingReschedule(true);
+    const requestedSchedule = `${selectedSlot.date} ${selectedSlot.label}`;
+    const { error } = await createTrainingRequest({
+      requestType: 'reschedule',
+      type: 'reschedule',
+      memberId: rescheduleSession.memberId || currentUser?.memberId || currentUser?.member_id || currentUser?.id,
+      memberEmail: currentUser?.email,
+      trainerId: rescheduleSession.trainerId,
+      packageId: rescheduleSession.packageId || activePackage?.packageId,
+      memberPackageId: rescheduleSession.memberPackageId || activePackage?.memberPackageId,
+      sourceWorkoutSessionId: rescheduleSession.id,
+      currentSchedule: `${rescheduleSession.dateIso} ${rescheduleSession.time}`,
+      requestedSchedule,
+      requestedDate: selectedSlot.date,
+      startTime: selectedSlot.startTime,
+      endTime: selectedSlot.endTime,
+    });
+    setIsSubmittingReschedule(false);
+
+    if (error) {
+      setRescheduleMessage(error.message || 'Không gửi được yêu cầu đổi lịch.');
+      return;
+    }
+
+    setRescheduleMessage('Đã gửi yêu cầu đổi lịch tới PT. Bạn sẽ nhận thông báo khi PT phản hồi.');
+    window.dispatchEvent(new CustomEvent('gymster:training-requests-updated'));
+  };
+
+  const cancelSelectedBooking = async () => {
+    if (!selectedSession || !selectedSession.isPtSession) return;
+    setIsCancellingBooking(true);
+    const { error, makeupSummary: nextMakeupSummary } = await cancelWorkoutSessionForMember(selectedSession, getCurrentUser());
+    setIsCancellingBooking(false);
+    if (error) {
+      setSessionLoadMessage('Không hủy được booking. Vui lòng thử lại.');
+      return;
+    }
+
+    setScheduleSessions((current) => current.filter((session) => session.id !== selectedSession.id));
+    setMakeupSummary(nextMakeupSummary || getMakeupSessionSummary(getCurrentUser()));
+    setSelectedSession(null);
   };
 
   const createManualWorkout = async () => {
@@ -123,6 +215,9 @@ export default function MySchedulePage() {
 
   useEffect(() => {
     let isMounted = true;
+    getCurrentMemberPackageForUser(getCurrentUser()).then(({ data }) => {
+      if (isMounted) setActivePackage(data);
+    });
     const loadSessions = () => {
       setIsLoadingSessions(true);
 
@@ -211,21 +306,24 @@ export default function MySchedulePage() {
       <div className="grid gap-4 md:grid-cols-4">
         <div className="rounded-2xl border border-white/8 bg-[#181818] p-5">
           <div className="text-xs font-bold uppercase tracking-[0.18em] text-white/35">Current Package</div>
-          <div className="mt-2 text-xl font-black text-white">{currentPackage.title}</div>
+          <div className="mt-2 text-xl font-black text-white">{currentPackageInfo.packageName}</div>
+          <div className="mt-1 text-xs font-semibold text-white/45">
+            Max leave: {currentPackageInfo.maxLeaveDays || getAllowedLeaveDaysForPackage(currentPackageInfo)} days
+          </div>
         </div>
         <div className="rounded-2xl border border-white/8 bg-[#181818] p-5">
           <div className="text-xs font-bold uppercase tracking-[0.18em] text-white/35">Remaining Sessions</div>
-          <div className="mt-2 text-xl font-black text-[#EF233C]">{currentPackage.remainingSessions}</div>
+          <div className="mt-2 text-xl font-black text-[#EF233C]">{currentPackageInfo.remainingSessions ?? 0}</div>
         </div>
         <div className="rounded-2xl border border-white/8 bg-[#181818] p-5">
           <div className="text-xs font-bold uppercase tracking-[0.18em] text-white/35">Next Session</div>
           <div className="mt-2 text-xl font-black text-white">{nextSession ? nextSession.title : 'No upcoming session'}</div>
           {nextSession && <div className="mt-1 text-sm text-white/50">{nextSession.date} - {nextSession.time}</div>}
         </div>
-        <div className="rounded-2xl border border-[#9F1239]/25 bg-[#FFF1F2] p-5 text-[#3F0A16]">
-          <div className="text-xs font-bold uppercase tracking-[0.18em] text-[#9F1239]/70">Buổi bù</div>
-          <div className="mt-2 text-xl font-black">{makeupSummary.credits}/{makeupSummary.resetBalance}</div>
-          <div className="mt-1 text-xs font-semibold text-[#9F1239]/75">
+        <div className="rounded-2xl border border-[#EF233C]/25 bg-[#211316] p-5 text-white">
+          <div className="text-xs font-bold uppercase tracking-[0.18em] text-[#FF7A8D]">Buổi bù</div>
+          <div className="mt-2 text-xl font-black text-white">{makeupSummary.credits}/{makeupSummary.resetBalance}</div>
+          <div className="mt-1 text-xs font-semibold text-[#FF9AAB]">
             Tháng này: {makeupSummary.grantedThisMonth}/{makeupSummary.monthlyLimit}
           </div>
         </div>
@@ -301,7 +399,7 @@ export default function MySchedulePage() {
                         ? 'border-emerald-400/25 bg-emerald-500/15'
                         : session.status === 'Incomplete'
                           ? 'border-red-400/25 bg-red-500/15'
-                          : 'border-[#9F1239]/55 bg-[#FFF1F2] text-[#3F0A16] shadow-[#9F1239]/10'
+                          : 'border-[#EF233C]/45 bg-[#2A171B] text-white shadow-[#EF233C]/10'
                     }`}
                     style={getEventPosition(session)}
                     type="button"
@@ -407,10 +505,85 @@ export default function MySchedulePage() {
             </div>
             <div className="mt-6 grid gap-3 sm:grid-cols-3">
               <button className="rounded-xl bg-[#EF233C] px-4 py-3 text-sm font-bold text-white" type="button">View Details</button>
-              {selectedSession.isPtSession && <button className="rounded-xl border border-[#EF233C]/30 px-4 py-3 text-sm font-bold text-[#EF233C]" type="button">Request Reschedule</button>}
-              {selectedSession.isPtSession && <button className="rounded-xl border border-white/10 px-4 py-3 text-sm font-bold text-white/60" type="button">Cancel Booking</button>}
+              {selectedSession.isPtSession && (
+                <button
+                  className="rounded-xl border border-[#EF233C]/30 px-4 py-3 text-sm font-bold text-[#EF233C]"
+                  type="button"
+                  onClick={() => openRescheduleRequest(selectedSession)}
+                >
+                  Request Đổi lịch
+                </button>
+              )}
+              {selectedSession.isPtSession && (
+                <button
+                  className="rounded-xl border border-white/10 px-4 py-3 text-sm font-bold text-white/60 hover:border-red-400/30 hover:text-red-300 disabled:opacity-60"
+                  type="button"
+                  disabled={isCancellingBooking}
+                  onClick={cancelSelectedBooking}
+                >
+                  {isCancellingBooking ? 'Cancelling...' : 'Hủy Booking'}
+                </button>
+              )}
             </div>
           </aside>
+        </div>
+      )}
+
+      {rescheduleSession && (
+        <div className="fixed inset-x-0 bottom-0 top-20 z-[160] flex items-start justify-center overflow-y-auto bg-black/75 px-4 py-6 backdrop-blur-sm sm:top-24" onClick={() => setRescheduleSession(null)}>
+          <div className="w-full max-w-4xl rounded-3xl border border-white/10 bg-[#181818] p-6 shadow-[0_28px_90px_rgba(0,0,0,0.8)]" onClick={(event) => event.stopPropagation()}>
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-2xl font-black text-white">Request đổi lịch</h2>
+                <p className="mt-1 text-sm text-white/50">Chọn ngày và giờ PT còn trống để gửi yêu cầu xác nhận.</p>
+                <p className="mt-2 text-xs font-bold text-[#FF9AAB]">Lịch hiện tại: {rescheduleSession.dateIso} {rescheduleSession.time}</p>
+              </div>
+              <button type="button" onClick={() => setRescheduleSession(null)} className="rounded-xl p-2 text-white/50 hover:bg-white/5 hover:text-white"><X className="h-5 w-5" /></button>
+            </div>
+
+            {isLoadingSlots ? (
+              <div className="mt-6 rounded-2xl border border-white/8 bg-[#222] p-5 text-sm font-bold text-white/50">Loading PT available slots...</div>
+            ) : (
+              <div className="mt-6 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                {availableDays.map((day) => (
+                  <div key={day.date} className="rounded-2xl border border-white/8 bg-[#111] p-4">
+                    <div className="text-sm font-black text-white">{day.label}</div>
+                    <div className="mt-3 grid grid-cols-2 gap-2">
+                      {day.slots.map((slot: any) => {
+                        const slotId = `${day.date}-${slot.startTime}`;
+                        const active = selectedSlot?.id === slotId;
+                        return (
+                          <button
+                            key={slotId}
+                            type="button"
+                            disabled={!slot.available}
+                            onClick={() => setSelectedSlot({ ...slot, id: slotId, date: day.date })}
+                            className={`rounded-xl border px-3 py-2 text-xs font-black transition ${
+                              active
+                                ? 'border-[#EF233C] bg-[#EF233C] text-white'
+                                : slot.available
+                                  ? 'border-white/10 bg-[#222] text-white hover:border-[#EF233C]/50'
+                                  : 'cursor-not-allowed border-white/5 bg-[#1a1a1a] text-white/25'
+                            }`}
+                          >
+                            {slot.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {rescheduleMessage && <div className="mt-5 rounded-xl border border-amber-400/25 bg-amber-500/10 p-3 text-sm font-bold text-amber-300">{rescheduleMessage}</div>}
+            <div className="mt-6 flex flex-wrap justify-end gap-3 border-t border-white/8 pt-4">
+              <button type="button" onClick={() => setRescheduleSession(null)} className="rounded-xl border border-white/10 px-5 py-3 text-sm font-bold text-white/65 hover:text-white">Close</button>
+              <button type="button" disabled={isSubmittingReschedule || !selectedSlot} onClick={submitRescheduleRequest} className="rounded-xl bg-[#EF233C] px-5 py-3 text-sm font-black text-white transition hover:bg-[#c91930] disabled:opacity-60">
+                {isSubmittingReschedule ? 'Sending...' : 'Send request'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

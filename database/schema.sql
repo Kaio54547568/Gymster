@@ -1100,6 +1100,8 @@ alter table public.training_requests add column if not exists request_type text 
 alter table public.training_requests add column if not exists requested_date date;
 alter table public.training_requests add column if not exists start_time time;
 alter table public.training_requests add column if not exists end_time time;
+alter table public.training_requests add column if not exists current_schedule text;
+alter table public.training_requests add column if not exists source_workout_session_id uuid references public.workout_sessions(workout_session_id) on delete set null;
 
 alter table public.training_requests drop constraint if exists training_requests_status_check;
 alter table public.training_requests add constraint training_requests_status_check check (
@@ -1132,6 +1134,13 @@ create table if not exists public.makeup_sessions (
   unique (customer_id, month, year)
 );
 create index if not exists idx_makeup_sessions_customer_month on public.makeup_sessions(customer_id, year, month);
+
+alter table public.makeup_sessions drop constraint if exists makeup_sessions_max_makeup_allowed_check;
+alter table public.makeup_sessions add constraint makeup_sessions_max_makeup_allowed_check check (max_makeup_allowed between 0 and 2);
+
+alter table public.packages add column if not exists max_leave_days integer;
+update public.packages
+set max_leave_days = coalesce(max_leave_days, duration_months * 2);
 
 alter table public.payments add column if not exists payment_date timestamptz;
 alter table public.payments add column if not exists transaction_code text;

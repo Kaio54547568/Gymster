@@ -1,4 +1,5 @@
 import { supabase } from "./supabaseClient";
+import { getAllowedLeaveDaysForPackage } from "./packageEntitlement";
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const LOCAL_PACKAGE_CHANGE_REQUESTS_KEY = "gymster_local_package_change_requests";
@@ -13,6 +14,7 @@ const fallbackActivePackage = {
   packagePrice: 4800000,
   packageDurationMonths: 3,
   packageSessionLimit: 24,
+  maxLeaveDays: 6,
   hasPersonalTrainer: true,
   trainerName: "Khoa Le",
   startDate: new Date().toISOString().slice(0, 10),
@@ -42,6 +44,11 @@ const packageColumns = `
 
 function mapMemberPackageRow(row, packageRow = null, trainerName = "") {
   if (!row) return null;
+  const packageDurationMonths = packageRow?.duration_months ?? null;
+  const packageInfo = {
+    packageDurationMonths,
+    durationMonths: packageDurationMonths,
+  };
 
   return {
     memberPackageId: row.member_package_id,
@@ -51,8 +58,9 @@ function mapMemberPackageRow(row, packageRow = null, trainerName = "") {
     packageName: packageRow?.package_name || "",
     packageType: packageRow?.package_type || "",
     packagePrice: packageRow?.price ? Number(packageRow.price) : null,
-    packageDurationMonths: packageRow?.duration_months ?? null,
+    packageDurationMonths,
     packageSessionLimit: packageRow?.session_limit ?? null,
+    maxLeaveDays: getAllowedLeaveDaysForPackage(packageInfo),
     hasPersonalTrainer: Boolean(packageRow?.has_personal_trainer),
     trainerName,
     startDate: row.start_date,

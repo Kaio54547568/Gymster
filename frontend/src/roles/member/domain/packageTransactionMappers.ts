@@ -1,5 +1,6 @@
 import { currentPackage } from './memberConstants';
 import { addMonths, getPackageDurationMonths, toDateInputValue } from './packageHelpers';
+import { getAllowedLeaveDaysForPackage } from '../../../services/packageEntitlement';
 
 export type DisplayPackage = {
   id: string | number;
@@ -11,6 +12,7 @@ export type DisplayPackage = {
   priceValue: number;
   description: string;
   sessionLimit: string;
+  maxLeaveDays?: number;
   hasPersonalTrainer: boolean;
   isPopular?: boolean;
   benefits: string[];
@@ -36,6 +38,7 @@ export type DisplayCurrentPackage = {
   daysRemaining: string | number;
   price: string;
   trainer: string;
+  maxLeaveDays?: number;
 };
 
 export const emptyDisplayCurrentPackage: DisplayCurrentPackage = {
@@ -126,11 +129,13 @@ export function mapPackageToDisplayPackage(pkg: any): DisplayPackage {
     priceValue: pkg.price,
     description: pkg.description,
     sessionLimit: pkg.sessionLimit,
+    maxLeaveDays: pkg.maxLeaveDays || getAllowedLeaveDaysForPackage(pkg),
     hasPersonalTrainer: pkg.hasPersonalTrainer,
     isPopular: pkg.isPopular,
     benefits: [
       pkg.description || 'Package benefits configured',
       pkg.sessionLimit,
+      `${pkg.maxLeaveDays || getAllowedLeaveDaysForPackage(pkg)} valid leave days`,
       pkg.hasPersonalTrainer ? 'Personal trainer included' : 'Self-service training',
     ],
   };
@@ -140,6 +145,7 @@ export function mapCurrentPackageToDisplay(item: any): DisplayCurrentPackage {
   const startDate = resolveStartDate(item);
   const endDate = resolveEndDate(item, startDate);
   const sessionStats = resolveSessionStats(item);
+  const maxLeaveDays = item.maxLeaveDays || getAllowedLeaveDaysForPackage(item);
 
   return {
     hasPackage: true,
@@ -153,6 +159,7 @@ export function mapCurrentPackageToDisplay(item: any): DisplayCurrentPackage {
     daysRemaining: getDaysRemaining(endDate),
     price: item.packagePrice ? formatVnd(item.packagePrice) : currentPackage.price,
     trainer: item.trainerName || '',
+    maxLeaveDays,
   };
 }
 

@@ -1,5 +1,6 @@
 import { supabase } from "./supabaseClient";
 import { resolveCurrentMemberId } from "./memberPackageApi";
+import { getMonthlyLeaveLimit } from "./packageEntitlement";
 import {
   generateSessionsForPackageRange,
   generateUpcomingSessions,
@@ -15,7 +16,7 @@ const LOCAL_DEMO_TRAINER_ID = "local-trainer-khoa";
 const FIXED_PT_DAYS = [1, 4];
 const FIXED_PT_START_TIME = "08:00";
 const FIXED_PT_END_TIME = "10:00";
-const MAKEUP_RESET_BALANCE = 3;
+const MAKEUP_RESET_BALANCE = getMonthlyLeaveLimit();
 
 function mapWorkoutSessionRow(row) {
   if (!row) return null;
@@ -287,6 +288,28 @@ export function updateLocalWorkoutSessionStatus(sessionId, status) {
       : row
   ));
   writeLocalWorkoutSessions(nextRows);
+}
+
+export function updateLocalWorkoutSessionSchedule(sessionId, nextSchedule = {}) {
+  if (!sessionId) return null;
+
+  const rows = readLocalWorkoutSessions();
+  let updatedRow = null;
+  const nextRows = rows.map((row) => {
+    if ((row.session_id || row.workout_session_id) !== sessionId) return row;
+    updatedRow = {
+      ...row,
+      session_date: nextSchedule.date || nextSchedule.requestedDate || row.session_date,
+      start_time: nextSchedule.startTime || nextSchedule.time || row.start_time,
+      end_time: nextSchedule.endTime || row.end_time,
+      status: "scheduled",
+      notes: "Reschedule request accepted by PT.",
+    };
+    return updatedRow;
+  });
+
+  writeLocalWorkoutSessions(nextRows);
+  return updatedRow ? mapWorkoutSessionRow(updatedRow) : null;
 }
 
 export function saveAcceptedLocalPtSessionFromRequest(request) {
@@ -911,6 +934,52 @@ export async function updateWorkoutSessionStatus(sessionId, status) {
 
   const [mapped] = await enrichWorkoutSessions([data]);
   return { data: mapped, error: null };
+}
+
+export async function cancelWorkoutSessionForMember(session, currentUser = null) {
+  const sessionId = session?.sessionId || session?.id;
+  if (!sessionId) {
+    return { data: null, error: new Error("Workout session was not found.") };
+  }
+
+  const makeupSummary = recordMakeupForCancelledSession(session, currentUser);
+
+  if (!supabase || !uuidPattern.test(String(sessionId))) {
+    updateLocalWorkoutSessionStatus(sessionId, "cancelled");
+    return { data: { ...session, status: "cancelled" }, error: null, makeupSummary };
+  }
+
+  const memberId = await resolveCurrentMemberId(currentUser);
+  let query = supabase
+    .from("workout_sessions")
+    .update({ status: "cancelled", notes: "Cancelled by member. Makeup credit granted." })
+    .eq("workout_session_id", sessionId);
+  if (memberId) query = query.eq("member_id", memberId);
+
+  const { data, error } = await query.select("*").single();
+  if (error) {
+    console.error("[Gymster hệ thống] Failed to cancel workout session:", error);
+    return { data: null, error, makeupSummary };
+  }
+
+  try {
+    const now = new Date();
+    await supabase.from("makeup_sessions").upsert({
+      customer_id: data.member_id,
+      month: now.getMonth() + 1,
+      year: now.getFullYear(),
+      fixed_schedule_cancel_count: makeupSummary.fixedScheduleCancelCount,
+      max_makeup_allowed: makeupSummary.maxMakeupAllowed,
+      used_makeup_count: makeupSummary.usedMakeupCount,
+      remaining_makeup_count: makeupSummary.remainingMakeupCount,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "customer_id,month,year" });
+  } catch (summaryError) {
+    console.warn("[Gymster hệ thống] Makeup summary table could not be updated:", summaryError);
+  }
+
+  const [mapped] = await enrichWorkoutSessions([data]);
+  return { data: mapped, error: null, makeupSummary };
 }
 
 function formatPlanContent(plan, exercises) {

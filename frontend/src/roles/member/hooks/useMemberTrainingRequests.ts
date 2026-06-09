@@ -9,32 +9,39 @@ export function useMemberTrainingRequests() {
 
   useEffect(() => {
     let isMounted = true;
-    const currentUser = getCurrentUser();
-    const memberLookup = currentUser?.memberId || currentUser?.email || currentUser?.id;
+    const loadRequests = () => {
+      const currentUser = getCurrentUser();
+      const memberLookup = currentUser?.memberId || currentUser?.email || currentUser?.id;
 
-    getTrainingRequestsForMember(memberLookup)
-      .then(({ data, error }) => {
-        if (!isMounted) return;
+      setIsLoadingRequests(true);
+      getTrainingRequestsForMember(memberLookup)
+        .then(({ data, error }) => {
+          if (!isMounted) return;
 
-        if (error || !data.length) {
+          if (error || !data.length) {
+            setRequests([]);
+            setRequestLoadMessage(error ? 'Request status could not be loaded.' : '');
+          } else {
+            setRequests(data);
+            setRequestLoadMessage('');
+          }
+
+          setIsLoadingRequests(false);
+        })
+        .catch(() => {
+          if (!isMounted) return;
           setRequests([]);
-          setRequestLoadMessage(error ? 'Request status could not be loaded.' : '');
-        } else {
-          setRequests(data);
           setRequestLoadMessage('');
-        }
+          setIsLoadingRequests(false);
+        });
+    };
 
-        setIsLoadingRequests(false);
-      })
-      .catch(() => {
-        if (!isMounted) return;
-        setRequests([]);
-        setRequestLoadMessage('Request status could not be loaded.');
-        setIsLoadingRequests(false);
-      });
+    loadRequests();
+    window.addEventListener('gymster:training-requests-updated', loadRequests);
 
     return () => {
       isMounted = false;
+      window.removeEventListener('gymster:training-requests-updated', loadRequests);
     };
   }, []);
 

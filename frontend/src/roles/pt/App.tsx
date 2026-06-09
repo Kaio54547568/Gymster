@@ -40,6 +40,7 @@ import {
 } from "../../services/workoutPlanApi";
 import { requestMedicalHistoryForMember } from "../../services/medicalHistoryApi";
 import { updateMemberCurrentGoal } from "../../services/memberCareApi";
+import MuscleGroupSelector from "./components/workout-guidance/MuscleGroupSelector";
 
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // TYPES
@@ -53,6 +54,7 @@ type Screen =
   | "equipment-report"
   | "evaluation"
   | "meal-plan"
+  | "notifications"
   | "settings"
   | "profile";
 
@@ -1234,10 +1236,11 @@ function MemberDetailScreen({
 // SCREEN 4: SCHEDULE & PROGRESS
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function ScheduleProgressScreen({
-  onViewMember, showToast,
+  onViewMember, showToast, onNavigate,
 }: {
   onViewMember: (id: string) => void;
   showToast: (msg: string) => void;
+  onNavigate: (screen: Screen) => void;
 }) {
   type CalendarView = "Day" | "Week" | "Month" | "Agenda";
   const [view, setView] = useState<CalendarView>("Week");
@@ -1254,6 +1257,7 @@ function ScheduleProgressScreen({
   const [sessionExercises, setSessionExercises] = useState<Exercise[]>([]);
   const [showMarkOptions, setShowMarkOptions] = useState(false);
   const [isSavingContent, setIsSavingContent] = useState(false);
+  const [scheduleRequests, setScheduleRequests] = useState<any[]>([]);
   const days = getCalendarWeek(calendarAnchor);
   const timeSlots = ["06:00", "07:00", "08:00", "09:00", "10:00", "11:00", "14:00", "15:00", "16:00", "17:00", "18:00", "19:00"];
   const weekStart = new Date(`${days[0].key}T00:00:00`);
@@ -1298,6 +1302,13 @@ function ScheduleProgressScreen({
     : null;
   const visibleDays = view === "Day" ? [days.find(day => day.key === toIsoDate(calendarAnchor)) || days[0]] : days;
   const upcomingSessions = filteredSessions.filter(item => item.status === "Scheduled").slice(0, 5);
+  const pendingRescheduleRequests = scheduleRequests.filter(request =>
+    request.type === "reschedule" &&
+    (request.rawStatus === "pending_pt_approval" || request.status === "pending_pt_approval" || request.statusLabel === "Pending Approval")
+  );
+  const selectedSessionRequest = selectedSession
+    ? pendingRescheduleRequests.find(request => request.sourceWorkoutSessionId === selectedSession.scheduleId)
+    : null;
 
   const mapWorkoutSessionToTrainingSchedule = (session: any): TrainingSchedule => {
     const startTime = String(session.startTime || "").slice(0, 5);
@@ -1356,6 +1367,23 @@ function ScheduleProgressScreen({
 
     return () => {
       isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+    const loadScheduleRequests = async () => {
+      const currentUser = getCurrentUser();
+      const trainerLookup = currentUser?.trainerId || currentUser?.email || TRAINER.email;
+      const { data } = await getTrainingRequestsForTrainer(trainerLookup);
+      if (isMounted) setScheduleRequests(data || []);
+    };
+
+    void loadScheduleRequests();
+    window.addEventListener("gymster:training-requests-updated", loadScheduleRequests);
+    return () => {
+      isMounted = false;
+      window.removeEventListener("gymster:training-requests-updated", loadScheduleRequests);
     };
   }, []);
 
@@ -1465,6 +1493,16 @@ function ScheduleProgressScreen({
           <h1 className="text-4xl text-white tracking-[0.08em]" style={{ fontFamily: "'Bebas Neue', sans-serif" }}>PT CALENDAR</h1>
           <p className="text-[#555] text-xs mt-1">Track member schedules and update content for each workout session.</p>
         </div>
+        {pendingRescheduleRequests.length > 0 && (
+          <button
+            type="button"
+            onClick={() => onNavigate("notifications")}
+            className="inline-flex items-center gap-2 rounded-xl border border-[#FF3B3B]/35 bg-[#FF3B3B]/15 px-4 py-2 text-xs font-bold text-[#FFB3B3] hover:bg-[#FF3B3B]/25"
+          >
+            <Bell className="size-4" />
+            {pendingRescheduleRequests.length} reschedule request{pendingRescheduleRequests.length > 1 ? "s" : ""}
+          </button>
+        )}
       </div>
 
       <div className="bg-[#181818] border border-white/5 rounded-xl p-4">
@@ -1616,6 +1654,16 @@ function ScheduleProgressScreen({
               <div className="flex justify-between rounded-lg bg-[#222] p-3"><span className="text-[#777]">Room/location</span><span className="text-white">{selectedSession.roomName || "Room A2"}</span></div>
               <div className="flex justify-between rounded-lg bg-[#222] p-3"><span className="text-[#777]">Package</span><span className="text-white">{selectedMember.package || selectedSession.packageName || "Membership package"}</span></div>
               <div className="flex justify-between rounded-lg bg-[#222] p-3"><span className="text-[#777]">Status</span><Badge status={selectedSession.status} /></div>
+              {selectedSessionRequest && (
+                <button
+                  type="button"
+                  onClick={() => onNavigate("notifications")}
+                  className="flex w-full justify-between rounded-lg border border-amber-400/20 bg-amber-400/10 p-3 text-left"
+                >
+                  <span className="text-amber-200">Member yêu cầu đổi lịch</span>
+                  <span className="text-xs font-bold text-amber-300">Open notification</span>
+                </button>
+              )}
             </div>
             <div className="mt-5 space-y-4 rounded-xl border border-white/8 bg-[#111] p-4">
               <div>
@@ -1791,11 +1839,6 @@ function WorkoutGuidanceScreen({ showToast }: { showToast: (msg: string) => void
             <div className="space-y-4">
               <Input label="Workout name" value={workoutName} onChange={setWorkoutName} placeholder="Example: Upper Body Strength" />
               <Textarea label="Workout goal" value={goal} onChange={setGoal} rows={2} />
-              <div className="grid grid-cols-2 gap-3">
-                <Input label="Start date" value={startDate} onChange={setStartDate} type="date" />
-                <Input label="End date" value={endDate} onChange={setEndDate} type="date" />
-              </div>
-              <Select label="Status" value={status} onChange={setStatus} options={["draft", "active", "completed", "archived"]} />
               <Textarea label="General notes" value={notes} onChange={setNotes} rows={4} />
               <div className="grid grid-cols-2 gap-2">
                 {editingPlanId && <GhostBtn label="Cancel edit" onClick={resetForm} />}
@@ -1834,22 +1877,23 @@ function WorkoutGuidanceScreen({ showToast }: { showToast: (msg: string) => void
             <PrimaryBtn icon={Plus} label="Add exercise" small onClick={addExercise} />
           </div>
           {exercises.map((ex, idx) => (
-            <div key={ex.exerciseId} className="bg-[#181818] border border-white/5 rounded-xl p-4">
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2">
-                  <div className="size-6 bg-[#FF3B3B]/15 border border-[#FF3B3B]/25 rounded-lg flex items-center justify-center text-[#FF3B3B] text-xs font-bold">{idx + 1}</div>
+            <div key={ex.exerciseId} className="rounded-xl border border-white/5 bg-[#181818] p-4">
+              <div className="mb-4 flex items-start gap-3">
+                <div className="flex size-7 shrink-0 items-center justify-center rounded-lg border border-[#FF3B3B]/25 bg-[#FF3B3B]/15 text-xs font-bold text-[#FF3B3B]">{idx + 1}</div>
+                <div className="min-w-0 flex-1">
+                  <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-[#BDBDBD]">Exercise name</div>
                   <input
                     value={ex.exerciseName}
                     onChange={e => updateEx(ex.exerciseId, "exerciseName", e.target.value)}
-                    placeholder="Exercise name"
-                    className="bg-transparent text-white font-semibold text-sm focus:outline-none border-b border-transparent focus:border-[#FF3B3B]/40 pb-0.5 transition-colors"
+                    placeholder="Example: Barbell bench press"
+                    className="w-full rounded-lg border border-white/10 bg-[#222] px-3 py-3 text-base font-semibold text-white outline-none transition-colors placeholder:text-[#555] focus:border-[#FF3B3B]/60"
                   />
                 </div>
-                <button onClick={() => removeExercise(ex.exerciseId)} className="size-6 flex items-center justify-center text-[#555] hover:text-red-400 hover:bg-red-400/10 rounded-lg transition-all">
+                <button onClick={() => removeExercise(ex.exerciseId)} className="flex size-8 shrink-0 items-center justify-center rounded-lg text-[#555] transition-all hover:bg-red-400/10 hover:text-red-400" aria-label="Remove exercise">
                   <X className="size-3" />
                 </button>
               </div>
-              <div className="grid grid-cols-3 gap-3 mb-3">
+              <div className="mb-3 grid grid-cols-3 gap-3">
                 {[
                   { label: "Sets", field: "sets" as keyof Exercise, value: ex.sets },
                   { label: "Reps", field: "reps" as keyof Exercise, value: ex.reps },
@@ -1866,32 +1910,36 @@ function WorkoutGuidanceScreen({ showToast }: { showToast: (msg: string) => void
                   </div>
                 ))}
               </div>
-              <div className="grid grid-cols-2 gap-3 mb-3">
+              <div className="mb-3 grid grid-cols-1 gap-3 xl:grid-cols-[1fr_0.7fr]">
                 <div>
-                  <div className="text-[#555] text-xs mb-1">Muscle group</div>
-                  <input
-                    value={ex.muscleGroup}
-                    onChange={e => updateEx(ex.exerciseId, "muscleGroup", e.target.value)}
-                    className="w-full bg-[#222] border border-white/8 text-white text-xs px-2.5 py-1.5 rounded-lg focus:outline-none focus:border-[#FF3B3B]/40 transition-colors"
-                  />
+                  <div className="mb-1 text-xs text-[#555]">Muscle group</div>
+                  <div className="flex min-h-[42px] items-center rounded-lg border border-white/8 bg-[#222] px-3 py-2 text-xs text-white">
+                    {ex.muscleGroup || "Chọn một hoặc nhiều nhóm cơ"}
+                  </div>
                 </div>
                 <div>
-                  <div className="text-[#555] text-xs mb-1">Difficulty</div>
+                  <div className="mb-1 text-xs text-[#555]">Difficulty</div>
                   <select
                     value={ex.difficulty}
                     onChange={e => updateEx(ex.exerciseId, "difficulty", e.target.value)}
-                    className="w-full bg-[#222] border border-white/8 text-white text-xs px-2.5 py-1.5 rounded-lg focus:outline-none focus:border-[#FF3B3B]/40 transition-colors"
+                    className="min-h-[42px] w-full rounded-lg border border-white/8 bg-[#222] px-2.5 py-1.5 text-xs text-white outline-none transition-colors focus:border-[#FF3B3B]/40"
                   >
                     {["Easy", "Medium", "Hard", "Very Hard"].map(d => <option key={d}>{d}</option>)}
                   </select>
                 </div>
               </div>
+              <div className="mb-3">
+                <MuscleGroupSelector
+                  value={ex.muscleGroup}
+                  onChange={(value) => updateEx(ex.exerciseId, "muscleGroup", value)}
+                />
+              </div>
               <div>
-                <div className="text-[#555] text-xs mb-1">Technique instruction</div>
+                <div className="mb-1 text-xs text-[#555]">Technique instruction</div>
                 <input
                   value={ex.instruction}
                   onChange={e => updateEx(ex.exerciseId, "instruction", e.target.value)}
-                  className="w-full bg-[#222] border border-white/8 text-white text-xs px-2.5 py-1.5 rounded-lg focus:outline-none focus:border-[#FF3B3B]/40 transition-colors"
+                  className="w-full rounded-lg border border-white/8 bg-[#222] px-2.5 py-1.5 text-xs text-white outline-none transition-colors focus:border-[#FF3B3B]/40"
                 />
               </div>
             </div>
@@ -3018,12 +3066,14 @@ export default function App() {
             <ScheduleProgressScreen
               onViewMember={viewMember}
               showToast={showToast}
+              onNavigate={navigate}
             />
           )}
           {screen === "workout" && <WorkoutGuidanceScreen showToast={showToast} />}
           {screen === "equipment-report" && <EquipmentReportScreen showToast={showToast} />}
           {screen === "evaluation" && <ProgressEvaluationScreen showToast={showToast} />}
           {screen === "meal-plan" && <MealPlanScreen showToast={showToast} />}
+          {screen === "notifications" && <NotificationsScreen />}
           {screen === "profile" && <ProfileScreen showToast={showToast} />}
           {screen === "settings" && <SettingsScreen showToast={showToast} darkMode={darkMode} setDarkMode={setDarkMode} />}
         </div>
