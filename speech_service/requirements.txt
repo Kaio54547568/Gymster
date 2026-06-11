@@ -1,0 +1,9 @@
+torch
+torchaudio
+funasr
+modelscope==1.18.1
+huggingface-hub
+fastapi
+uvicorn
+python-multipart
+more-itertools

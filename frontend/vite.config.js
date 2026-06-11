@@ -7,6 +7,10 @@ export default defineConfig({
   server: {
     proxy: {
       "/api": "http://localhost:3001",
+      "/speech": {
+        target: "http://localhost:8000",
+        rewrite: (path) => path.replace(/^\/speech/, ""),
+      },
     },
   },
 });
