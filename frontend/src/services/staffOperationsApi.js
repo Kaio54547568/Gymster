@@ -1,5 +1,6 @@
 import { supabase } from "./supabaseClient";
 import { getCurrentUser, isPasswordMatch } from "./authService";
+import { createPayment } from "./paymentApi";
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const usernamePattern = /^[A-Za-z0-9][A-Za-z0-9._-]{4,28}[A-Za-z0-9]$/;
@@ -120,6 +121,7 @@ export async function getStaffMembers() {
         citizenId: member.member_code || "-",
         status: toDisplayStatus(user.account_status || member.status, memberPackage.end_date),
         rawStatus: member.status || user.account_status || "",
+        currentPackageId: memberPackage.package_id || "",
         currentPackage: pkg.package_name || "No package",
         expirationDate: memberPackage.end_date || "",
         dateOfBirth: user.date_of_birth || member.date_of_birth || "",
@@ -200,6 +202,119 @@ export async function disableStaffMember(memberId, staffPassword) {
     return { ok: false, message: "Member could not be disabled." };
   }
   return { ok: true, message: "Member disabled." };
+}
+
+function addMonthsToDate(dateValue, months) {
+  const date = new Date(`${dateValue}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return "";
+  const day = date.getDate();
+  date.setMonth(date.getMonth() + Number(months || 0));
+  if (date.getDate() !== day) date.setDate(0);
+  return date.toISOString().slice(0, 10);
+}
+
+async function fetchPackageById(packageId) {
+  if (!packageId || !uuidPattern.test(String(packageId))) return null;
+  const { data, error } = await supabase
+    .from("packages")
+    .select("package_id,package_name,duration_months,price,session_limit,status,is_active")
+    .eq("package_id", packageId)
+    .maybeSingle();
+  if (error) throw error;
+  return data || null;
+}
+
+export async function renewStaffMemberPackage(form) {
+  if (!supabase) return { ok: false, message: "Hệ thống chưa được cấu hình." };
+
+  try {
+    const memberId = form.memberId;
+    const packageId = form.packageId;
+    const durationMonths = Number(form.durationMonths || 0);
+    const startDate = form.startDate;
+    const endDate = form.endDate || addMonthsToDate(startDate, durationMonths);
+    const amount = Number(form.amount || 0);
+    const paymentMethod = form.paymentMethod || "cash";
+
+    if (!memberId || !uuidPattern.test(String(memberId))) {
+      return { ok: false, message: "Không xác định được hội viên." };
+    }
+    if (!packageId || !uuidPattern.test(String(packageId))) {
+      return { ok: false, message: "Vui lòng chọn gói tập hợp lệ." };
+    }
+    if (!durationMonths || !startDate || !endDate || amount < 0 || !paymentMethod) {
+      return { ok: false, message: "Vui lòng nhập đầy đủ thông tin gia hạn." };
+    }
+
+    const pkg = await fetchPackageById(packageId);
+    const latestPackage = await fetchLatestActivePackage(memberId);
+    const memberPackagePayload = {
+      member_id: memberId,
+      package_id: packageId,
+      status: "active",
+      start_date: startDate,
+      end_date: endDate,
+      sessions_total: pkg?.session_limit ?? latestPackage?.sessions_total ?? null,
+      activated_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    let memberPackageId = latestPackage?.member_package_id || "";
+    let packageError = null;
+
+    if (memberPackageId) {
+      const { error } = await supabase
+        .from("member_packages")
+        .update(memberPackagePayload)
+        .eq("member_package_id", memberPackageId);
+      packageError = error;
+    } else {
+      const { data, error } = await supabase
+        .from("member_packages")
+        .insert(memberPackagePayload)
+        .select("member_package_id")
+        .single();
+      packageError = error;
+      memberPackageId = data?.member_package_id || "";
+    }
+
+    if (packageError) throw packageError;
+
+    const paymentResult = await createPayment({
+      memberId,
+      packageId,
+      memberPackageId,
+      amount,
+      paymentMethod,
+      paymentDate: new Date().toISOString(),
+      transactionCode: `RENEW-${Date.now()}`,
+      transferContent: form.note || "Staff package renewal",
+    });
+
+    if (paymentResult.error) {
+      console.warn("[Gymster hệ thống] Package renewed but payment history could not be created:", paymentResult.error);
+    }
+
+    await supabase
+      .from("members")
+      .update({ status: "active" })
+      .eq("member_id", memberId);
+
+    return {
+      ok: true,
+      message: "Gia hạn gói thành công.",
+      data: {
+        memberPackageId,
+        packageId,
+        packageName: pkg?.package_name || form.packageName || "Membership package",
+        endDate,
+        amount,
+      },
+    };
+  } catch (error) {
+    console.error("[Gymster hệ thống] Failed to renew staff member package:", error);
+    return { ok: false, message: "Không thể gia hạn gói tập. Vui lòng thử lại." };
+  }
 }
 
 async function fetchLatestActivePackage(memberId) {

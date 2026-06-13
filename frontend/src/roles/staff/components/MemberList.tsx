@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Eye, Edit, RefreshCw, Search, UserX, X } from 'lucide-react';
-import { disableStaffMember, getStaffMembers, updateStaffMember } from '../../../services/staffOperationsApi';
+import { CheckCircle, Eye, Edit, RefreshCw, Search, UserX, X } from 'lucide-react';
+import { disableStaffMember, getStaffMembers, renewStaffMemberPackage, updateStaffMember } from '../../../services/staffOperationsApi';
+import { fetchPackagesFromSupabase } from '../../../services/packageApi';
 import { useLanguage } from '../../shared/LanguageContext';
 
 type MemberStatus = 'Active' | 'Expired' | 'Disabled';
@@ -16,11 +17,39 @@ interface Member {
   phoneNum: string;
   citizenId: string;
   status: MemberStatus;
+  currentPackageId?: string;
   currentPackage: string;
   expirationDate: string;
   dateOfBirth: string;
   gender: string;
 }
+
+interface PackageOption {
+  id: string;
+  name: string;
+  price: number;
+  durationMonths: number;
+}
+
+type RenewalForm = {
+  packageId: string;
+  durationMonths: string;
+  startDate: string;
+  endDate: string;
+  amount: string;
+  paymentMethod: string;
+  note: string;
+};
+
+const initialRenewalForm: RenewalForm = {
+  packageId: '',
+  durationMonths: '1',
+  startDate: new Date().toISOString().slice(0, 10),
+  endDate: '',
+  amount: '0',
+  paymentMethod: 'cash',
+  note: '',
+};
 
 const COPY = {
   en: {
@@ -49,6 +78,7 @@ const COPY = {
     save: 'Save',
     cancel: 'Cancel',
     confirmDisable: 'Disable',
+    renewSuccess: 'Package renewed successfully',
   },
   vi: {
     eyebrow: 'Quản lý hội viên',
@@ -76,6 +106,7 @@ const COPY = {
     save: 'Lưu',
     cancel: 'Hủy',
     confirmDisable: 'Vô hiệu hóa',
+    renewSuccess: 'Gia hạn gói thành công',
   },
 };
 
@@ -86,19 +117,36 @@ function formatDate(value: string) {
   return date.toLocaleDateString('en-GB');
 }
 
+function addMonths(value: string, months: number) {
+  const date = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return '';
+  const day = date.getDate();
+  date.setMonth(date.getMonth() + months);
+  if (date.getDate() !== day) date.setDate(0);
+  return date.toISOString().slice(0, 10);
+}
+
+function formatMoney(value: string | number) {
+  return `${Number(value || 0).toLocaleString('vi-VN')} VND`;
+}
+
 export function MemberList() {
   const { language } = useLanguage();
   const copy = COPY[language];
   const [members, setMembers] = useState<Member[]>([]);
+  const [packages, setPackages] = useState<PackageOption[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [loading, setLoading] = useState(true);
   const [warning, setWarning] = useState('');
   const [selectedMember, setSelectedMember] = useState<Member | null>(null);
-  const [modalMode, setModalMode] = useState<'view' | 'edit' | 'disable' | null>(null);
+  const [modalMode, setModalMode] = useState<'view' | 'edit' | 'disable' | 'renew' | null>(null);
   const [editForm, setEditForm] = useState<Partial<Member>>({});
+  const [renewalForm, setRenewalForm] = useState<RenewalForm>(initialRenewalForm);
   const [staffPassword, setStaffPassword] = useState('');
   const [modalError, setModalError] = useState('');
+  const [toastMessage, setToastMessage] = useState('');
+  const [isRenewing, setIsRenewing] = useState(false);
 
   const loadMembers = async () => {
     setLoading(true);
@@ -117,6 +165,22 @@ export function MemberList() {
     void loadMembers();
   }, []);
 
+  useEffect(() => {
+    let isMounted = true;
+    fetchPackagesFromSupabase().then(({ data }) => {
+      if (!isMounted) return;
+      setPackages((data || []).filter((pkg: any) => pkg.isActive !== false).map((pkg: any) => ({
+        id: pkg.id,
+        name: pkg.name,
+        price: Number(pkg.price || 0),
+        durationMonths: Number(pkg.durationMonths || 1),
+      })));
+    });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
   const filteredMembers = useMemo(() => {
     const query = searchTerm.toLowerCase();
     return members.filter((member) => {
@@ -129,12 +193,33 @@ export function MemberList() {
     });
   }, [members, searchTerm, statusFilter]);
 
-  const openModal = (member: Member, mode: 'view' | 'edit' | 'disable') => {
+  const buildRenewalForm = (member: Member): RenewalForm => {
+    const fallbackPackage = packages.find((pkg) => pkg.name === member.currentPackage) || packages[0];
+    const packageId = member.currentPackageId || fallbackPackage?.id || '';
+    const startDate = new Date().toISOString().slice(0, 10);
+    const durationMonths = '1';
+    const selectedPackage = packages.find((pkg) => pkg.id === packageId) || fallbackPackage;
+    const amount = selectedPackage ? Math.round((selectedPackage.price / Math.max(1, selectedPackage.durationMonths || 1)) * Number(durationMonths)) : 0;
+
+    return {
+      ...initialRenewalForm,
+      packageId,
+      durationMonths,
+      startDate,
+      endDate: addMonths(startDate, Number(durationMonths)),
+      amount: String(amount),
+    };
+  };
+
+  const openModal = (member: Member, mode: 'view' | 'edit' | 'disable' | 'renew') => {
     setSelectedMember(member);
     setModalMode(mode);
     setModalError('');
     setStaffPassword('');
     setEditForm({ ...member });
+    if (mode === 'renew') {
+      setRenewalForm(buildRenewalForm(member));
+    }
   };
 
   const closeModal = () => {
@@ -142,6 +227,29 @@ export function MemberList() {
     setModalMode(null);
     setModalError('');
     setStaffPassword('');
+    setIsRenewing(false);
+  };
+
+  const showToast = (message: string) => {
+    setToastMessage(message);
+    window.setTimeout(() => setToastMessage(''), 3500);
+  };
+
+  const updateRenewalForm = (field: keyof RenewalForm, value: string) => {
+    const next = { ...renewalForm, [field]: value };
+    const selectedPackage = packages.find((pkg) => pkg.id === (field === 'packageId' ? value : next.packageId));
+    const durationMonths = Number(field === 'durationMonths' ? value : next.durationMonths);
+    const startDate = field === 'startDate' ? value : next.startDate;
+
+    if (['packageId', 'durationMonths', 'startDate'].includes(field)) {
+      next.endDate = addMonths(startDate, durationMonths);
+      next.amount = selectedPackage
+        ? String(Math.round((selectedPackage.price / Math.max(1, selectedPackage.durationMonths || 1)) * durationMonths))
+        : '0';
+    }
+
+    setRenewalForm(next);
+    setModalError('');
   };
 
   const handleSaveMember = async () => {
@@ -164,6 +272,49 @@ export function MemberList() {
     }
     closeModal();
     await loadMembers();
+  };
+
+  const handleRenewPackage = async () => {
+    if (!selectedMember) return;
+    const selectedPackage = packages.find((pkg) => pkg.id === renewalForm.packageId);
+
+    if (!selectedPackage || !renewalForm.durationMonths || !renewalForm.startDate || !renewalForm.endDate || !renewalForm.amount || !renewalForm.paymentMethod) {
+      setModalError('Vui lòng nhập đầy đủ thông tin gia hạn.');
+      return;
+    }
+
+    setIsRenewing(true);
+    const result = await renewStaffMemberPackage({
+      memberId: selectedMember.memberUuid,
+      packageId: renewalForm.packageId,
+      packageName: selectedPackage.name,
+      durationMonths: Number(renewalForm.durationMonths),
+      startDate: renewalForm.startDate,
+      endDate: renewalForm.endDate,
+      amount: Number(renewalForm.amount),
+      paymentMethod: renewalForm.paymentMethod,
+      note: renewalForm.note,
+    });
+    setIsRenewing(false);
+
+    if (!result.ok) {
+      setModalError(result.message || 'Không thể gia hạn gói tập.');
+      return;
+    }
+
+    setMembers((current) => current.map((member) => (
+      member.memberUuid === selectedMember.memberUuid
+        ? {
+            ...member,
+            status: 'Active',
+            currentPackageId: renewalForm.packageId,
+            currentPackage: selectedPackage.name,
+            expirationDate: renewalForm.endDate,
+          }
+        : member
+    )));
+    closeModal();
+    showToast(copy.renewSuccess);
   };
 
   const getStatusBadge = (status: MemberStatus) => {
@@ -201,6 +352,12 @@ export function MemberList() {
       <div className="p-6">
         <div className="mx-auto max-w-7xl">
           {warning && <div className="mb-4 rounded-xl border border-yellow-500/30 bg-yellow-500/10 px-4 py-3 text-sm font-semibold text-yellow-300">{warning}</div>}
+          {toastMessage && (
+            <div className="mb-4 flex items-center gap-3 rounded-xl border border-green-500/30 bg-green-500/10 px-4 py-3 text-sm font-semibold text-green-300">
+              <CheckCircle className="h-5 w-5" />
+              {toastMessage}
+            </div>
+          )}
           <div className="mb-6 rounded-2xl border border-border/50 bg-card/80 p-6 shadow-[0_8px_32px_rgba(0,0,0,0.3)] backdrop-blur-xl">
             <div className="flex flex-col gap-4 md:flex-row">
               <div className="relative flex-1">
@@ -260,7 +417,7 @@ export function MemberList() {
                           <button onClick={() => openModal(member, 'edit')} className="rounded-lg p-2 transition-colors hover:bg-primary/20" title={copy.edit}>
                             <Edit className="h-4 w-4 text-muted-foreground" />
                           </button>
-                          <button className="rounded-lg p-2 transition-colors hover:bg-primary/20" title={copy.renew}>
+                          <button onClick={() => openModal(member, 'renew')} className="rounded-lg p-2 transition-colors hover:bg-primary/20" title={copy.renew}>
                             <RefreshCw className="h-4 w-4 text-muted-foreground" />
                           </button>
                           <button onClick={() => openModal(member, 'disable')} className="rounded-lg p-2 transition-colors hover:bg-destructive/20" title={copy.disable}>
@@ -297,7 +454,7 @@ export function MemberList() {
           <div className="w-full max-w-2xl rounded-2xl border border-primary/40 bg-card p-6 shadow-[0_0_50px_rgba(255,0,0,0.35)]">
             <div className="mb-5 flex items-start justify-between gap-4">
               <div>
-                <h2 className="text-2xl font-black">{modalMode === 'view' ? copy.view : modalMode === 'edit' ? copy.edit : copy.disable}</h2>
+                <h2 className="text-2xl font-black">{modalMode === 'view' ? copy.view : modalMode === 'edit' ? copy.edit : modalMode === 'renew' ? copy.renew : copy.disable}</h2>
                 <p className="mt-1 text-sm text-muted-foreground">{selectedMember.memberId} - {selectedMember.fullName}</p>
               </div>
               <button onClick={closeModal} className="rounded-lg p-2 hover:bg-secondary"><X className="h-5 w-5" /></button>
@@ -338,6 +495,78 @@ export function MemberList() {
                   <option value="other">Other</option>
                 </select>
                 <button onClick={handleSaveMember} className="rounded-xl bg-primary px-5 py-3 font-bold text-white hover:bg-destructive">{copy.save}</button>
+              </div>
+            )}
+
+            {modalMode === 'renew' && (
+              <div className="space-y-5">
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <div className="rounded-xl border border-border bg-input p-4">
+                    <p className="mb-1 text-xs font-bold uppercase text-muted-foreground">Hội viên</p>
+                    <p className="font-semibold text-white">{selectedMember.fullName}</p>
+                  </div>
+                  <div className="rounded-xl border border-border bg-input p-4">
+                    <p className="mb-1 text-xs font-bold uppercase text-muted-foreground">Gói hiện tại</p>
+                    <p className="font-semibold text-white">{selectedMember.currentPackage || '-'}</p>
+                  </div>
+
+                  <label className="space-y-2">
+                    <span className="text-sm font-semibold text-muted-foreground">Gói muốn gia hạn</span>
+                    <select value={renewalForm.packageId} onChange={(event) => updateRenewalForm('packageId', event.target.value)} className="w-full rounded-xl border border-border bg-input px-4 py-3 outline-none focus:border-primary">
+                      <option value="">Chọn gói tập</option>
+                      {packages.map((pkg) => (
+                        <option key={pkg.id} value={pkg.id}>{pkg.name}</option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="space-y-2">
+                    <span className="text-sm font-semibold text-muted-foreground">Thời hạn gia hạn</span>
+                    <select value={renewalForm.durationMonths} onChange={(event) => updateRenewalForm('durationMonths', event.target.value)} className="w-full rounded-xl border border-border bg-input px-4 py-3 outline-none focus:border-primary">
+                      <option value="1">1 tháng</option>
+                      <option value="3">3 tháng</option>
+                      <option value="6">6 tháng</option>
+                      <option value="12">12 tháng</option>
+                    </select>
+                  </label>
+
+                  <label className="space-y-2">
+                    <span className="text-sm font-semibold text-muted-foreground">Ngày bắt đầu</span>
+                    <input type="date" value={renewalForm.startDate} onChange={(event) => updateRenewalForm('startDate', event.target.value)} className="w-full rounded-xl border border-border bg-input px-4 py-3 outline-none focus:border-primary" />
+                  </label>
+
+                  <label className="space-y-2">
+                    <span className="text-sm font-semibold text-muted-foreground">Ngày hết hạn mới</span>
+                    <input type="date" value={renewalForm.endDate} readOnly className="w-full rounded-xl border border-border bg-input px-4 py-3 text-muted-foreground outline-none" />
+                  </label>
+
+                  <label className="space-y-2">
+                    <span className="text-sm font-semibold text-muted-foreground">Số tiền cần thanh toán</span>
+                    <input value={formatMoney(renewalForm.amount)} readOnly className="w-full rounded-xl border border-border bg-input px-4 py-3 text-white outline-none" />
+                  </label>
+
+                  <label className="space-y-2">
+                    <span className="text-sm font-semibold text-muted-foreground">Phương thức thanh toán</span>
+                    <select value={renewalForm.paymentMethod} onChange={(event) => updateRenewalForm('paymentMethod', event.target.value)} className="w-full rounded-xl border border-border bg-input px-4 py-3 outline-none focus:border-primary">
+                      <option value="cash">Tiền mặt</option>
+                      <option value="bank_transfer">Chuyển khoản</option>
+                      <option value="credit_card">Thẻ</option>
+                      <option value="e_wallet">Ví điện tử</option>
+                    </select>
+                  </label>
+
+                  <label className="space-y-2 md:col-span-2">
+                    <span className="text-sm font-semibold text-muted-foreground">Ghi chú</span>
+                    <textarea value={renewalForm.note} onChange={(event) => updateRenewalForm('note', event.target.value)} rows={3} className="w-full resize-none rounded-xl border border-border bg-input px-4 py-3 outline-none focus:border-primary" />
+                  </label>
+                </div>
+
+                <div className="flex gap-3">
+                  <button onClick={handleRenewPackage} disabled={isRenewing} className="flex-1 rounded-xl bg-primary px-5 py-3 font-bold text-white hover:bg-destructive disabled:cursor-not-allowed disabled:opacity-60">
+                    {isRenewing ? 'Đang gia hạn...' : 'Xác nhận gia hạn'}
+                  </button>
+                  <button onClick={closeModal} className="rounded-xl border border-border px-5 py-3 font-bold hover:bg-secondary">{copy.cancel}</button>
+                </div>
               </div>
             )}
 

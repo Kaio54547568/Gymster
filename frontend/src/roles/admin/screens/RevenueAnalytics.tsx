@@ -6,7 +6,6 @@ import {
   TrendingUp,
   Download,
   FileDown,
-  Printer,
   Calendar,
 } from 'lucide-react';
 import {
@@ -78,6 +77,144 @@ function getStatusClass(status: string) {
   return 'glass border border-[#EF233C]/30 text-[#EF233C] shadow-[#EF233C]/20';
 }
 
+function getReportFileDate() {
+  const date = new Date();
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}_${month}_${day}`;
+}
+
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function escapeCsvField(value: string | number) {
+  const text = String(value ?? '');
+  return `"${text.replace(/"/g, '""')}"`;
+}
+
+function escapePdfText(value: string | number) {
+  return String(value ?? '')
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^\x20-\x7E]/g, '')
+    .replace(/\\/g, '\\\\')
+    .replace(/\(/g, '\\(')
+    .replace(/\)/g, '\\)');
+}
+
+function truncatePdfText(value: string | number, maxLength: number) {
+  const text = String(value ?? '');
+  return text.length > maxLength ? `${text.slice(0, Math.max(0, maxLength - 3))}...` : text;
+}
+
+function buildRevenuePdf(rows: RevenueRow[], summary: { totalRevenue: number; paidCount: number; pendingCount: number; failedCount: number }) {
+  const pageWidth = 842;
+  const pageHeight = 595;
+  const margin = 36;
+  const rowHeight = 18;
+  const rowsPerPage = 20;
+  const columns = [
+    { label: 'Invoice ID', x: 36, width: 90 },
+    { label: 'Customer', x: 126, width: 120 },
+    { label: 'Plan', x: 246, width: 140 },
+    { label: 'Method', x: 386, width: 90 },
+    { label: 'Amount', x: 476, width: 110 },
+    { label: 'Status', x: 586, width: 90 },
+    { label: 'Created Date', x: 676, width: 100 },
+  ];
+  const pages: string[] = [];
+  const exportTime = new Date().toLocaleString('en-GB');
+  const chunks = rows.length ? rows : [{
+    invoiceId: '-',
+    member: 'No invoices found',
+    packageType: '-',
+    method: '-',
+    amount: 0,
+    status: '-',
+    date: '-',
+  }];
+
+  for (let start = 0; start < chunks.length; start += rowsPerPage) {
+    const pageRows = chunks.slice(start, start + rowsPerPage);
+    const commands: string[] = [
+      '0.98 0.98 0.98 rg 0 0 842 595 re f',
+      '0.06 0.06 0.06 rg',
+      'BT /F1 26 Tf 36 548 Td (Revenue Report) Tj ET',
+      '0.25 0.25 0.25 rg',
+      `BT /F1 10 Tf 36 528 Td (Exported at: ${escapePdfText(exportTime)}) Tj ET`,
+      '0.90 0.08 0.16 rg 36 492 770 1.5 re f',
+      '0.10 0.10 0.10 rg',
+      `BT /F1 12 Tf 36 508 Td (Total revenue: ${escapePdfText(formatVnd(summary.totalRevenue))}) Tj ET`,
+      `BT /F1 12 Tf 270 508 Td (Total transactions: ${rows.length}) Tj ET`,
+      `BT /F1 12 Tf 500 508 Td (Failed transactions: ${summary.failedCount}) Tj ET`,
+      '0.92 0.92 0.92 rg 36 455 770 24 re f',
+      '0.12 0.12 0.12 rg',
+    ];
+
+    columns.forEach((column) => {
+      commands.push(`BT /F1 9 Tf ${column.x} 463 Td (${escapePdfText(column.label)}) Tj ET`);
+    });
+
+    pageRows.forEach((row, index) => {
+      const y = 435 - index * rowHeight;
+      if (index % 2 === 0) {
+        commands.push(`0.96 0.96 0.96 rg 36 ${y - 5} 770 17 re f`);
+      }
+      commands.push('0.12 0.12 0.12 rg');
+      [
+        truncatePdfText(row.invoiceId, 16),
+        truncatePdfText(row.member, 22),
+        truncatePdfText(row.packageType, 24),
+        truncatePdfText(row.method, 14),
+        truncatePdfText(formatVnd(row.amount), 18),
+        truncatePdfText(row.status, 14),
+        truncatePdfText(row.date, 16),
+      ].forEach((value, columnIndex) => {
+        commands.push(`BT /F1 8 Tf ${columns[columnIndex].x} ${y} Td (${escapePdfText(value)}) Tj ET`);
+      });
+    });
+
+    commands.push(`0.35 0.35 0.35 rg BT /F1 9 Tf ${margin} 28 Td (Page ${pages.length + 1}) Tj ET`);
+    pages.push(commands.join('\n'));
+  }
+
+  const objects: string[] = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    `<< /Type /Pages /Kids [${pages.map((_, index) => `${3 + index * 2} 0 R`).join(' ')}] /Count ${pages.length} >>`,
+  ];
+
+  pages.forEach((content, index) => {
+    const pageObjectId = 3 + index * 2;
+    const contentObjectId = pageObjectId + 1;
+    objects.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> >> >> /Contents ${contentObjectId} 0 R >>`);
+    objects.push(`<< /Length ${content.length} >>\nstream\n${content}\nendstream`);
+  });
+
+  let pdf = '%PDF-1.4\n';
+  const offsets = [0];
+  objects.forEach((object, index) => {
+    offsets.push(pdf.length);
+    pdf += `${index + 1} 0 obj\n${object}\nendobj\n`;
+  });
+  const xrefOffset = pdf.length;
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  offsets.slice(1).forEach((offset) => {
+    pdf += `${String(offset).padStart(10, '0')} 00000 n \n`;
+  });
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
+
+  return pdf;
+}
+
 export default function RevenueAnalytics() {
   const [timeRange, setTimeRange] = useState('month');
   const [payments, setPayments] = useState<any[]>([]);
@@ -87,6 +224,10 @@ export default function RevenueAnalytics() {
   const [revenueByPaymentMethod, setRevenueByPaymentMethod] = useState<Array<{ name: string; value: number; color: string }>>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadMessage, setLoadMessage] = useState('');
+  const [exportLoading, setExportLoading] = useState(false);
+  const [pdfLoading, setPdfLoading] = useState(false);
+  const [feedbackMessage, setFeedbackMessage] = useState('');
+  const [exportError, setExportError] = useState('');
 
   useEffect(() => {
     let isMounted = true;
@@ -159,6 +300,55 @@ export default function RevenueAnalytics() {
     };
   }, [payments]);
 
+  const showFeedback = (message: string) => {
+    setFeedbackMessage(message);
+    window.setTimeout(() => setFeedbackMessage(''), 3500);
+  };
+
+  const handleExportCsv = async () => {
+    setExportLoading(true);
+    setExportError('');
+    try {
+      const headers = ['Invoice ID', 'Customer Name', 'Membership Plan', 'Payment Method', 'Amount', 'Status', 'Created Date'];
+      const csvRows = [
+        headers.map(escapeCsvField).join(','),
+        ...invoiceRows.map((invoice) => [
+          invoice.invoiceId,
+          invoice.member,
+          invoice.packageType,
+          invoice.method,
+          invoice.amount,
+          invoice.status,
+          invoice.date,
+        ].map(escapeCsvField).join(',')),
+      ];
+      const blob = new Blob([`\uFEFF${csvRows.join('\r\n')}`], { type: 'text/csv;charset=utf-8;' });
+      downloadBlob(blob, `revenue_report_${getReportFileDate()}.csv`);
+      showFeedback('Xuất báo cáo thành công');
+    } catch (error) {
+      console.error('[Gymster hệ thống] CSV export failed:', error);
+      setExportError('Không thể xuất báo cáo CSV. Vui lòng thử lại.');
+    } finally {
+      setExportLoading(false);
+    }
+  };
+
+  const handleDownloadPdf = async () => {
+    setPdfLoading(true);
+    setExportError('');
+    try {
+      const pdf = buildRevenuePdf(invoiceRows, paymentSummary);
+      const blob = new Blob([pdf], { type: 'application/pdf' });
+      downloadBlob(blob, `revenue_report_${getReportFileDate()}.pdf`);
+      showFeedback('Tải PDF thành công');
+    } catch (error) {
+      console.error('[Gymster hệ thống] PDF export failed:', error);
+      setExportError('Không thể tải PDF. Vui lòng thử lại.');
+    } finally {
+      setPdfLoading(false);
+    }
+  };
+
   return (
     <div className="p-10 space-y-10">
       <div className="flex items-center justify-between">
@@ -195,6 +385,18 @@ export default function RevenueAnalytics() {
       {loadMessage && !isLoading && (
         <div className="rounded-2xl border border-amber-400/25 bg-amber-500/10 p-4 text-sm font-bold text-amber-300">
           {loadMessage}
+        </div>
+      )}
+
+      {exportError && (
+        <div className="rounded-2xl border border-[#EF233C]/30 bg-[#EF233C]/10 p-4 text-sm font-bold text-white">
+          {exportError}
+        </div>
+      )}
+
+      {feedbackMessage && (
+        <div className="rounded-2xl border border-[#22C55E]/30 bg-[#22C55E]/10 p-4 text-sm font-bold text-[#D1FAE5]">
+          {feedbackMessage}
         </div>
       )}
 
@@ -238,9 +440,13 @@ export default function RevenueAnalytics() {
           title="Monthly Revenue Growth"
           subtitle="Last 6 months"
           action={
-            <button className="px-4 py-2 bg-[#EF233C] text-white rounded-lg hover:bg-[#990000] transition-colors text-sm font-semibold">
+            <button
+              onClick={handleExportCsv}
+              disabled={exportLoading}
+              className="px-4 py-2 bg-[#EF233C] text-white rounded-lg hover:bg-[#990000] transition-colors text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60"
+            >
               <Download className="w-4 h-4 inline mr-2" />
-              Export
+              {exportLoading ? 'Exporting...' : 'Export'}
             </button>
           }
         >
@@ -293,13 +499,13 @@ export default function RevenueAnalytics() {
         <div className="flex items-center justify-between mb-8">
           <h3 className="text-3xl font-bold text-white tracking-tight">Invoice / Payment List</h3>
           <div className="flex gap-3">
-            <button className="px-6 py-3 glass border border-white/10 text-white rounded-2xl hover:border-[#EF233C]/30 hover:shadow-glow-red transition-all duration-300 text-sm font-semibold flex items-center gap-2 group">
+            <button
+              onClick={handleDownloadPdf}
+              disabled={pdfLoading}
+              className="px-6 py-3 glass border border-white/10 text-white rounded-2xl hover:border-[#EF233C]/30 hover:shadow-glow-red transition-all duration-300 text-sm font-semibold flex items-center gap-2 group disabled:cursor-not-allowed disabled:opacity-60"
+            >
               <FileDown className="w-4 h-4 group-hover:scale-110 transition-transform" />
-              Download PDF
-            </button>
-            <button className="px-6 py-3 glass border border-white/10 text-white rounded-2xl hover:border-[#EF233C]/30 hover:shadow-glow-red transition-all duration-300 text-sm font-semibold flex items-center gap-2 group">
-              <Printer className="w-4 h-4 group-hover:scale-110 transition-transform" />
-              Print Report
+              {pdfLoading ? 'Preparing PDF...' : 'Download PDF'}
             </button>
           </div>
         </div>
