@@ -1838,7 +1838,7 @@ function ScheduleProgressScreen({
                       </button>
                     )}
                     <div className="mb-2 flex justify-center">
-                      <span className={`flex size-7 items-center justify-center rounded-full text-xs font-bold ${day.isToday ? "bg-[#8DBBFF] text-[#111]" : day.inCurrentMonth ? "text-white" : "text-[#555]"}`}>
+                      <span className={`flex size-7 items-center justify-center rounded-full text-xs font-bold ${day.isToday ? "bg-[#FF3B3B] text-white shadow-[0_0_18px_rgba(255,59,59,0.35)]" : day.inCurrentMonth ? "text-white" : "text-[#555]"}`}>
                         {day.date}
                       </span>
                     </div>

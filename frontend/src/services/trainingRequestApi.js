@@ -31,6 +31,57 @@ function getRequestReason(row) {
   return row?.reason || row?.request_reason || row?.requestNote || row?.request_note || row?.notes || "";
 }
 
+function normalizeApiTrainingRequest(row) {
+  if (!row) return row;
+  const status = row.rawStatus || row.status || "pending_pt_approval";
+  return {
+    ...row,
+    id: row.id || row.requestId || row.trainingRequestId,
+    requestId: row.requestId || row.id || row.trainingRequestId,
+    rawStatus: status,
+    statusLabel: row.statusLabel || getTrainingRequestStatusLabel(status),
+  };
+}
+
+async function postTrainingRequestApi(path, payload) {
+  if (typeof fetch !== "function") return null;
+
+  try {
+    const response = await fetch(path, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+    const text = await response.text();
+    let result = null;
+
+    try {
+      result = text ? JSON.parse(text) : null;
+    } catch {
+      return null;
+    }
+
+    if (response.status === 404 || !result) return null;
+    if (!response.ok || result.ok === false) {
+      return {
+        handled: true,
+        data: null,
+        error: new Error(result.message || "Training request API failed."),
+      };
+    }
+
+    return {
+      handled: true,
+      data: normalizeApiTrainingRequest(result.data),
+      error: null,
+    };
+  } catch {
+    return null;
+  }
+}
+
 function isMissingSchemaColumn(error) {
   return error?.code === "42703" || /column .* does not exist/i.test(String(error?.message || ""));
 }
@@ -774,6 +825,15 @@ export async function createTrainingRequest(request) {
     return { data: row, error: null };
   }
 
+  const apiResult = await postTrainingRequestApi("/api/training-requests", request);
+  if (apiResult?.handled) {
+    if (!apiResult.error && typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("gymster:training-requests-updated"));
+      window.dispatchEvent(new CustomEvent("gymster-role-notifications-change"));
+    }
+    return { data: apiResult.data, error: apiResult.error };
+  }
+
   const memberId = await resolveMemberId(request);
   const payload = {
     member_id: memberId,
@@ -904,6 +964,20 @@ export async function updateTrainingRequestStatus(requestId, status, declineReas
       notifyLocalMemberAboutRequest(nextTarget, normalizedStatus === "accepted" ? "accepted" : "declined");
     }
     return { data: nextTarget, error: null };
+  }
+
+  const apiResult = await postTrainingRequestApi("/api/training-requests/status", {
+    requestId,
+    status,
+    declineReason,
+  });
+  if (apiResult?.handled) {
+    if (!apiResult.error && typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("gymster:training-requests-updated"));
+      window.dispatchEvent(new CustomEvent("gymster:schedule-updated"));
+      window.dispatchEvent(new CustomEvent("gymster-role-notifications-change"));
+    }
+    return { data: apiResult.data, error: apiResult.error };
   }
 
   const updates = {

@@ -10,6 +10,10 @@ import {
   requestRegistrationCode,
   verifyRegistrationCode,
 } from "./services/authRegistrationService.js";
+import {
+  createTrainingRequestServer,
+  updateTrainingRequestStatusServer,
+} from "./services/trainingRequestService.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, ".env") });
@@ -236,6 +240,34 @@ const server = http.createServer(async (request, response) => {
 
     const result = await verifyRegistrationCode(payload);
     sendJson(response, result.ok ? 200 : 400, result);
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/training-requests") {
+    let payload;
+    try {
+      payload = await readJsonBody(request);
+    } catch (error) {
+      sendJson(response, 400, { ok: false, message: error.message });
+      return;
+    }
+
+    const result = await createTrainingRequestServer(payload);
+    sendJson(response, result.ok ? 200 : result.status || 400, result);
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/training-requests/status") {
+    let payload;
+    try {
+      payload = await readJsonBody(request);
+    } catch (error) {
+      sendJson(response, 400, { ok: false, message: error.message });
+      return;
+    }
+
+    const result = await updateTrainingRequestStatusServer(payload);
+    sendJson(response, result.ok ? 200 : result.status || 400, result);
     return;
   }
 

@@ -99,6 +99,7 @@ export default function MySchedulePage() {
       key: toIsoDate(date),
       short: date.toLocaleDateString('en-US', { weekday: 'short' }),
       date: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+      isToday: toIsoDate(date) === toIsoDate(new Date()),
     };
   });
   const weekLabel = `${weekDays[0].date} - ${weekDays[6].date}, ${new Date(`${weekDays[6].key}T00:00:00`).getFullYear()}`;
@@ -466,9 +467,9 @@ export default function MySchedulePage() {
               <div className="grid grid-cols-[72px_repeat(7,minmax(110px,1fr))] border-b border-white/8">
                 <div className="p-3 text-xs font-bold text-white/35">GMT+7</div>
                 {weekDays.map((day) => (
-                  <div key={day.short} className="border-l border-white/8 p-3 text-center">
-                    <div className="text-xs font-black uppercase tracking-[0.16em] text-white/45">{day.short}</div>
-                    <div className="mt-1 text-lg font-black text-white">{day.date}</div>
+                  <div key={day.key} className={`border-l border-white/8 p-3 text-center ${day.isToday ? 'bg-[#EF233C]/10' : ''}`}>
+                    <div className={`text-xs font-black uppercase tracking-[0.16em] ${day.isToday ? 'text-[#FF9AAB]' : 'text-white/45'}`}>{day.short}</div>
+                    <div className={`mx-auto mt-1 inline-flex min-w-16 justify-center rounded-full px-3 py-1 text-lg font-black ${day.isToday ? 'bg-[#EF233C] text-white shadow-[0_0_18px_rgba(239,35,60,0.35)]' : 'text-white'}`}>{day.date}</div>
                   </div>
                 ))}
               </div>

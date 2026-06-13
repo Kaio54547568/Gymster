@@ -29,8 +29,8 @@ export function useRoleNotifications(baseNotifications: RoleNotification[] = DEF
   useEffect(() => {
     let isMounted = true;
 
-    const loadNotifications = async () => {
-      setIsLoading(true);
+    const loadNotifications = async (showLoading = true) => {
+      if (showLoading) setIsLoading(true);
       const { data, error } = await getNotificationsForCurrentUser();
 
       if (!isMounted) return;
@@ -47,12 +47,19 @@ export function useRoleNotifications(baseNotifications: RoleNotification[] = DEF
     };
 
     loadNotifications();
+    const refreshTimer = window.setInterval(() => {
+      void loadNotifications(false);
+    }, 15000);
 
-    window.addEventListener(NOTIFICATION_CHANGE_EVENT, loadNotifications);
+    const handleNotificationChange = () => {
+      void loadNotifications(false);
+    };
+    window.addEventListener(NOTIFICATION_CHANGE_EVENT, handleNotificationChange);
 
     return () => {
       isMounted = false;
-      window.removeEventListener(NOTIFICATION_CHANGE_EVENT, loadNotifications);
+      window.clearInterval(refreshTimer);
+      window.removeEventListener(NOTIFICATION_CHANGE_EVENT, handleNotificationChange);
     };
   }, [baseNotifications]);
 
