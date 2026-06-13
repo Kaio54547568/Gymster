@@ -44,6 +44,14 @@ function mapNotificationType(type, title = "", message = "") {
     return "success";
   }
 
+  if (normalized === "schedule" && (combined.includes("yeu cau") || combined.includes("request") || combined.includes("doi lich") || combined.includes("reschedule"))) {
+    return "warning";
+  }
+
+  if (normalized === "schedule" && (combined.includes("huy") || combined.includes("cancel"))) {
+    return "error";
+  }
+
   if (normalized === "package" || combined.includes("pending") || combined.includes("expir")) {
     return "warning";
   }

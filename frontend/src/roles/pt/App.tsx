@@ -2706,8 +2706,8 @@ function NotificationsScreen() {
     let isMounted = true;
     const loadNotifications = async () => {
       const { data } = await getNotificationsForCurrentUser();
-      if (isMounted && data?.length) {
-        setNotifications(data.map((item: any) => ({
+      if (isMounted) {
+        setNotifications((data || []).map((item: any) => ({
           id: item.id,
           type: item.type || "info",
           title: item.title,
@@ -2719,9 +2719,11 @@ function NotificationsScreen() {
     };
 
     void loadNotifications();
+    const refreshTimer = window.setInterval(loadNotifications, 15000);
     window.addEventListener("gymster-role-notifications-change", loadNotifications);
     return () => {
       isMounted = false;
+      window.clearInterval(refreshTimer);
       window.removeEventListener("gymster-role-notifications-change", loadNotifications);
     };
   }, []);
@@ -3540,6 +3542,7 @@ export default function App() {
       userRole={profile.specialty || profile.roleLabel}
       userInitials={profile.initials}
       userAvatarUrl={profile.avatarUrl}
+      onOpenNotifications={() => navigate("notifications")}
       onAvatarClick={() => navigate("profile")}
       darkMode={darkMode}
     >

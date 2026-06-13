@@ -45,6 +45,7 @@ type RoleShellProps = {
   userAvatarUrl?: string;
   notificationCount?: number;
   notifications?: RoleNotification[];
+  onOpenNotifications?: () => void;
   onAvatarClick?: () => void;
   darkMode?: boolean;
   assistantSlot?: ReactNode;
@@ -61,6 +62,7 @@ export default function RoleShell({
   userAvatarUrl,
   notificationCount,
   notifications,
+  onOpenNotifications,
   onAvatarClick,
   darkMode,
   assistantSlot,
@@ -138,8 +140,13 @@ export default function RoleShell({
     setNotificationOpen(false);
     setNotificationFilter('all');
 
+    if (onOpenNotifications) {
+      onOpenNotifications();
+      return;
+    }
+
     const roleBase = location.pathname.split('/').filter(Boolean)[0];
-    if (roleBase && ['admin', 'staff', 'member'].includes(roleBase)) {
+    if (roleBase && ['admin', 'staff', 'member', 'pt'].includes(roleBase)) {
       navigate(`/${roleBase}/notifications`);
     }
   };
