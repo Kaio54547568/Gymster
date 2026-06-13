@@ -6,7 +6,7 @@ import {
   X, ChevronRight, TrendingUp, Clock, Award,
   Activity, ArrowLeft, CheckCircle, AlertTriangle,
   User, Phone, Mail, Lock, Camera, Star,
-  Info, Zap, Target, Globe, Wrench
+  Zap, Target, Globe, Wrench
 } from "lucide-react";
 import {
   AreaChart, Area, BarChart, Bar, LineChart, Line,
@@ -14,6 +14,7 @@ import {
   PieChart, Pie, Cell
 } from "recharts";
 import RoleShell, { type RoleShellItem } from "../shared/RoleShell";
+import RoleNotificationsPage from "../shared/RoleNotificationsPage";
 import AccountSettings from "../shared/AccountSettings";
 import { useAppearance } from "../shared/AppearanceContext";
 import { useLanguage, type AppLanguage } from "../shared/LanguageContext";
@@ -32,7 +33,6 @@ import {
 } from "../../services/workoutSessionApi";
 import { updateCurrentUserProfile, uploadCurrentUserAvatar } from "../../services/userProfileApi";
 import { fetchPtPortalData } from "../../services/ptDataApi";
-import { getNotificationsForCurrentUser, markAllNotificationsReadInSupabase } from "../../services/notificationApi";
 import { createStaffMaintenanceReport, getStaffEquipmentStatus } from "../../services/staffOperationsApi";
 import {
   createWorkoutPlan,
@@ -118,11 +118,6 @@ interface MealPlan {
   breakfast: string; lunch: string; dinner: string; snacks: string; notes: string;
   assignedMemberId: string; startDate: string; endDate: string; status: MealPlanStatus;
 }
-interface AppNotification {
-  id: string; type: "info" | "warning" | "success" | "error";
-  title: string; message: string; time: string; read: boolean;
-}
-
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // DATA
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -156,7 +151,6 @@ let MEDICAL_HISTORIES: MedicalHistory[] = [];
 let BODY_METRIC_DETAILS: BodyMetricDetail[] = [];
 let INITIAL_MEAL_PLANS: MealPlan[] = [];
 let EVALUATIONS: ProgressEvaluation[] = [];
-let NOTIFICATIONS: AppNotification[] = [];
 let INITIAL_EXERCISES: Exercise[] = [];
 let WEEKLY_SESSIONS: Array<{ day: string; sessions: number; target: number }> = [];
 let PROGRESS_CHART: Array<{ name: string; progress: number }> = [];
@@ -175,7 +169,6 @@ function applyPtPortalData(data: any) {
   BODY_METRIC_DETAILS = data.bodyMetricDetails || [];
   INITIAL_MEAL_PLANS = data.mealPlans || [];
   EVALUATIONS = data.evaluations || [];
-  NOTIFICATIONS = data.notifications || [];
   INITIAL_EXERCISES = data.exercises || [];
   WEEKLY_SESSIONS = data.weeklySessions || [];
   PROGRESS_CHART = data.progressChart || [];
@@ -1351,6 +1344,7 @@ function ScheduleProgressScreen({
   const [isSavingContent, setIsSavingContent] = useState(false);
   const [scheduleRequests, setScheduleRequests] = useState<any[]>([]);
   const [focusedScheduleRequest, setFocusedScheduleRequest] = useState<any | null>(null);
+  const [respondingRequestId, setRespondingRequestId] = useState("");
   const requestSectionRef = useRef<HTMLDivElement | null>(null);
   const days = getCalendarWeek(calendarAnchor);
   const monthDays = getCalendarMonth(calendarAnchor);
@@ -1679,27 +1673,34 @@ function ScheduleProgressScreen({
   };
 
   const respondToScheduleRequest = async (request: any, status: "accepted" | "declined") => {
+    const requestKey = request.requestId || request.id;
+    setRespondingRequestId(requestKey);
     const { error } = await updateTrainingRequestStatus(
-      request.requestId || request.id,
+      requestKey,
       status,
       status === "declined" ? "Requested slot is not available. Please choose another schedule." : "",
     );
     if (error) {
-      showToast("Request could not be updated.");
+      setRespondingRequestId("");
+      showToast(error.message || "Request could not be updated.");
       return;
     }
 
-    const trainerLookup = getCurrentUser()?.trainerId || getCurrentUser()?.email || TRAINER.email;
-    const [{ data: nextRequests }, { data: nextSessions }] = await Promise.all([
-      getTrainingRequestsForTrainer(trainerLookup),
-      getWorkoutSessionsForTrainer(getCurrentUser()),
-    ]);
-    setScheduleRequests(nextRequests || []);
-    if (nextSessions) setSessions(nextSessions.map(mapWorkoutSessionToTrainingSchedule));
-    setFocusedScheduleRequest(null);
-    showToast(status === "accepted"
-      ? "Reschedule request accepted and member notified."
-      : "Reschedule request declined and member notified.");
+    try {
+      const trainerLookup = getCurrentUser()?.trainerId || getCurrentUser()?.email || TRAINER.email;
+      const [{ data: nextRequests }, { data: nextSessions }] = await Promise.all([
+        getTrainingRequestsForTrainer(trainerLookup),
+        getWorkoutSessionsForTrainer(getCurrentUser()),
+      ]);
+      setScheduleRequests(nextRequests || []);
+      if (nextSessions) setSessions(nextSessions.map(mapWorkoutSessionToTrainingSchedule));
+      setFocusedScheduleRequest(null);
+      showToast(status === "accepted"
+        ? "Reschedule request accepted and member notified."
+        : "Reschedule request declined and member notified.");
+    } finally {
+      setRespondingRequestId("");
+    }
   };
 
   return (
@@ -2108,8 +2109,22 @@ function ScheduleProgressScreen({
                       <p className="mt-1 text-sm leading-6 text-white/75">{requestReason(selectedSessionRequest) || "Member không nhập lý do."}</p>
                     </div>
                     <div className="mt-4 flex flex-wrap justify-end gap-2">
-                      <button type="button" onClick={() => respondToScheduleRequest(selectedSessionRequest, "declined")} className="rounded-lg border border-red-400/20 bg-red-400/10 px-4 py-2.5 text-xs font-bold text-red-300 hover:bg-red-400/20">Không xác nhận</button>
-                      <button type="button" onClick={() => respondToScheduleRequest(selectedSessionRequest, "accepted")} className="rounded-lg border border-emerald-400/20 bg-emerald-400/10 px-4 py-2.5 text-xs font-bold text-emerald-300 hover:bg-emerald-400/20">Xác nhận</button>
+                      <button
+                        type="button"
+                        disabled={respondingRequestId === (selectedSessionRequest.requestId || selectedSessionRequest.id)}
+                        onClick={() => respondToScheduleRequest(selectedSessionRequest, "declined")}
+                        className="rounded-lg border border-red-400/20 bg-red-400/10 px-4 py-2.5 text-xs font-bold text-red-300 hover:bg-red-400/20 disabled:cursor-wait disabled:opacity-60"
+                      >
+                        {respondingRequestId === (selectedSessionRequest.requestId || selectedSessionRequest.id) ? "Đang xử lý..." : "Không xác nhận"}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={respondingRequestId === (selectedSessionRequest.requestId || selectedSessionRequest.id)}
+                        onClick={() => respondToScheduleRequest(selectedSessionRequest, "accepted")}
+                        className="rounded-lg border border-emerald-400/20 bg-emerald-400/10 px-4 py-2.5 text-xs font-bold text-emerald-300 hover:bg-emerald-400/20 disabled:cursor-wait disabled:opacity-60"
+                      >
+                        {respondingRequestId === (selectedSessionRequest.requestId || selectedSessionRequest.id) ? "Đang xử lý..." : "Xác nhận"}
+                      </button>
                     </div>
                   </div>
                 )}
@@ -2692,94 +2707,6 @@ function ProgressEvaluationScreen({ showToast }: { showToast: (msg: string) => v
           </div>
         </div>
       )}
-    </div>
-  );
-}
-
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-// SCREEN 7: NOTIFICATIONS
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-function NotificationsScreen() {
-  const [notifications, setNotifications] = useState(NOTIFICATIONS);
-
-  useEffect(() => {
-    let isMounted = true;
-    const loadNotifications = async () => {
-      const { data } = await getNotificationsForCurrentUser();
-      if (isMounted) {
-        setNotifications((data || []).map((item: any) => ({
-          id: item.id,
-          type: item.type || "info",
-          title: item.title,
-          message: item.message,
-          time: item.time,
-          read: Boolean(item.read),
-        })));
-      }
-    };
-
-    void loadNotifications();
-    const refreshTimer = window.setInterval(loadNotifications, 15000);
-    window.addEventListener("gymster-role-notifications-change", loadNotifications);
-    return () => {
-      isMounted = false;
-      window.clearInterval(refreshTimer);
-      window.removeEventListener("gymster-role-notifications-change", loadNotifications);
-    };
-  }, []);
-
-  const iconMap = {
-    success: <CheckCircle className="size-4 text-emerald-400" />,
-    warning: <AlertTriangle className="size-4 text-amber-400" />,
-    error: <X className="size-4 text-red-400" />,
-    info: <Info className="size-4 text-blue-400" />,
-  };
-
-  const bgMap = {
-    success: "border-emerald-400/15",
-    warning: "border-amber-400/15",
-    error: "border-red-400/15",
-    info: "border-blue-400/15",
-  };
-
-  const markAllRead = async () => {
-    setNotifications(prev => prev.map(n => ({ ...n, read: true })));
-    await markAllNotificationsReadInSupabase();
-  };
-  const unreadCount = notifications.filter(n => !n.read).length;
-
-  return (
-    <div className="space-y-5 pb-6 max-w-2xl">
-      <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-4xl text-white tracking-[0.08em]" style={{ fontFamily: "'Bebas Neue', sans-serif" }}>NOTIFICATIONS</h1>
-          <p className="text-[#555] text-xs mt-1">{unreadCount} thông báo chưa đọc</p>
-        </div>
-        {unreadCount > 0 && (
-          <button onClick={markAllRead} className="text-[#FF3B3B] text-xs font-medium hover:underline">Mark all as read</button>
-        )}
-      </div>
-
-      <div className="space-y-2">
-        {notifications.map(n => (
-          <div
-            key={n.id}
-            className={`bg-[#181818] border rounded-xl p-4 flex items-start gap-4 transition-all ${bgMap[n.type]} ${!n.read ? "opacity-100" : "opacity-60"}`}
-          >
-            <div className={`size-9 rounded-xl flex items-center justify-center shrink-0 ${n.type === "success" ? "bg-emerald-400/10" : n.type === "warning" ? "bg-amber-400/10" : n.type === "error" ? "bg-red-400/10" : "bg-blue-400/10"}`}>
-              {iconMap[n.type]}
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-start justify-between gap-2">
-                <div className={`text-sm font-semibold ${n.read ? "text-[#BDBDBD]" : "text-white"}`}>{n.title}</div>
-                {!n.read && <div className="size-2 bg-[#FF3B3B] rounded-full shrink-0 mt-1" />}
-              </div>
-              <p className="text-[#555] text-xs mt-0.5">{n.message}</p>
-              <span className="text-[#444] text-xs mt-1 block">{n.time}</span>
-            </div>
-          </div>
-        ))}
-      </div>
     </div>
   );
 }
@@ -3577,7 +3504,7 @@ export default function App() {
           {screen === "equipment-report" && <EquipmentReportScreen showToast={showToast} />}
           {screen === "evaluation" && <ProgressEvaluationScreen showToast={showToast} />}
           {screen === "meal-plan" && <MealPlanScreen showToast={showToast} />}
-          {screen === "notifications" && <NotificationsScreen />}
+          {screen === "notifications" && <RoleNotificationsPage />}
           {screen === "profile" && <ProfileScreen showToast={showToast} />}
           {screen === "settings" && <SettingsScreen showToast={showToast} darkMode={darkMode} setDarkMode={setDarkMode} />}
         </div>

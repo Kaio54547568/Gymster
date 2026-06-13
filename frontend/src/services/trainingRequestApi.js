@@ -6,6 +6,11 @@ import {
 } from "./workoutSessionApi";
 import { getMonthlyLeaveLimit } from "./packageEntitlement";
 import { createLocalNotification } from "./notificationApi";
+import {
+  applyLocalTrainingRequestStatus,
+  getTrainingRequestStatusLabel,
+  isLocalTrainingRequestId,
+} from "./trainingRequestLocal.js";
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const LOCAL_TRAINING_REQUESTS_KEY = "gymster_local_training_requests";
@@ -29,6 +34,14 @@ function getTrainerName(row) {
 
 function getRequestReason(row) {
   return row?.reason || row?.request_reason || row?.requestNote || row?.request_note || row?.notes || "";
+}
+
+function getDateFromScheduleText(value) {
+  return String(value || "").match(/\d{4}-\d{2}-\d{2}/)?.[0] || "";
+}
+
+function getFirstTimeFromScheduleText(value) {
+  return String(value || "").match(/(\d{2}:\d{2})/)?.[1] || "";
 }
 
 function normalizeApiTrainingRequest(row) {
@@ -241,21 +254,6 @@ async function createTrainerRequestNotification(row) {
   } catch (error) {
     console.error("[Gymster hệ thống] Failed to create trainer request notification:", error);
   }
-}
-
-export function getTrainingRequestStatusLabel(status) {
-  const normalized = String(status || "").toLowerCase();
-  const labels = {
-    pending_pt_approval: "Pending Approval",
-    accepted: "Accepted",
-    approved: "Accepted",
-    declined: "Declined",
-    expired: "Expired",
-    cancelled: "Cancelled",
-    completed: "Completed",
-  };
-
-  return labels[normalized] || status || "Pending Approval";
 }
 
 function mapTrainingRequestRow(row) {
@@ -760,7 +758,7 @@ function notifyLocalMemberAboutRequest(row, outcome) {
 }
 
 async function applyAcceptedReschedule(row) {
-  const sourceSessionId = row.source_workout_session_id;
+  const sourceSessionId = await resolveSourceWorkoutSessionId(row);
   const requestedDate = row.requested_date;
   const startTime = String(row.start_time || "").slice(0, 5);
   const endTime = String(row.end_time || "").slice(0, 5);
@@ -780,6 +778,29 @@ async function applyAcceptedReschedule(row) {
     .single();
   if (error) throw error;
   return data;
+}
+
+async function resolveSourceWorkoutSessionId(row) {
+  if (row.source_workout_session_id) return row.source_workout_session_id;
+
+  const currentDate = getDateFromScheduleText(row.current_schedule);
+  const currentStartTime = getFirstTimeFromScheduleText(row.current_schedule);
+  if (!row.member_id || !row.trainer_id || !currentDate) return "";
+
+  let query = supabase
+    .from("workout_sessions")
+    .select("workout_session_id")
+    .eq("member_id", row.member_id)
+    .eq("trainer_id", row.trainer_id)
+    .eq("session_date", currentDate);
+
+  if (currentStartTime) {
+    query = query.eq("start_time", currentStartTime);
+  }
+
+  const { data, error } = await query.limit(1).maybeSingle();
+  if (error) throw error;
+  return data?.workout_session_id || "";
 }
 
 export async function createTrainingRequest(request) {
@@ -939,18 +960,13 @@ export async function getTrainingRequestById(requestId) {
 }
 
 export async function updateTrainingRequestStatus(requestId, status, declineReason = "") {
-  if (!supabase) {
-    const rows = readLocalTrainingRequests();
-    const target = rows.find((item) => item.requestId === requestId || item.id === requestId);
-    if (!target) return { data: null, error: new Error("Training request was not found.") };
-    const normalizedStatus = status === "approved" ? "accepted" : status;
-    const nextTarget = {
-      ...target,
-      status: normalizedStatus,
-      rawStatus: normalizedStatus,
-      statusLabel: getTrainingRequestStatusLabel(normalizedStatus),
-      declineReason,
-    };
+  const localRows = readLocalTrainingRequests();
+  const localUpdate = applyLocalTrainingRequestStatus(localRows, requestId, status, declineReason);
+  const shouldHandleLocally = !localUpdate.error && (!supabase || localUpdate.target?.source === "local" || isLocalTrainingRequestId(requestId));
+
+  if (shouldHandleLocally) {
+    const nextTarget = localUpdate.target;
+    const normalizedStatus = String(nextTarget.status || "").toLowerCase();
     if (normalizedStatus === "accepted") {
       if (nextTarget.type === "reschedule") {
         updateLocalWorkoutSessionSchedule(nextTarget.sourceWorkoutSessionId, nextTarget);
@@ -959,11 +975,15 @@ export async function updateTrainingRequestStatus(requestId, status, declineReas
         markMakeupSessionUsedForAcceptedRequest(nextTarget);
       }
     }
-    writeLocalTrainingRequests(rows.map((item) => (item.requestId === target.requestId ? nextTarget : item)));
+    writeLocalTrainingRequests(localUpdate.rows);
     if (nextTarget.type === "reschedule" && ["accepted", "declined", "rejected"].includes(String(normalizedStatus).toLowerCase())) {
       notifyLocalMemberAboutRequest(nextTarget, normalizedStatus === "accepted" ? "accepted" : "declined");
     }
     return { data: nextTarget, error: null };
+  }
+
+  if (!supabase || isLocalTrainingRequestId(requestId)) {
+    return { data: null, error: localUpdate.error || new Error("Training request was not found.") };
   }
 
   const apiResult = await postTrainingRequestApi("/api/training-requests/status", {

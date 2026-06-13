@@ -47,6 +47,14 @@ function getRequestReason(row) {
   return row?.reason || row?.request_reason || row?.requestNote || row?.request_note || row?.notes || "";
 }
 
+function getDateFromScheduleText(value) {
+  return String(value || "").match(/\d{4}-\d{2}-\d{2}/)?.[0] || "";
+}
+
+function getFirstTimeFromScheduleText(value) {
+  return String(value || "").match(/(\d{2}:\d{2})/)?.[1] || "";
+}
+
 function isMissingSchemaColumn(error) {
   return error?.code === "42703" || /column .* does not exist/i.test(String(error?.message || ""));
 }
@@ -321,7 +329,7 @@ async function notifyMemberAboutMakeupRequest(client, row, outcome) {
 }
 
 async function applyAcceptedReschedule(client, row) {
-  const sourceSessionId = row.source_workout_session_id;
+  const sourceSessionId = await resolveSourceWorkoutSessionId(client, row);
   const requestedDate = row.requested_date;
   const startTime = String(row.start_time || "").slice(0, 5);
   const endTime = String(row.end_time || "").slice(0, 5);
@@ -345,6 +353,29 @@ async function applyAcceptedReschedule(client, row) {
 
   if (error) throw error;
   return data;
+}
+
+async function resolveSourceWorkoutSessionId(client, row) {
+  if (row.source_workout_session_id) return row.source_workout_session_id;
+
+  const currentDate = getDateFromScheduleText(row.current_schedule);
+  const currentStartTime = getFirstTimeFromScheduleText(row.current_schedule);
+  if (!row.member_id || !row.trainer_id || !currentDate) return "";
+
+  let query = client
+    .from("workout_sessions")
+    .select("workout_session_id")
+    .eq("member_id", row.member_id)
+    .eq("trainer_id", row.trainer_id)
+    .eq("session_date", currentDate);
+
+  if (currentStartTime) {
+    query = query.eq("start_time", currentStartTime);
+  }
+
+  const { data, error } = await query.limit(1).maybeSingle();
+  if (error) throw error;
+  return data?.workout_session_id || "";
 }
 
 async function createAcceptedMakeupPtSession(client, row) {
