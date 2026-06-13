@@ -1,4 +1,5 @@
 ﻿import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   LayoutDashboard, Users, CalendarDays, Dumbbell, BarChart2,
   Bell, Settings, LogOut, Search, Plus, Edit2, Trash2, Eye,
@@ -31,6 +32,7 @@ import {
 } from "../../services/workoutSessionApi";
 import { updateCurrentUserProfile, uploadCurrentUserAvatar } from "../../services/userProfileApi";
 import { fetchPtPortalData } from "../../services/ptDataApi";
+import { getNotificationsForCurrentUser, markAllNotificationsReadInSupabase } from "../../services/notificationApi";
 import { createStaffMaintenanceReport, getStaffEquipmentStatus } from "../../services/staffOperationsApi";
 import {
   createWorkoutPlan,
@@ -190,6 +192,15 @@ function getAssignment(memberId: string): TrainerAssignment | undefined {
   return ASSIGNMENTS.find(a => a.memberId === memberId);
 }
 
+function getManagedMembers(): Member[] {
+  const managedMemberIds = new Set(
+    ASSIGNMENTS
+      .filter(assignment => assignment.status !== "Completed")
+      .map(assignment => assignment.memberId),
+  );
+  return MEMBERS.filter(member => managedMemberIds.has(member.id));
+}
+
 function createEmptyExercise(): Exercise {
   return {
     exerciseId: `EX${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -230,6 +241,22 @@ function getCalendarWeek(anchorDate: Date) {
   });
 }
 
+function getCalendarMonth(anchorDate: Date) {
+  const firstOfMonth = new Date(anchorDate.getFullYear(), anchorDate.getMonth(), 1);
+  const start = new Date(firstOfMonth);
+  start.setDate(firstOfMonth.getDate() - firstOfMonth.getDay());
+  return Array.from({ length: 42 }, (_, index) => {
+    const date = new Date(start);
+    date.setDate(start.getDate() + index);
+    return {
+      key: toIsoDate(date),
+      date: String(date.getDate()),
+      inCurrentMonth: date.getMonth() === anchorDate.getMonth(),
+      isToday: toIsoDate(date) === toIsoDate(new Date()),
+    };
+  });
+}
+
 function statusColor(status: string): string {
   if (["Active", "Completed"].includes(status)) return "text-emerald-400 bg-emerald-400/10 border-emerald-400/30";
   if (["Paused", "Scheduled", "In Progress"].includes(status)) return "text-amber-400 bg-amber-400/10 border-amber-400/30";
@@ -255,6 +282,21 @@ function Badge({ status }: { status: string }) {
   return (
     <span className={`text-xs px-2.5 py-1 rounded-full border font-medium ${statusColor(status)}`}>
       {statusLabel(status)}
+    </span>
+  );
+}
+
+function ScheduleRequestMarker({ marker, compact = false }: { marker: string; compact?: boolean }) {
+  if (!marker) return null;
+  const size = compact ? "size-5" : "size-6";
+  const iconSize = compact ? "size-3" : "size-3.5";
+  return (
+    <span className={`absolute right-1.5 top-1.5 z-10 flex ${size} items-center justify-center rounded-full border ${
+      marker === "cancelled"
+        ? "border-red-300/60 bg-red-500 text-white shadow-[0_0_12px_rgba(239,35,60,0.45)]"
+        : "border-amber-200/60 bg-amber-400 text-[#181818] shadow-[0_0_12px_rgba(251,191,36,0.35)]"
+    }`}>
+      {marker === "cancelled" ? <X className={iconSize} /> : <AlertTriangle className={iconSize} />}
     </span>
   );
 }
@@ -289,30 +331,58 @@ function SectionCard({ title, action, children }: { title: string; action?: Reac
   );
 }
 
-function Input({ label, value, onChange, type = "text", placeholder }: { label: string; value: string; onChange: (v: string) => void; type?: string; placeholder?: string }) {
+function Input({
+  label,
+  value,
+  onChange,
+  type = "text",
+  placeholder,
+  disabled = false,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  type?: string;
+  placeholder?: string;
+  disabled?: boolean;
+}) {
   return (
     <div>
       <label className="block text-xs font-semibold text-[#BDBDBD] mb-1.5 uppercase tracking-wide">{label}</label>
       <input
         type={type}
         value={value}
+        disabled={disabled}
         onChange={e => onChange(e.target.value)}
         placeholder={placeholder}
-        className="w-full bg-[#222] border border-white/10 text-white placeholder-[#555] text-sm px-3 py-2.5 rounded-lg focus:outline-none focus:border-[#FF3B3B]/60 transition-colors"
+        className="w-full bg-[#222] border border-white/10 text-white placeholder-[#555] text-sm px-3 py-2.5 rounded-lg focus:outline-none focus:border-[#FF3B3B]/60 transition-colors disabled:cursor-not-allowed disabled:opacity-80"
       />
     </div>
   );
 }
 
-function Textarea({ label, value, onChange, rows = 3 }: { label: string; value: string; onChange: (v: string) => void; rows?: number }) {
+function Textarea({
+  label,
+  value,
+  onChange,
+  rows = 3,
+  disabled = false,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  rows?: number;
+  disabled?: boolean;
+}) {
   return (
     <div>
       <label className="block text-xs font-semibold text-[#BDBDBD] mb-1.5 uppercase tracking-wide">{label}</label>
       <textarea
         value={value}
+        disabled={disabled}
         onChange={e => onChange(e.target.value)}
         rows={rows}
-        className="w-full bg-[#222] border border-white/10 text-white placeholder-[#555] text-sm px-3 py-2.5 rounded-lg focus:outline-none focus:border-[#FF3B3B]/60 transition-colors resize-none"
+        className="w-full bg-[#222] border border-white/10 text-white placeholder-[#555] text-sm px-3 py-2.5 rounded-lg focus:outline-none focus:border-[#FF3B3B]/60 transition-colors resize-none disabled:cursor-not-allowed disabled:opacity-80"
       />
     </div>
   );
@@ -338,32 +408,38 @@ function ExerciseEditor({
   onAdd,
   onUpdate,
   onRemove,
+  editable = true,
 }: {
   exercises: Exercise[];
   onAdd: () => void;
   onUpdate: (id: string, field: keyof Exercise, value: string | number) => void;
   onRemove: (id: string) => void;
+  editable?: boolean;
 }) {
   return (
     <div className="space-y-3">
-      <div className="flex justify-end">
+      {editable && <div className="flex justify-end">
         <PrimaryBtn icon={Plus} label="Add exercise" small onClick={onAdd} />
-      </div>
+      </div>}
       {exercises.map((exercise, index) => (
         <div key={exercise.exerciseId} className="rounded-xl border border-white/5 bg-[#181818] p-4">
-          <div className="mb-3 flex items-center justify-between">
-            <div className="flex min-w-0 flex-1 items-center gap-2">
+          <div className="mb-4 flex items-start gap-3">
+            <div className="flex min-w-0 flex-1 items-start gap-3">
               <div className="flex size-6 shrink-0 items-center justify-center rounded-lg border border-[#FF3B3B]/25 bg-[#FF3B3B]/15 text-xs font-bold text-[#FF3B3B]">{index + 1}</div>
-              <input
-                value={exercise.exerciseName}
-                onChange={(event) => onUpdate(exercise.exerciseId, "exerciseName", event.target.value)}
-                placeholder="Exercise name"
-                className="min-w-0 flex-1 border-b border-transparent bg-transparent pb-0.5 text-sm font-semibold text-white outline-none transition-colors focus:border-[#FF3B3B]/40"
-              />
+              <label className="min-w-0 flex-1">
+                <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-[#BDBDBD]">Exercise name</span>
+                <input
+                  value={exercise.exerciseName}
+                  disabled={!editable}
+                  onChange={(event) => onUpdate(exercise.exerciseId, "exerciseName", event.target.value)}
+                  placeholder="Example: Barbell bench press"
+                  className="w-full rounded-lg border border-white/10 bg-[#222] px-3 py-3 text-sm font-semibold text-white outline-none transition-colors placeholder:text-[#555] focus:border-[#FF3B3B]/60 disabled:cursor-not-allowed disabled:opacity-80"
+                />
+              </label>
             </div>
-            <button type="button" onClick={() => onRemove(exercise.exerciseId)} className="flex size-7 items-center justify-center rounded-lg text-[#555] transition hover:bg-red-400/10 hover:text-red-400" aria-label="Remove exercise">
+            {editable && <button type="button" onClick={() => onRemove(exercise.exerciseId)} className="flex size-7 shrink-0 items-center justify-center rounded-lg text-[#555] transition hover:bg-red-400/10 hover:text-red-400" aria-label="Remove exercise">
               <X className="size-3" />
-            </button>
+            </button>}
           </div>
           <div className="mb-3 grid grid-cols-3 gap-3">
             {[
@@ -373,32 +449,47 @@ function ExerciseEditor({
             ].map(({ label, field, value }) => (
               <label key={label} className="block">
                 <span className="mb-1 block text-xs text-[#555]">{label}</span>
-                <input type="number" value={value as number} onChange={(event) => onUpdate(exercise.exerciseId, field, Number(event.target.value))} className="w-full rounded-lg border border-white/8 bg-[#222] px-2.5 py-1.5 text-sm text-white outline-none transition-colors focus:border-[#FF3B3B]/40" />
+                <input type="number" value={value as number} disabled={!editable} onChange={(event) => onUpdate(exercise.exerciseId, field, Number(event.target.value))} className="w-full rounded-lg border border-white/8 bg-[#222] px-2.5 py-1.5 text-sm text-white outline-none transition-colors focus:border-[#FF3B3B]/40 disabled:cursor-not-allowed disabled:opacity-80" />
               </label>
             ))}
           </div>
-          <div className="mb-3 grid grid-cols-2 gap-3">
+          <div className="mb-3 grid grid-cols-1 gap-3 xl:grid-cols-[1fr_0.7fr]">
             <label className="block">
               <span className="mb-1 block text-xs text-[#555]">Muscle group</span>
-              <input value={exercise.muscleGroup} onChange={(event) => onUpdate(exercise.exerciseId, "muscleGroup", event.target.value)} className="w-full rounded-lg border border-white/8 bg-[#222] px-2.5 py-1.5 text-xs text-white outline-none transition-colors focus:border-[#FF3B3B]/40" />
+              <div className="flex min-h-[42px] items-center rounded-lg border border-white/8 bg-[#222] px-3 py-2 text-xs text-white">
+                {exercise.muscleGroup || "Chon mot hoac nhieu nhom co"}
+              </div>
             </label>
             <label className="block">
               <span className="mb-1 block text-xs text-[#555]">Difficulty</span>
-              <select value={exercise.difficulty} onChange={(event) => onUpdate(exercise.exerciseId, "difficulty", event.target.value)} className="w-full rounded-lg border border-white/8 bg-[#222] px-2.5 py-1.5 text-xs text-white outline-none transition-colors focus:border-[#FF3B3B]/40">
+              <select value={exercise.difficulty} disabled={!editable} onChange={(event) => onUpdate(exercise.exerciseId, "difficulty", event.target.value)} className="min-h-[42px] w-full rounded-lg border border-white/8 bg-[#222] px-2.5 py-1.5 text-xs text-white outline-none transition-colors focus:border-[#FF3B3B]/40 disabled:cursor-not-allowed disabled:opacity-80">
                 {["Easy", "Medium", "Hard", "Very Hard"].map((difficulty) => <option key={difficulty}>{difficulty}</option>)}
               </select>
             </label>
           </div>
+          <div className="mb-3">
+            <MuscleGroupSelector
+              value={exercise.muscleGroup}
+              onChange={(value) => onUpdate(exercise.exerciseId, "muscleGroup", value)}
+              readOnly={!editable}
+            />
+          </div>
           <label className="block">
             <span className="mb-1 block text-xs text-[#555]">Technique instruction</span>
-            <input value={exercise.instruction} onChange={(event) => onUpdate(exercise.exerciseId, "instruction", event.target.value)} className="w-full rounded-lg border border-white/8 bg-[#222] px-2.5 py-1.5 text-xs text-white outline-none transition-colors focus:border-[#FF3B3B]/40" />
+            <input value={exercise.instruction} disabled={!editable} onChange={(event) => onUpdate(exercise.exerciseId, "instruction", event.target.value)} className="w-full rounded-lg border border-white/8 bg-[#222] px-2.5 py-1.5 text-xs text-white outline-none transition-colors focus:border-[#FF3B3B]/40 disabled:cursor-not-allowed disabled:opacity-80" />
           </label>
         </div>
       ))}
       {!exercises.length && (
-        <button type="button" onClick={onAdd} className="w-full rounded-xl border border-dashed border-white/10 bg-[#181818] p-8 text-sm font-semibold text-[#777] transition hover:border-[#FF3B3B]/40 hover:text-white">
-          Add the first exercise
-        </button>
+        editable ? (
+          <button type="button" onClick={onAdd} className="w-full rounded-xl border border-dashed border-white/10 bg-[#181818] p-8 text-sm font-semibold text-[#777] transition hover:border-[#FF3B3B]/40 hover:text-white">
+            Add the first exercise
+          </button>
+        ) : (
+          <div className="rounded-xl border border-dashed border-white/10 bg-[#181818] p-8 text-center text-sm font-semibold text-[#777]">
+            No exercises added yet.
+          </div>
+        )
       )}
     </div>
   );
@@ -1255,14 +1346,21 @@ function ScheduleProgressScreen({
   const [sessionTitle, setSessionTitle] = useState("");
   const [sessionContent, setSessionContent] = useState("");
   const [sessionExercises, setSessionExercises] = useState<Exercise[]>([]);
+  const [isSessionEditing, setIsSessionEditing] = useState(false);
   const [showMarkOptions, setShowMarkOptions] = useState(false);
   const [isSavingContent, setIsSavingContent] = useState(false);
   const [scheduleRequests, setScheduleRequests] = useState<any[]>([]);
+  const [focusedScheduleRequest, setFocusedScheduleRequest] = useState<any | null>(null);
+  const requestSectionRef = useRef<HTMLDivElement | null>(null);
   const days = getCalendarWeek(calendarAnchor);
+  const monthDays = getCalendarMonth(calendarAnchor);
   const timeSlots = ["06:00", "07:00", "08:00", "09:00", "10:00", "11:00", "14:00", "15:00", "16:00", "17:00", "18:00", "19:00"];
   const weekStart = new Date(`${days[0].key}T00:00:00`);
   const weekEnd = new Date(`${days[6].key}T00:00:00`);
   const weekLabel = `${weekStart.toLocaleDateString("en-US", { month: "short", day: "numeric" })} - ${weekEnd.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`;
+  const calendarLabel = view === "Month"
+    ? calendarAnchor.toLocaleDateString("en-US", { month: "long", year: "numeric" })
+    : weekLabel;
   const sessionHour = (time: string) => Number(time.split(":")[0]);
   const assignedMemberIds = new Set(
     ASSIGNMENTS.filter(assignment => assignment.status !== "Completed").map(assignment => assignment.memberId),
@@ -1302,13 +1400,63 @@ function ScheduleProgressScreen({
     : null;
   const visibleDays = view === "Day" ? [days.find(day => day.key === toIsoDate(calendarAnchor)) || days[0]] : days;
   const upcomingSessions = filteredSessions.filter(item => item.status === "Scheduled").slice(0, 5);
+  const normalizeRequestType = (request: any) => String(request?.type || request?.requestType || request?.request_type || "").toLowerCase();
+  const normalizeRequestStatus = (request: any) => String(request?.rawStatus || request?.status || "").toLowerCase();
+  const isPendingRequest = (request: any) => normalizeRequestStatus(request) === "pending_pt_approval" || request?.statusLabel === "Pending Approval";
+  const isAcceptedRequest = (request: any) => ["accepted", "approved"].includes(normalizeRequestStatus(request));
+  const isCancelRequest = (request: any) => ["cancel_booking", "cancel"].includes(normalizeRequestType(request));
+  const isRescheduleRequest = (request: any) => normalizeRequestType(request) === "reschedule";
+	  const requestReason = (request: any) => request?.reason || request?.requestReason || request?.request_note || request?.notes || "";
+	  const requestDateFromCurrentSchedule = (request: any) => String(request?.currentSchedule || "").match(/\d{4}-\d{2}-\d{2}/)?.[0] || "";
+	  const requestTimeFromCurrentSchedule = (request: any) => String(request?.currentSchedule || "").match(/(\d{2}:\d{2})/)?.[1] || "";
+	  const requestTimeFromRequestedSchedule = (request: any) => String(request?.requestedSchedule || "").match(/(\d{2}:\d{2})/)?.[1] || String(request?.startTime || "").slice(0, 5);
+	  const sameRequestMember = (request: any, session: TrainingSchedule) => !request?.memberId || !session?.memberId || request.memberId === session.memberId;
+	  const requestMatchesSession = (request: any, session: TrainingSchedule) => {
+	    if (!request || !session) return false;
+	    if (request.sourceWorkoutSessionId && request.sourceWorkoutSessionId === session.scheduleId) return true;
+	    if (!sameRequestMember(request, session)) return false;
+	    const currentDate = requestDateFromCurrentSchedule(request);
+	    const currentTime = requestTimeFromCurrentSchedule(request);
+	    if (currentDate && currentDate !== session.trainingDateIso) return false;
+	    if (currentTime && !String(session.trainingTime || "").includes(currentTime)) return false;
+	    return Boolean(currentDate || currentTime);
+	  };
+	  const requestTargetsSessionDate = (request: any, session: TrainingSchedule) => (
+	    isRescheduleRequest(request) && request?.requestedDate === session.trainingDateIso && sameRequestMember(request, session)
+	  );
+  const getRequestsForSession = (session: TrainingSchedule | null) => {
+    if (!session) return [];
+    const related = scheduleRequests.filter(request => requestMatchesSession(request, session) || requestTargetsSessionDate(request, session));
+    if (focusedScheduleRequest && !related.some(request => (request.requestId || request.id) === (focusedScheduleRequest.requestId || focusedScheduleRequest.id))) {
+      return [focusedScheduleRequest, ...related];
+    }
+    return related;
+  };
+  const getScheduleMarker = (session: TrainingSchedule) => {
+    const related = getRequestsForSession(session);
+    if (related.some(request => isCancelRequest(request) || (isRescheduleRequest(request) && isAcceptedRequest(request) && requestMatchesSession(request, session)))) return "cancelled";
+    if (related.some(request => isRescheduleRequest(request) && isPendingRequest(request))) return "pending";
+    return "";
+  };
+  const getRedRequestsForDay = (dayKey: string) => scheduleRequests.filter(request => (
+    (isCancelRequest(request) || (isRescheduleRequest(request) && isAcceptedRequest(request))) &&
+    (requestDateFromCurrentSchedule(request) === dayKey || request.requestedDate === dayKey)
+  ));
+	  const getPendingRequestsForDay = (dayKey: string) => pendingRescheduleRequests.filter(request =>
+	    request.requestedDate === dayKey || requestDateFromCurrentSchedule(request) === dayKey
+	  );
+	  const getPendingRequestsForSlot = (dayKey: string, slot: string) => pendingRescheduleRequests
+	    .filter(request => request.requestedDate === dayKey && requestTimeFromRequestedSchedule(request) === slot);
+  const getRedRequestsForSlot = (dayKey: string, slot: string) => getRedRequestsForDay(dayKey)
+    .filter(request => String(request.currentSchedule || request.requestedSchedule || "").includes(slot));
   const pendingRescheduleRequests = scheduleRequests.filter(request =>
-    request.type === "reschedule" &&
-    (request.rawStatus === "pending_pt_approval" || request.status === "pending_pt_approval" || request.statusLabel === "Pending Approval")
+    isRescheduleRequest(request) &&
+    isPendingRequest(request)
   );
-  const selectedSessionRequest = selectedSession
-    ? pendingRescheduleRequests.find(request => request.sourceWorkoutSessionId === selectedSession.scheduleId)
-    : null;
+  const selectedSessionRequests = getRequestsForSession(selectedSession);
+  const selectedSessionRequest = selectedSessionRequests.find(request => isRescheduleRequest(request) && isPendingRequest(request)) || null;
+  const selectedCancelRequest = selectedSessionRequests.find(request => isCancelRequest(request)) || null;
+  const selectedAcceptedRescheduleRequest = selectedSessionRequests.find(request => isRescheduleRequest(request) && isAcceptedRequest(request)) || null;
 
   const mapWorkoutSessionToTrainingSchedule = (session: any): TrainingSchedule => {
     const startTime = String(session.startTime || "").slice(0, 5);
@@ -1397,18 +1545,24 @@ function ScheduleProgressScreen({
     };
   }, []);
 
-  useEffect(() => {
+  const loadSessionDraft = (session: TrainingSchedule | null) => {
     setSelectedPlanId("");
-    setSessionTitle(selectedSession?.hasContent ? selectedSession.exerciseType : "");
-    setSessionContent(selectedSession?.notes || "");
-    setSessionExercises(selectedSession?.workoutContent || []);
-    setShowMarkOptions(false);
-  }, [selectedSession]);
+    setSessionTitle(session?.hasContent ? session.exerciseType : "");
+    setSessionContent(session?.notes || "");
+    setSessionExercises(session?.workoutContent || []);
+  };
 
-  const moveCalendar = (daysToMove: number) => {
+  useEffect(() => {
+    loadSessionDraft(selectedSession);
+    setIsSessionEditing(false);
+    setShowMarkOptions(false);
+  }, [selectedSession?.scheduleId]);
+
+  const moveCalendar = (direction: -1 | 1) => {
     setCalendarAnchor(current => {
+      if (view === "Month") return new Date(current.getFullYear(), current.getMonth() + direction, 1);
       const next = new Date(current);
-      next.setDate(next.getDate() + daysToMove);
+      next.setDate(next.getDate() + direction * 7);
       return next;
     });
   };
@@ -1455,6 +1609,7 @@ function ScheduleProgressScreen({
     SCHEDULES = SCHEDULES.map(item => item.scheduleId === mapped.scheduleId ? mapped : item);
     setSessions(current => current.map(item => item.scheduleId === mapped.scheduleId ? mapped : item));
     setSelectedSession(mapped);
+    setIsSessionEditing(false);
     showToast(notificationError
       ? "Content updated, but the member notification could not be sent."
       : "Content updated and member notified.");
@@ -1486,6 +1641,64 @@ function ScheduleProgressScreen({
     showToast(`Session marked as ${status}.`);
   };
 
+  const openSessionDetail = (session: TrainingSchedule, request: any = null) => {
+    setFocusedScheduleRequest(request);
+    setSelectedSession(session);
+  };
+
+  const openRequestDetail = (request: any) => {
+    const sourceSession = sessions.find(item => item.scheduleId === request.sourceWorkoutSessionId)
+      || sessions.find(item => item.memberId === request.memberId && item.trainingDateIso === requestDateFromCurrentSchedule(request));
+    if (sourceSession) {
+      openSessionDetail(sourceSession, request);
+      return;
+    }
+
+    const currentDate = requestDateFromCurrentSchedule(request) || request.requestedDate || "";
+    const currentTime = String(request.currentSchedule || request.requestedSchedule || "").replace(currentDate, "").trim() || `${String(request.startTime || "").slice(0, 5)} - ${String(request.endTime || "").slice(0, 5)}`;
+    openSessionDetail({
+      scheduleId: request.sourceWorkoutSessionId || request.requestId || request.id,
+      memberId: request.memberId || "",
+      memberName: request.memberName || "Member",
+      packageName: request.packageName || "Membership package",
+      roomName: "PT Room",
+      trainingDateIso: currentDate,
+      trainingDate: currentDate || "-",
+      trainingTime: currentTime,
+      exerciseType: isCancelRequest(request) ? "Cancelled booking" : "Reschedule request",
+      status: "Scheduled",
+      duration: 60,
+      notes: "",
+      hasContent: false,
+      workoutContent: [],
+      source: "local",
+    }, request);
+  };
+
+  const respondToScheduleRequest = async (request: any, status: "accepted" | "declined") => {
+    const { error } = await updateTrainingRequestStatus(
+      request.requestId || request.id,
+      status,
+      status === "declined" ? "Requested slot is not available. Please choose another schedule." : "",
+    );
+    if (error) {
+      showToast("Request could not be updated.");
+      return;
+    }
+
+    const trainerLookup = getCurrentUser()?.trainerId || getCurrentUser()?.email || TRAINER.email;
+    const [{ data: nextRequests }, { data: nextSessions }] = await Promise.all([
+      getTrainingRequestsForTrainer(trainerLookup),
+      getWorkoutSessionsForTrainer(getCurrentUser()),
+    ]);
+    setScheduleRequests(nextRequests || []);
+    if (nextSessions) setSessions(nextSessions.map(mapWorkoutSessionToTrainingSchedule));
+    setFocusedScheduleRequest(null);
+    showToast(status === "accepted"
+      ? "Reschedule request accepted and member notified."
+      : "Reschedule request declined and member notified.");
+  };
+
   return (
     <div className="space-y-5 pb-6">
       <div className="flex items-start justify-between gap-4">
@@ -1509,9 +1722,9 @@ function ScheduleProgressScreen({
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex flex-wrap items-center gap-2">
             <button onClick={() => setCalendarAnchor(new Date())} className="rounded-full border border-white/10 px-4 py-2 text-sm font-semibold text-white hover:border-[#FF3B3B]">Today</button>
-            <button onClick={() => moveCalendar(-7)} className="size-9 rounded-full border border-white/10 text-[#999] hover:text-white">Prev</button>
-            <button onClick={() => moveCalendar(7)} className="size-9 rounded-full border border-white/10 text-[#999] hover:text-white">Next</button>
-            <div className="ml-2 text-white text-lg font-semibold">{weekLabel}</div>
+            <button onClick={() => moveCalendar(-1)} className="size-9 rounded-full border border-white/10 text-[#999] hover:text-white">Prev</button>
+            <button onClick={() => moveCalendar(1)} className="size-9 rounded-full border border-white/10 text-[#999] hover:text-white">Next</button>
+            <div className="ml-2 text-white text-lg font-semibold">{calendarLabel}</div>
           </div>
           <div className="flex rounded-full border border-white/10 bg-[#111] p-1">
             {(["Day", "Week", "Month", "Agenda"] as CalendarView[]).map(item => (
@@ -1555,7 +1768,8 @@ function ScheduleProgressScreen({
           {filteredSessions.map(session => {
             const member = getMember(session.memberId);
             return (
-              <button key={session.scheduleId} onClick={() => setSelectedSession(session)} className="w-full rounded-xl border border-white/5 bg-[#111] p-4 text-left hover:border-[#FF3B3B]/50">
+              <button key={session.scheduleId} onClick={() => openSessionDetail(session)} className="relative w-full rounded-xl border border-white/5 bg-[#111] p-4 text-left hover:border-[#FF3B3B]/50">
+                <ScheduleRequestMarker marker={getScheduleMarker(session)} />
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <div className="text-white text-sm font-semibold">{session.exerciseType}</div>
@@ -1567,6 +1781,71 @@ function ScheduleProgressScreen({
             );
           })}
         </div>
+      ) : view === "Month" ? (
+        <div className="overflow-x-auto rounded-xl border border-white/5 bg-[#181818]">
+          <div className="min-w-[980px] overflow-hidden rounded-xl bg-[#111]">
+            <div className="grid grid-cols-7 border-b border-white/5 bg-[#101010]">
+              {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map(label => (
+                <div key={label} className="border-l border-white/5 px-3 py-3 text-center text-xs font-bold uppercase tracking-widest text-[#777] first:border-l-0">
+                  {label}
+                </div>
+              ))}
+            </div>
+            <div className="grid grid-cols-7">
+              {monthDays.map(day => {
+                const events = filteredSessions.filter(item => item.trainingDateIso === day.key);
+                return (
+                  <div key={day.key} className="relative min-h-[136px] border-b border-l border-white/5 p-2 first:border-l-0">
+                    {(getRedRequestsForDay(day.key).length > 0 || getPendingRequestsForDay(day.key).length > 0) && (
+                      <button type="button" onClick={() => openRequestDetail((getRedRequestsForDay(day.key)[0] || getPendingRequestsForDay(day.key)[0]))} className={`absolute right-2 top-2 z-10 flex size-5 items-center justify-center rounded-full border ${getRedRequestsForDay(day.key).length > 0 ? "border-red-300/60 bg-red-500 text-white" : "border-amber-200/60 bg-amber-400 text-[#181818]"}`}>
+                        {getRedRequestsForDay(day.key).length > 0 ? <X className="size-3" /> : <AlertTriangle className="size-3" />}
+                      </button>
+                    )}
+                    <div className="mb-2 flex justify-center">
+                      <span className={`flex size-7 items-center justify-center rounded-full text-xs font-bold ${day.isToday ? "bg-[#8DBBFF] text-[#111]" : day.inCurrentMonth ? "text-white" : "text-[#555]"}`}>
+                        {day.date}
+                      </span>
+                    </div>
+                    <div className="space-y-1.5">
+                      {events.slice(0, 3).map(event => {
+                        const member = getMember(event.memberId);
+                        return (
+                          <button
+                            key={event.scheduleId}
+                            type="button"
+                            onClick={() => openSessionDetail(event)}
+                            className={`relative w-full truncate rounded-md px-2 py-1 pr-7 text-left text-[11px] font-bold text-white transition hover:brightness-110 ${
+                              event.status === "Completed"
+                                ? "bg-emerald-500/70"
+                                : event.status === "Incomplete"
+                                  ? "bg-red-500/70"
+                                  : "bg-[#4DA3E6]"
+                            }`}
+                            title={`${event.exerciseType} - ${member?.name || event.memberName || "Member"} - ${event.trainingTime}`}
+                          >
+                            <ScheduleRequestMarker marker={getScheduleMarker(event)} compact />
+                            {event.exerciseType}
+                          </button>
+                        );
+                      })}
+                      {events.length > 3 && <div className="px-2 text-[11px] font-semibold text-[#777]">+{events.length - 3} more</div>}
+                      {getPendingRequestsForDay(day.key).slice(0, 1).map(request => (
+                        <button key={request.requestId || request.id} type="button" onClick={() => openRequestDetail(request)} className="w-full rounded-md border border-amber-300/30 bg-amber-400/15 px-2 py-1 text-left text-[11px] font-bold text-amber-200 hover:bg-amber-400/25">
+                          Request đổi lịch
+                        </button>
+                      ))}
+                      {getRedRequestsForDay(day.key).slice(0, 1).map(request => (
+                        <button key={request.requestId || request.id} type="button" onClick={() => openRequestDetail(request)} className="w-full rounded-md border border-red-300/30 bg-red-500/15 px-2 py-1 text-left text-[11px] font-bold text-red-200 hover:bg-red-500/25">
+                          {isCancelRequest(request) ? "Booking đã hủy" : "Đã đổi lịch"}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-white/5 bg-[#181818]">
           <div className="min-w-[920px] grid" style={{ gridTemplateColumns: `72px repeat(${visibleDays.length}, minmax(120px, 1fr))` }}>
@@ -1576,9 +1855,14 @@ function ScheduleProgressScreen({
                 key={day.key}
                 type="button"
                 onClick={() => openDay(day.key)}
-                className="border-b border-l border-white/5 bg-[#111] p-3 text-center transition hover:bg-[#1d1d1d] focus:outline-none focus:ring-1 focus:ring-inset focus:ring-[#FF3B3B]/50"
+                className="relative border-b border-l border-white/5 bg-[#111] p-3 text-center transition hover:bg-[#1d1d1d] focus:outline-none focus:ring-1 focus:ring-inset focus:ring-[#FF3B3B]/50"
                 title={`Open calendar day ${day.key}`}
               >
+                {(getRedRequestsForDay(day.key).length > 0 || getPendingRequestsForDay(day.key).length > 0) && (
+                  <span className={`absolute right-3 top-3 flex size-5 items-center justify-center rounded-full border ${getRedRequestsForDay(day.key).length > 0 ? "border-red-300/60 bg-red-500 text-white" : "border-amber-200/60 bg-amber-400 text-[#181818]"}`}>
+                    {getRedRequestsForDay(day.key).length > 0 ? <X className="size-3" /> : <AlertTriangle className="size-3" />}
+                  </span>
+                )}
                 <div className="text-[#777] text-xs font-semibold uppercase tracking-widest">{day.label}</div>
                 <div className={`mx-auto mt-1 flex size-9 items-center justify-center rounded-full text-lg font-semibold ${day.key === toIsoDate(new Date()) ? "bg-[#FF3B3B] text-white" : "text-white"}`}>{day.date}</div>
               </button>
@@ -1594,7 +1878,8 @@ function ScheduleProgressScreen({
                       {events.map(event => {
                         const member = getMember(event.memberId);
                         return (
-                          <button key={event.scheduleId} onClick={() => setSelectedSession(event)} className="mb-1 w-full rounded-lg border border-[#FF3B3B]/30 bg-[#FF3B3B]/15 p-2 text-left shadow-[0_8px_22px_rgba(255,59,59,0.12)] hover:bg-[#FF3B3B]/25">
+                          <button key={event.scheduleId} onClick={() => openSessionDetail(event)} className="relative mb-1 w-full rounded-lg border border-[#FF3B3B]/30 bg-[#FF3B3B]/15 p-2 pr-7 text-left shadow-[0_8px_22px_rgba(255,59,59,0.12)] hover:bg-[#FF3B3B]/25">
+                            <ScheduleRequestMarker marker={getScheduleMarker(event)} compact />
                             <div className="truncate text-xs font-bold text-white">{event.exerciseType}</div>
                             <div className="truncate text-[11px] text-[#F5B5B5]">{member?.name || event.memberName || "Member"}</div>
                             <div className="mt-1 truncate text-[10px] text-[#999]">{event.trainingTime} - {event.roomName || "Room A2"}</div>
@@ -1602,6 +1887,22 @@ function ScheduleProgressScreen({
                           </button>
                         );
                       })}
+                      {getPendingRequestsForSlot(day.key, slot).map(request => (
+                        <button key={request.requestId || request.id} type="button" onClick={() => openRequestDetail(request)} className="relative mb-1 w-full rounded-lg border border-amber-300/30 bg-amber-400/15 p-2 pr-7 text-left hover:bg-amber-400/25">
+                          <ScheduleRequestMarker marker="pending" compact />
+                          <div className="truncate text-xs font-bold text-amber-100">Request đổi lịch</div>
+                          <div className="truncate text-[11px] text-amber-200/80">{request.memberName || "Member"}</div>
+                          <div className="mt-1 truncate text-[10px] text-[#999]">{request.requestedSchedule || `${request.requestedDate} ${request.startTime || ""}`}</div>
+                        </button>
+                      ))}
+                      {getRedRequestsForSlot(day.key, slot).map(request => (
+                        <button key={request.requestId || request.id} type="button" onClick={() => openRequestDetail(request)} className="relative mb-1 w-full rounded-lg border border-red-300/30 bg-red-500/15 p-2 pr-7 text-left hover:bg-red-500/25">
+                          <ScheduleRequestMarker marker="cancelled" compact />
+                          <div className="truncate text-xs font-bold text-red-100">{isCancelRequest(request) ? "Booking đã hủy" : "Đã đổi lịch"}</div>
+                          <div className="truncate text-[11px] text-red-200/80">{request.memberName || "Member"}</div>
+                          <div className="mt-1 truncate text-[10px] text-[#999]">{request.currentSchedule || request.requestedSchedule || ""}</div>
+                        </button>
+                      ))}
                     </div>
                   );
                 })}
@@ -1617,7 +1918,8 @@ function ScheduleProgressScreen({
             {upcomingSessions.length > 0 ? upcomingSessions.map(session => {
               const member = getMember(session.memberId);
               return (
-                <button key={session.scheduleId} onClick={() => setSelectedSession(session)} className="w-full rounded-lg bg-[#222] p-3 text-left hover:bg-[#292929]">
+                <button key={session.scheduleId} onClick={() => openSessionDetail(session)} className="relative w-full rounded-lg bg-[#222] p-3 pr-8 text-left hover:bg-[#292929]">
+                  <ScheduleRequestMarker marker={getScheduleMarker(session)} />
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <div className="text-white text-sm font-semibold">{session.exerciseType}</div>
@@ -1640,15 +1942,42 @@ function ScheduleProgressScreen({
       </div>
 
       {selectedSession && selectedMember && (
-        <ModalOverlay onClose={() => setSelectedSession(null)}>
-          <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-white/10 bg-[#181818] p-5 shadow-2xl">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-[#FF3B3B] text-xs font-bold uppercase tracking-widest">Session Detail</p>
-                <h3 className="mt-1 text-2xl text-white tracking-[0.06em]" style={{ fontFamily: "'Bebas Neue', sans-serif" }}>{selectedSession.exerciseType}</h3>
-                <p className="text-[#777] text-sm">{selectedMember.name} - {selectedSession.trainingDate} - {selectedSession.trainingTime}</p>
+        <ModalOverlay onClose={() => { setFocusedScheduleRequest(null); setSelectedSession(null); }}>
+          <div className="max-h-[calc(100vh-48px)] w-[min(1040px,calc(100vw-32px))] overflow-y-auto rounded-2xl border border-white/10 bg-[#181818] p-5 shadow-2xl">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+              <div className="flex items-start gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (isSessionEditing) {
+                      loadSessionDraft(selectedSession);
+                      setIsSessionEditing(false);
+                    } else {
+                      setIsSessionEditing(true);
+                    }
+                  }}
+                  className="inline-flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs font-bold text-white/75 transition hover:border-[#FF3B3B]/45 hover:text-white"
+                >
+                  {isSessionEditing ? <X className="size-3" /> : <Edit2 className="size-3" />}
+                  {isSessionEditing ? "Cancel edit" : "Edit"}
+                </button>
+                {selectedSessionRequest && (
+                  <button
+                    type="button"
+                    onClick={() => requestSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                    className="inline-flex items-center gap-2 rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-xs font-bold text-amber-200 transition hover:bg-amber-400/20"
+                  >
+                    <AlertTriangle className="size-3" />
+                    Có yêu cầu đổi lịch mới
+                  </button>
+                )}
+                <div>
+                  <p className="text-[#FF3B3B] text-xs font-bold uppercase tracking-widest">Session Detail</p>
+                  <h3 className="mt-1 text-2xl text-white tracking-[0.06em]" style={{ fontFamily: "'Bebas Neue', sans-serif" }}>{selectedSession.exerciseType}</h3>
+                  <p className="text-[#777] text-sm">{selectedMember.name} - {selectedSession.trainingDate} - {selectedSession.trainingTime}</p>
+                </div>
               </div>
-              <button onClick={() => setSelectedSession(null)} className="text-[#777] hover:text-white"><X className="size-5" /></button>
+              <button onClick={() => { setFocusedScheduleRequest(null); setSelectedSession(null); }} className="text-[#777] hover:text-white"><X className="size-5" /></button>
             </div>
             <div className="mt-4 space-y-2 text-sm">
               <div className="flex justify-between rounded-lg bg-[#222] p-3"><span className="text-[#777]">Room/location</span><span className="text-white">{selectedSession.roomName || "Room A2"}</span></div>
@@ -1657,16 +1986,22 @@ function ScheduleProgressScreen({
               {selectedSessionRequest && (
                 <button
                   type="button"
-                  onClick={() => onNavigate("notifications")}
+                  onClick={() => requestSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
                   className="flex w-full justify-between rounded-lg border border-amber-400/20 bg-amber-400/10 p-3 text-left"
                 >
                   <span className="text-amber-200">Member yêu cầu đổi lịch</span>
-                  <span className="text-xs font-bold text-amber-300">Open notification</span>
+                  <span className="text-xs font-bold text-amber-300">Review request</span>
                 </button>
+              )}
+              {(selectedCancelRequest || selectedAcceptedRescheduleRequest) && (
+                <div className="flex w-full justify-between rounded-lg border border-red-400/20 bg-red-500/10 p-3 text-left">
+                  <span className="text-red-200">{selectedCancelRequest ? "Member đã hủy booking" : "Reschedule đã được xác nhận"}</span>
+                  <span className="text-xs font-bold text-red-300">X</span>
+                </div>
               )}
             </div>
             <div className="mt-5 space-y-4 rounded-xl border border-white/8 bg-[#111] p-4">
-              <div>
+              {isSessionEditing && <div>
                 <label className="mb-1.5 block text-xs font-bold uppercase tracking-widest text-[#777]">Choose a prepared workout</label>
                 <select
                   value={selectedPlanId}
@@ -1676,29 +2011,76 @@ function ScheduleProgressScreen({
                   <option value="">Enter content manually</option>
                   {workoutPlans.map(plan => <option key={plan.id} value={plan.id}>{plan.name}</option>)}
                 </select>
-              </div>
-              <Input label="Workout name" value={sessionTitle} onChange={setSessionTitle} placeholder="Example: Upper Body Strength" />
-              <Textarea label="General notes" value={sessionContent} onChange={setSessionContent} rows={3} />
+              </div>}
+              <Input label="Workout name" value={sessionTitle} onChange={setSessionTitle} placeholder="Example: Upper Body Strength" disabled={!isSessionEditing} />
+              <Textarea label="General notes" value={sessionContent} onChange={setSessionContent} rows={4} disabled={!isSessionEditing} />
               <ExerciseEditor
                 exercises={sessionExercises}
                 onAdd={() => setSessionExercises(current => [...current, createEmptyExercise()])}
                 onUpdate={updateSessionExercise}
                 onRemove={(id) => setSessionExercises(current => current.filter(exercise => exercise.exerciseId !== id))}
+                editable={isSessionEditing}
               />
               {!sessionTitle.trim() && !sessionContent.trim() && !sessionExercises.length && (
                 <p className="text-xs font-semibold text-amber-300">This workout session is empty. Enter content or choose a workout.</p>
               )}
-              <button
+              {isSessionEditing && <button
                 type="button"
                 disabled={isSavingContent}
                 onClick={saveSessionContent}
                 className="w-full rounded-xl bg-[#FF3B3B] px-4 py-3 text-sm font-bold text-white transition hover:bg-[#cc2e2e] disabled:cursor-wait disabled:opacity-60"
               >
-                {isSavingContent ? "Updating..." : "Update content & notify member"}
-              </button>
+                {isSavingContent ? "Updating..." : "Update & notify member"}
+              </button>}
             </div>
+            {(selectedCancelRequest || selectedSessionRequest || selectedAcceptedRescheduleRequest) && (
+              <div ref={requestSectionRef} className="mt-5 space-y-3 rounded-xl border border-white/8 bg-[#111] p-4">
+                {selectedCancelRequest && (
+                  <div className="rounded-lg border border-red-400/20 bg-red-500/10 p-4">
+                    <div className="mb-2 flex items-center gap-2 text-sm font-bold text-red-200">
+                      <X className="size-4" />
+                      Lý do hủy booking
+                    </div>
+                    <p className="text-sm leading-6 text-white/75">{requestReason(selectedCancelRequest) || "Member không nhập lý do."}</p>
+                    <p className="mt-2 text-xs text-white/45">Lịch cũ: {selectedCancelRequest.currentSchedule || `${selectedSession.trainingDateIso} ${selectedSession.trainingTime}`}</p>
+                  </div>
+                )}
+
+                {selectedAcceptedRescheduleRequest && !selectedCancelRequest && (
+                  <div className="rounded-lg border border-red-400/20 bg-red-500/10 p-4">
+                    <div className="mb-2 flex items-center gap-2 text-sm font-bold text-red-200">
+                      <X className="size-4" />
+                      Reschedule đã xác nhận
+                    </div>
+                    <p className="text-sm leading-6 text-white/75">Member đã được đổi sang {selectedAcceptedRescheduleRequest.requestedSchedule || "lịch mới"}.</p>
+                    <p className="mt-2 text-xs text-white/45">Lý do member gửi: {requestReason(selectedAcceptedRescheduleRequest) || "Không có lý do."}</p>
+                  </div>
+                )}
+
+                {selectedSessionRequest && (
+                  <div className="rounded-lg border border-amber-400/20 bg-amber-400/10 p-4">
+                    <div className="mb-3 flex items-center gap-2 text-sm font-bold text-amber-200">
+                      <AlertTriangle className="size-4" />
+                      Yêu cầu đổi lịch mới
+                    </div>
+                    <div className="grid gap-2 text-sm sm:grid-cols-2">
+                      <div className="rounded-lg bg-[#222] p-3"><span className="block text-xs text-white/40">Lịch hiện tại</span><span className="font-semibold text-white">{selectedSessionRequest.currentSchedule || `${selectedSession.trainingDateIso} ${selectedSession.trainingTime}`}</span></div>
+                      <div className="rounded-lg bg-[#222] p-3"><span className="block text-xs text-white/40">Muốn đổi sang</span><span className="font-semibold text-white">{selectedSessionRequest.requestedSchedule || `${selectedSessionRequest.requestedDate || ""} ${selectedSessionRequest.startTime || ""}`}</span></div>
+                    </div>
+                    <div className="mt-3 rounded-lg bg-[#222] p-3">
+                      <span className="block text-xs text-white/40">Lý do</span>
+                      <p className="mt-1 text-sm leading-6 text-white/75">{requestReason(selectedSessionRequest) || "Member không nhập lý do."}</p>
+                    </div>
+                    <div className="mt-4 flex flex-wrap justify-end gap-2">
+                      <button type="button" onClick={() => respondToScheduleRequest(selectedSessionRequest, "declined")} className="rounded-lg border border-red-400/20 bg-red-400/10 px-4 py-2.5 text-xs font-bold text-red-300 hover:bg-red-400/20">Không xác nhận</button>
+                      <button type="button" onClick={() => respondToScheduleRequest(selectedSessionRequest, "accepted")} className="rounded-lg border border-emerald-400/20 bg-emerald-400/10 px-4 py-2.5 text-xs font-bold text-emerald-300 hover:bg-emerald-400/20">Xác nhận</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
             <div className="mt-5 grid grid-cols-1 gap-2">
-              <PrimaryBtn label="View Member" icon={User} onClick={() => { setSelectedSession(null); onViewMember(selectedMember.id); }} />
+              <PrimaryBtn label="View Member" icon={User} onClick={() => { setFocusedScheduleRequest(null); setSelectedSession(null); onViewMember(selectedMember.id); }} />
               <GhostBtn label="Mark" icon={CheckCircle} onClick={() => setShowMarkOptions(current => !current)} />
               <div className={`grid overflow-hidden transition-all duration-200 ${showMarkOptions ? "max-h-24 grid-cols-2 gap-2 opacity-100" : "max-h-0 grid-cols-2 gap-2 opacity-0"}`}>
                 <button type="button" onClick={() => updateSessionStatus(selectedSession.scheduleId, "Completed")} className="rounded-lg border border-emerald-400/20 bg-emerald-400/10 px-4 py-2.5 text-xs font-bold text-emerald-300 hover:bg-emerald-400/20">Mark Completed</button>
@@ -2038,21 +2420,54 @@ function WorkoutGuidanceScreen({ showToast }: { showToast: (msg: string) => void
 // SCREEN 6: PROGRESS EVALUATION
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function ProgressEvaluationScreen({ showToast }: { showToast: (msg: string) => void }) {
-  const [selectedMember, setSelectedMember] = useState("MEM001");
+  const managedMembers = getManagedMembers();
+  const managedMemberKey = managedMembers.map(member => member.id).join("|");
+  const [selectedMember, setSelectedMember] = useState(managedMembers[0]?.id || "");
   const [evalDate, setEvalDate] = useState("06/05/2025");
   const [comment, setComment] = useState("Học viên có sự tiến bộ tốt trong giai đoạn này.");
   const [strengths, setStrengths] = useState("Kiên trì, kỹ thuật tốt, nhiệt tình");
   const [improvements, setImprovements] = useState("Cần cải thiện chế độ nghỉ ngơi và dinh dưỡng");
   const [recommendation, setRecommendation] = useState("Tăng cường cardio, chú ý chế độ ăn");
   const [rating, setRating] = useState(4);
+  const [savedEvaluations, setSavedEvaluations] = useState<ProgressEvaluation[]>([]);
   const [showSuccess, setShowSuccess] = useState(false);
 
   const m = getMember(selectedMember);
-  const goals = TRAINING_GOALS.filter(g => g.memberId === selectedMember);
   const metrics = BODY_METRICS.filter(bm => bm.memberId === selectedMember);
-  const records = PROGRESS_RECORDS.filter(r => r.memberId === selectedMember);
+  const latestMetric = BODY_METRIC_DETAILS.find(metric => metric.memberId === selectedMember);
+  const externalEvaluations = EVALUATIONS.filter(evaluation => evaluation.memberId === selectedMember);
+  const recentEvaluations = [
+    ...savedEvaluations.filter(evaluation => evaluation.memberId === selectedMember),
+    ...externalEvaluations,
+  ];
+
+  useEffect(() => {
+    if (!managedMembers.length) {
+      if (selectedMember) setSelectedMember("");
+      return;
+    }
+
+    if (!managedMembers.some(member => member.id === selectedMember)) {
+      setSelectedMember(managedMembers[0].id);
+    }
+  }, [managedMemberKey, selectedMember]);
 
   const handleSave = () => {
+    if (!selectedMember) {
+      showToast("Không có học viên đang quản lý để đánh giá.");
+      return;
+    }
+
+    setSavedEvaluations(prev => [{
+      evaluationId: `local-evaluation-${Date.now()}`,
+      memberId: selectedMember,
+      evaluationDate: evalDate,
+      overallComment: comment,
+      strengths,
+      improvements,
+      recommendation,
+      rating,
+    }, ...prev]);
     setShowSuccess(true);
     showToast("Đã lưu đánh giá thành công!");
     setTimeout(() => setShowSuccess(false), 2500);
@@ -2073,9 +2488,14 @@ function ProgressEvaluationScreen({ showToast }: { showToast: (msg: string) => v
             <select
               value={selectedMember}
               onChange={e => setSelectedMember(e.target.value)}
+              disabled={!managedMembers.length}
               className="w-full bg-[#222] border border-white/10 text-white text-sm px-3 py-2.5 rounded-lg focus:outline-none focus:border-[#FF3B3B]/60 transition-colors"
             >
-              {MEMBERS.map(mem => <option key={mem.id} value={mem.id}>{mem.name}</option>)}
+              {managedMembers.length ? (
+                managedMembers.map(mem => <option key={mem.id} value={mem.id}>{mem.name}</option>)
+              ) : (
+                <option value="">No assigned members</option>
+              )}
             </select>
           </div>
           {m && (
@@ -2092,47 +2512,60 @@ function ProgressEvaluationScreen({ showToast }: { showToast: (msg: string) => v
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        {/* Left: Goals + Records */}
+        {/* Left: Recent evaluations */}
         <div className="space-y-4">
-          <SectionCard title="Mục tiêu (TrainingGoal)">
+          <SectionCard title="Tiến độ đánh giá gần đây">
             <div className="space-y-3">
-              {goals.map(g => (
-                <div key={g.goalId} className="bg-[#222] rounded-lg p-3">
-                  <div className="flex items-start justify-between gap-2 mb-1.5">
-                    <div className="text-white text-xs font-semibold leading-tight">{g.goalName}</div>
-                    <Badge status={g.status} />
+              {recentEvaluations.map(evaluation => (
+                <div key={evaluation.evaluationId} className="rounded-lg bg-[#222] p-3">
+                  <div className="mb-2 flex items-center justify-between gap-3">
+                    <span className="text-xs text-[#777]">{evaluation.evaluationDate || "Chưa có ngày"}</span>
+                    <span className="rounded-full border border-[#FF3B3B]/25 bg-[#FF3B3B]/10 px-2 py-0.5 text-xs font-bold text-[#FF3B3B]">
+                      {evaluation.rating || 0}/5
+                    </span>
                   </div>
-                  <div className="text-[#555] text-xs mb-2">{g.targetValue}</div>
-                  <div className="flex items-center gap-2">
-                    <div className="flex-1"><Bar2 value={g.progress} /></div>
-                    <span className="text-white text-xs font-bold">{g.progress}%</span>
+                  <p className="text-sm font-semibold leading-relaxed text-white">{evaluation.overallComment || "Chưa có nhận xét tổng quan."}</p>
+                  <div className="mt-3 space-y-2 text-xs text-[#BDBDBD]">
+                    {evaluation.strengths && <p><span className="font-bold text-[#777]">Điểm mạnh:</span> {evaluation.strengths}</p>}
+                    {evaluation.improvements && <p><span className="font-bold text-[#777]">Cần cải thiện:</span> {evaluation.improvements}</p>}
+                    {evaluation.recommendation && <p><span className="font-bold text-[#777]">Khuyến nghị:</span> {evaluation.recommendation}</p>}
                   </div>
-                  <div className="text-[#555] text-xs mt-1">Hạn: {g.deadline}</div>
                 </div>
               ))}
-              {goals.length === 0 && <p className="text-[#555] text-xs">Chưa có mục tiêu</p>}
-            </div>
-          </SectionCard>
-
-          <SectionCard title="Tiến độ gần đây (ProgressRecord)">
-            <div className="space-y-2">
-              {records.map(r => (
-                <div key={r.progressId} className="bg-[#222] rounded-lg p-2.5">
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-[#555] text-xs">{r.recordedDate}</span>
-                    <span className="text-white text-xs font-bold">{r.completionLevel}%</span>
-                  </div>
-                  <div className="mb-1.5"><Bar2 value={r.completionLevel} /></div>
-                  <p className="text-[#BDBDBD] text-xs truncate">{r.note}</p>
-                </div>
-              ))}
-              {records.length === 0 && <p className="text-[#555] text-xs">Chưa có dữ liệu</p>}
+              {recentEvaluations.length === 0 && <p className="text-[#555] text-xs">Chưa có tiến độ đánh giá gần đây.</p>}
             </div>
           </SectionCard>
         </div>
 
-        {/* Center: Charts */}
+        {/* Center: Body metrics */}
         <div className="space-y-4">
+          <div className="bg-[#181818] border border-white/5 rounded-xl p-5">
+            <h3 className="text-white font-semibold text-sm mb-4">Chỉ số cơ thể của học viên</h3>
+            {latestMetric ? (
+              <div className="grid grid-cols-2 gap-3">
+                {[
+                  ["Chiều cao", latestMetric.height || "-"],
+                  ["Cân nặng", latestMetric.weight || "-"],
+                  ["BMI", latestMetric.bmi || "-"],
+                  ["Mỡ cơ thể", latestMetric.bodyFatPercentage || "-"],
+                  ["Huyết áp", latestMetric.bloodPressure || "-"],
+                  ["Nhịp tim nghỉ", latestMetric.restingHeartRate || "-"],
+                ].map(([label, value]) => (
+                  <div key={label} className="rounded-lg bg-[#222] p-3">
+                    <div className="text-[10px] font-bold uppercase tracking-widest text-[#666]">{label}</div>
+                    <div className="mt-1 text-sm font-bold text-white">{value}</div>
+                  </div>
+                ))}
+                <div className="col-span-2 rounded-lg bg-[#111] p-3">
+                  <div className="text-[10px] font-bold uppercase tracking-widest text-[#666]">Lần đo mới nhất</div>
+                  <div className="mt-1 text-sm font-bold text-white">{latestMetric.latestMeasurementDate || "-"}</div>
+                </div>
+              </div>
+            ) : (
+              <p className="text-[#555] text-sm">Chưa có dữ liệu chỉ số cơ thể cho học viên này.</p>
+            )}
+          </div>
+
           {metrics.length > 0 ? (
             <>
               <div className="bg-[#181818] border border-white/5 rounded-xl p-5">
@@ -2141,7 +2574,7 @@ function ProgressEvaluationScreen({ showToast }: { showToast: (msg: string) => v
                   <LineChart data={metrics}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#1f1f1f" />
                     <XAxis dataKey="measuredDate" tick={{ fill: "#555", fontSize: 10 }} axisLine={false} tickLine={false} />
-                    <YAxis domain={[70, 78]} tick={{ fill: "#555", fontSize: 10 }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fill: "#555", fontSize: 10 }} axisLine={false} tickLine={false} />
                     <Tooltip contentStyle={tooltipStyle} formatter={(v) => [`${v} kg`]} />
                     <Line type="monotone" dataKey="weight" stroke="#FF3B3B" strokeWidth={2} dot={{ fill: "#FF3B3B", r: 3 }} />
                   </LineChart>
@@ -2153,7 +2586,7 @@ function ProgressEvaluationScreen({ showToast }: { showToast: (msg: string) => v
                   <LineChart data={metrics}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#1f1f1f" />
                     <XAxis dataKey="measuredDate" tick={{ fill: "#555", fontSize: 10 }} axisLine={false} tickLine={false} />
-                    <YAxis domain={[17, 24]} tick={{ fill: "#555", fontSize: 10 }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fill: "#555", fontSize: 10 }} axisLine={false} tickLine={false} />
                     <Tooltip contentStyle={tooltipStyle} formatter={(v) => [`${v}%`]} />
                     <Line type="monotone" dataKey="bodyFatRate" stroke="#FF7B7B" strokeWidth={2} dot={{ fill: "#FF7B7B", r: 3 }} />
                   </LineChart>
@@ -2202,6 +2635,7 @@ function ProgressEvaluationScreen({ showToast }: { showToast: (msg: string) => v
 
               <button
                 onClick={handleSave}
+                disabled={!selectedMember}
                 className="w-full py-3 bg-[#FF3B3B] hover:bg-[#cc2e2e] active:scale-95 text-white font-bold text-sm rounded-lg transition-all"
               >
                 Save Evaluation
@@ -2232,6 +2666,30 @@ function ProgressEvaluationScreen({ showToast }: { showToast: (msg: string) => v
 function NotificationsScreen() {
   const [notifications, setNotifications] = useState(NOTIFICATIONS);
 
+  useEffect(() => {
+    let isMounted = true;
+    const loadNotifications = async () => {
+      const { data } = await getNotificationsForCurrentUser();
+      if (isMounted && data?.length) {
+        setNotifications(data.map((item: any) => ({
+          id: item.id,
+          type: item.type || "info",
+          title: item.title,
+          message: item.message,
+          time: item.time,
+          read: Boolean(item.read),
+        })));
+      }
+    };
+
+    void loadNotifications();
+    window.addEventListener("gymster-role-notifications-change", loadNotifications);
+    return () => {
+      isMounted = false;
+      window.removeEventListener("gymster-role-notifications-change", loadNotifications);
+    };
+  }, []);
+
   const iconMap = {
     success: <CheckCircle className="size-4 text-emerald-400" />,
     warning: <AlertTriangle className="size-4 text-amber-400" />,
@@ -2246,7 +2704,10 @@ function NotificationsScreen() {
     info: "border-blue-400/15",
   };
 
-  const markAllRead = () => setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+  const markAllRead = async () => {
+    setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+    await markAllNotificationsReadInSupabase();
+  };
   const unreadCount = notifications.filter(n => !n.read).length;
 
   return (
@@ -2758,13 +3219,17 @@ function SettingsScreen({ showToast, darkMode, setDarkMode }: { showToast: (msg:
 // MODALS
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function ModalOverlay({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
-  return (
-    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <div onClick={e => e.stopPropagation()}>
-        {children}
+  const overlay = (
+    <div className="fixed inset-0 z-[200] overflow-y-auto bg-black/70 p-4 backdrop-blur-sm" onClick={onClose}>
+      <div className="flex min-h-full items-start justify-center py-4 sm:py-6">
+        <div onClick={e => e.stopPropagation()}>
+          {children}
+        </div>
       </div>
     </div>
   );
+
+  return createPortal(overlay, document.body);
 }
 
 function ConfirmModal({ title, message, onClose, onConfirm, danger }: {

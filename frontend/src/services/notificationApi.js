@@ -2,6 +2,8 @@ import { getCurrentUser } from "./authService";
 import { supabase } from "./supabaseClient";
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const LOCAL_NOTIFICATIONS_KEY = "gymster_local_notifications";
+const NOTIFICATION_CHANGE_EVENT = "gymster-role-notifications-change";
 
 const notificationColumns = `
   notification_id,
@@ -62,6 +64,93 @@ function formatNotificationTime(value) {
     month: "numeric",
     year: "numeric",
   });
+}
+
+function canUseStorage() {
+  return typeof window !== "undefined" && Boolean(window.localStorage);
+}
+
+function readLocalNotifications() {
+  if (!canUseStorage()) return [];
+  try {
+    const rows = JSON.parse(window.localStorage.getItem(LOCAL_NOTIFICATIONS_KEY) || "[]");
+    return Array.isArray(rows) ? rows : [];
+  } catch {
+    window.localStorage.removeItem(LOCAL_NOTIFICATIONS_KEY);
+    return [];
+  }
+}
+
+function writeLocalNotifications(rows) {
+  if (!canUseStorage()) return;
+  window.localStorage.setItem(LOCAL_NOTIFICATIONS_KEY, JSON.stringify(rows));
+  window.dispatchEvent(new Event(NOTIFICATION_CHANGE_EVENT));
+}
+
+function mapLocalNotification(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    userId: row.userId || "",
+    notificationType: row.notificationType || "system",
+    type: row.type || mapNotificationType(row.notificationType, row.title, row.message),
+    title: row.title,
+    message: row.message,
+    actionType: row.actionType || "",
+    actionPayload: row.actionPayload || {},
+    time: formatNotificationTime(row.createdAt),
+    read: Boolean(row.read),
+    readAt: row.readAt || null,
+    createdAt: row.createdAt,
+    detail: row.message,
+    source: "local",
+  };
+}
+
+function getCurrentLocalNotificationTargets() {
+  const currentUser = getCurrentUser();
+  return {
+    userId: String(currentUser?.userId || currentUser?.user_id || currentUser?.id || ""),
+    memberId: String(currentUser?.memberId || currentUser?.member_id || currentUser?.id || ""),
+    trainerId: String(currentUser?.trainerId || currentUser?.trainer_id || currentUser?.id || ""),
+    role: String(currentUser?.role || currentUser?.userRole || "").toLowerCase(),
+  };
+}
+
+function getLocalNotificationsForCurrentUser() {
+  const targets = getCurrentLocalNotificationTargets();
+  return readLocalNotifications()
+    .filter((row) => {
+      if (row.userId && row.userId === targets.userId) return true;
+      if (row.memberId && row.memberId === targets.memberId) return true;
+      if (row.trainerId && row.trainerId === targets.trainerId) return true;
+      if (row.role && String(row.role).toLowerCase() === targets.role) return true;
+      return !row.userId && !row.memberId && !row.trainerId && !row.role;
+    })
+    .map(mapLocalNotification)
+    .filter(Boolean);
+}
+
+export function createLocalNotification(notification) {
+  const now = new Date().toISOString();
+  const row = {
+    id: notification.id || `LOCAL-NOTIF-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    userId: notification.userId || notification.user_id || "",
+    memberId: notification.memberId || notification.member_id || "",
+    trainerId: notification.trainerId || notification.trainer_id || "",
+    role: notification.role || "",
+    notificationType: notification.notificationType || notification.notification_type || "system",
+    type: notification.type || "info",
+    title: notification.title || "Notification",
+    message: notification.message || "",
+    actionType: notification.actionType || notification.action_type || "",
+    actionPayload: notification.actionPayload || notification.action_payload || {},
+    read: Boolean(notification.read || notification.is_read),
+    readAt: notification.read || notification.is_read ? now : null,
+    createdAt: notification.createdAt || notification.created_at || now,
+  };
+  writeLocalNotifications([row, ...readLocalNotifications()]);
+  return mapLocalNotification(row);
 }
 
 export function mapNotificationRow(row) {
@@ -128,13 +217,13 @@ async function resolveCurrentNotificationUser() {
 
 export async function getNotificationsForCurrentUser() {
   if (!supabase) {
-    return { data: [], error: new Error("Missing h\u1ec7 th\u1ed1ng environment variables.") };
+    return { data: getLocalNotificationsForCurrentUser(), error: null };
   }
 
   try {
     const user = await resolveCurrentNotificationUser();
     if (!user?.user_id) {
-      return { data: [], error: new Error("Unable to resolve current h\u1ec7 th\u1ed1ng user.") };
+      return { data: getLocalNotificationsForCurrentUser(), error: null };
     }
 
     let { data, error } = await supabase
@@ -155,13 +244,17 @@ export async function getNotificationsForCurrentUser() {
     return { data: (data || []).map(mapNotificationRow).filter(Boolean), error: null };
   } catch (error) {
     console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to load notifications:", error);
-    return { data: [], error };
+    const localNotifications = getLocalNotificationsForCurrentUser();
+    return localNotifications.length ? { data: localNotifications, error: null } : { data: [], error };
   }
 }
 
 export async function markNotificationReadInSupabase(notificationId) {
-  if (!supabase) {
-    return { data: null, error: new Error("Missing h\u1ec7 th\u1ed1ng environment variables.") };
+  if (!supabase || String(notificationId || "").startsWith("LOCAL-")) {
+    const now = new Date().toISOString();
+    const rows = readLocalNotifications();
+    writeLocalNotifications(rows.map((row) => row.id === notificationId ? { ...row, read: true, readAt: now } : row));
+    return { data: mapLocalNotification(readLocalNotifications().find((row) => row.id === notificationId)), error: null };
   }
 
   try {
@@ -191,13 +284,17 @@ export async function markNotificationReadInSupabase(notificationId) {
 
 export async function markAllNotificationsReadInSupabase() {
   if (!supabase) {
-    return { data: [], error: new Error("Missing h\u1ec7 th\u1ed1ng environment variables.") };
+    const now = new Date().toISOString();
+    writeLocalNotifications(readLocalNotifications().map((row) => ({ ...row, read: true, readAt: row.readAt || now })));
+    return { data: getLocalNotificationsForCurrentUser(), error: null };
   }
 
   try {
     const user = await resolveCurrentNotificationUser();
     if (!user?.user_id) {
-      return { data: [], error: new Error("Unable to resolve current h\u1ec7 th\u1ed1ng user.") };
+      const now = new Date().toISOString();
+      writeLocalNotifications(readLocalNotifications().map((row) => ({ ...row, read: true, readAt: row.readAt || now })));
+      return { data: getLocalNotificationsForCurrentUser(), error: null };
     }
 
     let { data, error } = await supabase

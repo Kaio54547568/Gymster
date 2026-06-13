@@ -12,6 +12,7 @@ import {
 interface MuscleGroupSelectorProps {
   value: string;
   onChange: (value: string) => void;
+  readOnly?: boolean;
 }
 
 function toggleId(selectedIds: MuscleGroupId[], id: MuscleGroupId) {
@@ -20,7 +21,7 @@ function toggleId(selectedIds: MuscleGroupId[], id: MuscleGroupId) {
     : [...selectedIds, id];
 }
 
-export default function MuscleGroupSelector({ value, onChange }: MuscleGroupSelectorProps) {
+export default function MuscleGroupSelector({ value, onChange, readOnly = false }: MuscleGroupSelectorProps) {
   const selectedIds = parseMuscleGroupValue(value);
   const latestSelectedIds = useRef<MuscleGroupId[]>(selectedIds);
 
@@ -33,7 +34,10 @@ export default function MuscleGroupSelector({ value, onChange }: MuscleGroupSele
     onChange(formatMuscleGroupValue(ids));
   };
 
-  const handleToggle = (id: MuscleGroupId) => updateSelection(toggleId(latestSelectedIds.current, id));
+  const handleToggle = (id: MuscleGroupId) => {
+    if (readOnly) return;
+    updateSelection(toggleId(latestSelectedIds.current, id));
+  };
 
   return (
     <div className="rounded-xl border border-white/8 bg-[#151515] p-3">
@@ -54,6 +58,7 @@ export default function MuscleGroupSelector({ value, onChange }: MuscleGroupSele
           groups={muscleGroups.filter(group => group.view === "front")}
           selectedIds={selectedIds}
           onToggle={handleToggle}
+          readOnly={readOnly}
         />
         <MuscleBodyMap
           title="Mặt sau"
@@ -61,6 +66,7 @@ export default function MuscleGroupSelector({ value, onChange }: MuscleGroupSele
           groups={muscleGroups.filter(group => group.view === "back")}
           selectedIds={selectedIds}
           onToggle={handleToggle}
+          readOnly={readOnly}
         />
       </div>
 
@@ -80,12 +86,13 @@ export default function MuscleGroupSelector({ value, onChange }: MuscleGroupSele
                       key={`${view}-${group.id}`}
                       type="button"
                       aria-pressed={active}
+                      disabled={readOnly}
                       onClick={() => handleToggle(group.id)}
                       className={`rounded-full border px-3 py-1.5 text-xs font-bold transition ${
                         active
                           ? "border-[#FF3B3B] bg-[#FF3B3B] text-white shadow-[0_0_18px_rgba(255,59,59,0.26)]"
                           : "border-white/10 bg-black/20 text-white/65 hover:border-[#FF3B3B]/50 hover:text-white"
-                      }`}
+                      } ${readOnly ? "cursor-default disabled:opacity-100" : ""}`}
                     >
                       {group.displayLabel}
                     </button>
@@ -107,7 +114,8 @@ export default function MuscleGroupSelector({ value, onChange }: MuscleGroupSele
                   key={id}
                   type="button"
                   onClick={() => handleToggle(id)}
-                  className="rounded-full border border-[#FF3B3B]/45 bg-[#FF3B3B]/15 px-3 py-1.5 text-xs font-bold text-[#FFD6D6] hover:bg-[#FF3B3B]/25"
+                  disabled={readOnly}
+                  className={`rounded-full border border-[#FF3B3B]/45 bg-[#FF3B3B]/15 px-3 py-1.5 text-xs font-bold text-[#FFD6D6] hover:bg-[#FF3B3B]/25 ${readOnly ? "cursor-default disabled:opacity-100" : ""}`}
                 >
                   {label}
                 </button>

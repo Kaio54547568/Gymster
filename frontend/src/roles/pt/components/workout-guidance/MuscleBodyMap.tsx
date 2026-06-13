@@ -7,6 +7,7 @@ interface MuscleBodyMapProps {
   title: string;
   view: MuscleView;
   onToggle: (id: MuscleGroupId) => void;
+  readOnly?: boolean;
 }
 
 function handleKeyboardToggle(event: KeyboardEvent<SVGGElement>, onToggle: () => void) {
@@ -52,7 +53,7 @@ function BodyOutline({ view }: { view: MuscleView }) {
   );
 }
 
-export default function MuscleBodyMap({ groups, selectedIds, title, view, onToggle }: MuscleBodyMapProps) {
+export default function MuscleBodyMap({ groups, selectedIds, title, view, onToggle, readOnly = false }: MuscleBodyMapProps) {
   const gradientId = `muscle-selected-${view}`;
   const glowId = `muscle-glow-${view}`;
 
@@ -95,12 +96,17 @@ export default function MuscleBodyMap({ groups, selectedIds, title, view, onTogg
             <g
               key={`${view}-${group.id}`}
               role="button"
-              tabIndex={0}
+              tabIndex={readOnly ? -1 : 0}
               aria-label={`Chọn nhóm cơ ${group.displayLabel}`}
               aria-pressed={selected}
-              className="group cursor-pointer outline-none"
-              onClick={() => onToggle(group.id)}
-              onKeyDown={(event) => handleKeyboardToggle(event, () => onToggle(group.id))}
+              aria-disabled={readOnly}
+              className={`group outline-none ${readOnly ? "cursor-default" : "cursor-pointer"}`}
+              onClick={() => {
+                if (!readOnly) onToggle(group.id);
+              }}
+              onKeyDown={(event) => {
+                if (!readOnly) handleKeyboardToggle(event, () => onToggle(group.id));
+              }}
             >
               <title>{group.displayLabel}</title>
               {group.areas.map((area, index) => (

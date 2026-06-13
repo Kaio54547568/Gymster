@@ -5,6 +5,7 @@ import {
   updateLocalWorkoutSessionSchedule,
 } from "./workoutSessionApi";
 import { getMonthlyLeaveLimit } from "./packageEntitlement";
+import { createLocalNotification } from "./notificationApi";
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const LOCAL_TRAINING_REQUESTS_KEY = "gymster_local_training_requests";
@@ -24,6 +25,10 @@ function getMemberName(row) {
 
 function getTrainerName(row) {
   return combineUserName(row?.trainers?.users, row?.trainers?.employees?.full_name || row?.trainers?.trainer_code || row?.trainer_id || "Trainer");
+}
+
+function getRequestReason(row) {
+  return row?.reason || row?.request_reason || row?.requestNote || row?.request_note || row?.notes || "";
 }
 
 function isMissingSchemaColumn(error) {
@@ -161,11 +166,23 @@ async function createTrainerRequestNotification(row) {
       ? `Member muốn đổi từ ${row.current_schedule || "lịch hiện tại"} sang ${row.requested_schedule}.`
       : `Member gửi yêu cầu ${row.requested_schedule}.`;
 
+    const reasonText = getRequestReason(row) ? ` Ly do: ${getRequestReason(row)}` : "";
+    const notificationTitle = type === "cancel_booking" || type === "cancel"
+      ? "Member huy booking"
+      : type === "reschedule"
+        ? "Member yeu cau doi lich"
+        : "Member gui yeu cau lich tap";
+    const notificationMessage = type === "cancel_booking" || type === "cancel"
+      ? `Member da huy lich ${row.current_schedule || row.requested_schedule || ""}.${reasonText}`
+      : type === "reschedule"
+        ? `Member muon doi tu ${row.current_schedule || "lich hien tai"} sang ${row.requested_schedule}.${reasonText}`
+        : `Member gui yeu cau ${row.requested_schedule}.${reasonText}`;
+
     await supabase.from("notifications").insert({
       user_id: trainerUserId,
       notification_type: "schedule",
-      title,
-      message,
+      title: notificationTitle,
+      message: notificationMessage,
       action_type: "review_training_request",
       action_payload: { requestId: row.request_id || row.training_request_id },
       is_read: false,
@@ -216,6 +233,7 @@ function mapTrainingRequestRow(row) {
     statusLabel: getTrainingRequestStatusLabel(row.status),
     rawStatus: row.status,
     declineReason: row.decline_reason || "",
+    reason: getRequestReason(row),
     createdAt: row.created_at,
     createdDate: row.created_at ? String(row.created_at).slice(0, 10) : "",
     expiresAt: row.expires_at,
@@ -303,6 +321,7 @@ function baseTrainingRequestSelect() {
     training_request_id,
     request_id,
     request_type,
+    request_reason,
     member_id,
     trainer_id,
     package_id,
@@ -632,6 +651,56 @@ async function notifyMemberAboutRequest(row, outcome) {
   }
 }
 
+function notifyLocalTrainerAboutRequest(row) {
+  const type = String(row.type || row.requestType || row.request_type || "").toLowerCase();
+  const isReschedule = type === "reschedule";
+  const isCancel = type === "cancel_booking" || type === "cancel";
+  const title = isCancel ? "Member hủy booking" : isReschedule ? "Member yêu cầu đổi lịch" : "Member gửi yêu cầu lịch tập";
+  const message = isCancel
+    ? `Member đã hủy lịch ${row.currentSchedule || row.requestedSchedule || ""}.${row.reason ? ` Lý do: ${row.reason}` : ""}`
+    : isReschedule
+      ? `Member muốn đổi từ ${row.currentSchedule || "lịch hiện tại"} sang ${row.requestedSchedule || "lịch mới"}.${row.reason ? ` Lý do: ${row.reason}` : ""}`
+      : `Member gửi yêu cầu ${row.requestedSchedule || ""}.`;
+
+  createLocalNotification({
+    trainerId: row.trainerId || row.trainer_id,
+    role: "pt",
+    notificationType: "schedule",
+    type: isCancel ? "error" : "warning",
+    title,
+    message,
+    actionType: "review_training_request",
+    actionPayload: { requestId: row.requestId || row.id || row.trainingRequestId },
+  });
+}
+
+function notifyLocalMemberAboutRequest(row, outcome) {
+  const type = String(row.type || row.requestType || row.request_type || "").toLowerCase();
+  const accepted = outcome === "accepted";
+  const isReschedule = type === "reschedule";
+  const title = accepted
+    ? isReschedule ? "PT đã đồng ý đổi lịch" : "PT đã đồng ý yêu cầu"
+    : isReschedule ? "Yêu cầu đổi lịch chưa thành công" : "PT đã từ chối yêu cầu";
+  const message = accepted
+    ? isReschedule
+      ? `PT đã đồng ý đổi lịch sang ${row.requestedSchedule || row.requested_schedule || ""}.`
+      : `PT đã đồng ý yêu cầu ${row.requestedSchedule || row.requested_schedule || ""}.`
+    : isReschedule
+      ? `Request lịch không thành công. Vui lòng chọn lịch khác.${row.declineReason ? ` Lý do: ${row.declineReason}` : ""}`
+      : `PT đã từ chối yêu cầu ${row.requestedSchedule || row.requested_schedule || ""}.${row.declineReason ? ` Lý do: ${row.declineReason}` : ""}`;
+
+  createLocalNotification({
+    memberId: row.memberId || row.member_id,
+    role: "member",
+    notificationType: "schedule",
+    type: accepted ? "success" : "error",
+    title,
+    message,
+    actionType: "view_schedule",
+    actionPayload: { requestId: row.requestId || row.id || row.trainingRequestId },
+  });
+}
+
 async function applyAcceptedReschedule(row) {
   const sourceSessionId = row.source_workout_session_id;
   const requestedDate = row.requested_date;
@@ -684,14 +753,17 @@ export async function createTrainingRequest(request) {
       requestedDate: request.requestedDate || request.date || null,
       startTime: request.startTime || request.time || null,
       endTime: request.endTime || null,
-      status: "pending_pt_approval",
-      rawStatus: "pending_pt_approval",
-      statusLabel: getTrainingRequestStatusLabel("pending_pt_approval"),
+      reason: request.reason || request.requestReason || "",
+      memberName: request.memberName || "",
+      status: request.status || "pending_pt_approval",
+      rawStatus: request.status || "pending_pt_approval",
+      statusLabel: getTrainingRequestStatusLabel(request.status || "pending_pt_approval"),
       createdAt: now,
       updatedAt: now,
       source: "local",
     };
     writeLocalTrainingRequests([row, ...readLocalTrainingRequests()]);
+    notifyLocalTrainerAboutRequest(row);
     return { data: row, error: null };
   }
 
@@ -705,10 +777,11 @@ export async function createTrainingRequest(request) {
     current_schedule: request.currentSchedule || null,
     source_workout_session_id: uuidPattern.test(String(request.sourceWorkoutSessionId || request.sessionId || "")) ? (request.sourceWorkoutSessionId || request.sessionId) : null,
     request_type: requestType,
+    request_reason: request.reason || request.requestReason || "",
     requested_date: request.requestedDate || request.date || null,
     start_time: request.startTime || request.time || null,
     end_time: request.endTime || null,
-    status: "pending_pt_approval",
+    status: request.status || "pending_pt_approval",
     decline_reason: "",
   };
 
@@ -730,8 +803,10 @@ export async function createTrainingRequest(request) {
 }
 
 export async function getTrainingRequestsForTrainer(trainerLookup) {
+  const localRows = readLocalTrainingRequests()
+    .filter((request) => !trainerLookup || !request.trainerId || request.trainerId === trainerLookup || request.source === "local");
   if (!supabase) {
-    return { data: readLocalTrainingRequests(), error: null };
+    return { data: localRows, error: null };
   }
 
   const trainerId = await resolveTrainerIdFromLookup(trainerLookup);
@@ -743,7 +818,7 @@ export async function getTrainingRequestsForTrainer(trainerLookup) {
   }
 
   return {
-    data: Array.isArray(data) ? data.map(mapTrainingRequestRow) : [],
+    data: [...localRows, ...(Array.isArray(data) ? data.map(mapTrainingRequestRow) : [])],
     error: null,
   };
 }
@@ -769,7 +844,8 @@ export async function getTrainingRequestsForMember(memberLookup) {
   }
 
   return {
-    data: Array.isArray(data) ? data.map(mapTrainingRequestRow) : [],
+    data: [...readLocalTrainingRequests()
+      .filter((request) => !memberId || !request.memberId || request.memberId === memberId), ...(Array.isArray(data) ? data.map(mapTrainingRequestRow) : [])],
     error: null,
   };
 }
@@ -817,6 +893,9 @@ export async function updateTrainingRequestStatus(requestId, status, declineReas
       }
     }
     writeLocalTrainingRequests(rows.map((item) => (item.requestId === target.requestId ? nextTarget : item)));
+    if (nextTarget.type === "reschedule" && ["accepted", "declined", "rejected"].includes(String(normalizedStatus).toLowerCase())) {
+      notifyLocalMemberAboutRequest(nextTarget, normalizedStatus === "accepted" ? "accepted" : "declined");
+    }
     return { data: nextTarget, error: null };
   }
 

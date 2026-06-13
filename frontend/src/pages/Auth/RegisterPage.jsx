@@ -4,7 +4,7 @@ import AuthHero from "../../components/auth/AuthHero";
 import ThemeToggle from "../../components/theme/ThemeToggle";
 import { setCurrentUser, signInWithOAuthProvider } from "../../services/authService";
 import { resetOnboardingState } from "../../services/onboardingService";
-import { createPendingMemberAccount } from "../../services/userApi";
+import { requestMemberRegistrationCode, verifyMemberRegistrationCode } from "../../services/userApi";
 import "./Auth.css";
 
 const initialForm = {
@@ -54,6 +54,9 @@ function RegisterPage() {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [status, setStatus] = useState({ type: "", message: "" });
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [registrationStep, setRegistrationStep] = useState("form");
+  const [verificationCode, setVerificationCode] = useState("");
+  const [pendingEmail, setPendingEmail] = useState("");
 
   const updateField = (field) => (event) => {
     setForm((current) => ({ ...current, [field]: event.target.value }));
@@ -107,7 +110,7 @@ function RegisterPage() {
 
     setIsSubmitting(true);
 
-    const supabaseResult = await createPendingMemberAccount({
+    const requestResult = await requestMemberRegistrationCode({
       firstName: form.firstName.trim(),
       lastName: form.lastName.trim(),
       username: form.username.trim(),
@@ -120,15 +123,88 @@ function RegisterPage() {
 
     setIsSubmitting(false);
 
-    if (!supabaseResult.ok) {
-      setStatus({ type: "error", message: supabaseResult.message });
+    if (!requestResult.ok) {
+      setStatus({ type: "error", message: requestResult.message });
       return;
     }
 
-    setCurrentUser(supabaseResult.user);
+    setPendingEmail(requestResult.email || form.email.trim().toLowerCase());
+    setVerificationCode("");
+    setRegistrationStep("verify");
+    setStatus({
+      type: "success",
+      message: requestResult.devCode
+        ? `Verification code created for local development: ${requestResult.devCode}`
+        : "Verification code sent. Please check your email.",
+    });
+  };
+
+  const handleVerifyCode = async (event) => {
+    event.preventDefault();
+
+    if (!/^\d{6}$/.test(verificationCode.trim())) {
+      setStatus({ type: "error", message: "Please enter the 6-digit verification code." });
+      return;
+    }
+
+    setIsSubmitting(true);
+    const verifyResult = await verifyMemberRegistrationCode({
+      email: pendingEmail || form.email.trim(),
+      code: verificationCode.trim(),
+    });
+    setIsSubmitting(false);
+
+    if (!verifyResult.ok) {
+      setStatus({ type: "error", message: verifyResult.message });
+      return;
+    }
+
+    setCurrentUser(verifyResult.user);
     resetOnboardingState();
-    setStatus({ type: "success", message: "Account created. Opening member setup..." });
+    setStatus({ type: "success", message: "Account verified. Opening member setup..." });
     window.setTimeout(() => navigate("/member", { replace: true }), 700);
+  };
+
+  const handleResendCode = async () => {
+    const error = validateForm();
+    if (error) {
+      setRegistrationStep("form");
+      setStatus({ type: "error", message: error });
+      return;
+    }
+
+    setIsSubmitting(true);
+    const requestResult = await requestMemberRegistrationCode({
+      firstName: form.firstName.trim(),
+      lastName: form.lastName.trim(),
+      username: form.username.trim(),
+      email: form.email.trim(),
+      password: form.password,
+      phone: form.phone.trim(),
+      dob: form.dob,
+      gender: form.gender,
+    });
+    setIsSubmitting(false);
+
+    if (!requestResult.ok) {
+      setStatus({ type: "error", message: requestResult.message });
+      return;
+    }
+
+    setPendingEmail(requestResult.email || form.email.trim().toLowerCase());
+    setVerificationCode("");
+    setStatus({
+      type: "success",
+      message: requestResult.devCode
+        ? `Verification code created for local development: ${requestResult.devCode}`
+        : "A new verification code was sent.",
+    });
+  };
+
+  const handleBackToForm = () => {
+    setRegistrationStep("form");
+    setVerificationCode("");
+    setStatus({ type: "", message: "" });
   };
 
   const handleOAuthRegister = async (provider) => {
@@ -159,8 +235,10 @@ function RegisterPage() {
               <p>Create your Gymster account first, then complete package, trainer, and payment setup in onboarding.</p>
             </div>
 
-            <p className="form-section-title">Account Information</p>
-            <form className="auth-form" onSubmit={handleSubmit}>
+            {registrationStep === "form" ? (
+              <>
+                <p className="form-section-title">Account Information</p>
+                <form className="auth-form" onSubmit={handleSubmit}>
               <div className="form-grid">
                 <div className="form-field">
                   <label htmlFor="firstName">First name</label>
@@ -327,7 +405,56 @@ function RegisterPage() {
                   </Link>
                 </p>
               </div>
-            </form>
+                </form>
+              </>
+            ) : (
+              <form className="auth-form verification-panel" onSubmit={handleVerifyCode}>
+                <p className="form-section-title">Email Verification</p>
+                <div className="verification-copy">
+                  <strong>Enter the 6-digit code sent to {pendingEmail || form.email}.</strong>
+                  <span>Your account will only be created after this code is confirmed.</span>
+                </div>
+
+                <div className="form-field">
+                  <label htmlFor="verificationCode">Verification code</label>
+                  <div className="field-with-icon">
+                    <span className="field-icon">#</span>
+                    <input
+                      id="verificationCode"
+                      className="verification-code-input"
+                      type="text"
+                      inputMode="numeric"
+                      pattern="[0-9]{6}"
+                      maxLength={6}
+                      placeholder="000000"
+                      value={verificationCode}
+                      onChange={(event) => {
+                        setVerificationCode(event.target.value.replace(/\D/g, "").slice(0, 6));
+                        setStatus({ type: "", message: "" });
+                      }}
+                      autoComplete="one-time-code"
+                    />
+                  </div>
+                </div>
+
+                {status.message && (
+                  <p className={`auth-message ${status.type}`}>{status.message}</p>
+                )}
+
+                <button className="auth-submit" type="submit" disabled={isSubmitting}>
+                  {isSubmitting ? "Verifying..." : "Verify and Create Account"}
+                </button>
+
+                <div className="verification-actions">
+                  <button className="text-link" type="button" onClick={handleResendCode} disabled={isSubmitting}>
+                    Resend code
+                  </button>
+                  <button className="text-link" type="button" onClick={handleBackToForm} disabled={isSubmitting}>
+                    Edit registration info
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
 
           <button className="back-home" type="button" onClick={() => navigate("/")}>

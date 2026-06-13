@@ -105,6 +105,62 @@ npm run preview
 npm run lint
 ```
 
+## Email Verification For Registration
+
+Member email/password registration now uses a backend verification-code flow:
+
+1. Run `database/email_registration_verification.sql` in Supabase SQL Editor.
+2. Add backend environment variables in `backend/.env`:
+
+```env
+SUPABASE_URL=your_supabase_project_url
+SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
+REGISTRATION_CODE_SECRET=change_this_to_a_long_random_secret
+SMTP_HOST=smtp.example.com
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=your_smtp_username
+SMTP_PASS=your_smtp_password
+MAIL_FROM="Gymster <no-reply@gymster.vn>"
+```
+
+3. Start both servers while developing:
+
+```bash
+npm run dev:backend
+npm run dev
+```
+
+Google/Facebook OAuth registration still uses the existing Supabase OAuth flow and does not require this email-code step.
+
+### Production deploy on Vercel
+
+Deploy from the repository root, not from the `frontend/` subfolder, so Vercel can include both:
+
+- static frontend build output from `frontend/dist`
+- serverless auth functions from `api/auth/*`
+
+In Vercel Project Settings, set:
+
+- Root Directory: project root / repository root
+- Build Command: `npm run build`
+- Output Directory: `frontend/dist`
+
+Add the same backend environment variables in Vercel Project Settings -> Environment Variables.
+
+For a production mail provider, Resend SMTP works with this app's Nodemailer setup:
+
+```env
+SMTP_HOST=smtp.resend.com
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=resend
+SMTP_PASS=your_resend_api_key
+MAIL_FROM="Gymster <no-reply@your-verified-domain.com>"
+```
+
+Verify your sending domain in the email provider before using it in `MAIL_FROM`.
+
 ## Database Và Supabase
 
 Thư mục `database/` chứa các file SQL chính:

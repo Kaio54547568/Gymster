@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { Plus, X } from 'lucide-react';
 import { getCurrentUser } from '../../../services/authService';
 import {
@@ -15,31 +16,46 @@ import { getAllowedLeaveDaysForPackage } from '../../../services/packageEntitlem
 import Section from '../components/Section';
 import { currentPackage } from '../domain/memberConstants';
 import { useMemberTrainingRequests } from '../hooks/useMemberTrainingRequests';
+import MuscleGroupSelector from '../../pt/components/workout-guidance/MuscleGroupSelector';
+
+type Exercise = {
+  exerciseId: string;
+  exerciseName: string;
+  sets: number;
+  reps: string | number;
+  restTime: number;
+  difficulty: string;
+  muscleGroup: string;
+  instruction: string;
+};
+
+type ScheduleSession = {
+  id: string;
+  memberId: string;
+  trainerId: string;
+  packageId: string;
+  memberPackageId: string;
+  title: string;
+  trainer: string;
+  dateIso: string;
+  date: string;
+  day: string;
+  time: string;
+  startHour: number;
+  room: string;
+  status: 'Scheduled' | 'Completed' | 'Incomplete';
+  packageName: string;
+  notes: string;
+  isPtSession: boolean;
+  hasContent: boolean;
+  workoutContent: Exercise[];
+};
 
 export default function MySchedulePage() {
-  type ScheduleSession = {
-    id: string;
-    memberId: string;
-    trainerId: string;
-    packageId: string;
-    memberPackageId: string;
-    title: string;
-    trainer: string;
-    dateIso: string;
-    date: string;
-    day: string;
-    time: string;
-    startHour: number;
-    room: string;
-    status: 'Scheduled' | 'Completed' | 'Incomplete';
-    packageName: string;
-    notes: string;
-    isPtSession: boolean;
-  };
-
   const [view, setView] = useState<'Week' | 'Month' | 'List'>('Week');
   const [calendarAnchor, setCalendarAnchor] = useState(() => new Date());
   const [selectedSession, setSelectedSession] = useState<ScheduleSession | null>(null);
+  const [detailSession, setDetailSession] = useState<ScheduleSession | null>(null);
   const [scheduleSessions, setScheduleSessions] = useState<ScheduleSession[]>([]);
   const [isLoadingSessions, setIsLoadingSessions] = useState(true);
   const [sessionLoadMessage, setSessionLoadMessage] = useState('');
@@ -47,9 +63,13 @@ export default function MySchedulePage() {
   const [rescheduleSession, setRescheduleSession] = useState<ScheduleSession | null>(null);
   const [availableDays, setAvailableDays] = useState<any[]>([]);
   const [selectedSlot, setSelectedSlot] = useState<any>(null);
+  const [rescheduleReason, setRescheduleReason] = useState('');
   const [rescheduleMessage, setRescheduleMessage] = useState('');
   const [isLoadingSlots, setIsLoadingSlots] = useState(false);
   const [isSubmittingReschedule, setIsSubmittingReschedule] = useState(false);
+  const [cancelSession, setCancelSession] = useState<ScheduleSession | null>(null);
+  const [cancelReason, setCancelReason] = useState('');
+  const [cancelMessage, setCancelMessage] = useState('');
   const [isCancellingBooking, setIsCancellingBooking] = useState(false);
   const [isCreatingWorkout, setIsCreatingWorkout] = useState(false);
   const [createWorkoutError, setCreateWorkoutError] = useState('');
@@ -82,7 +102,33 @@ export default function MySchedulePage() {
     };
   });
   const weekLabel = `${weekDays[0].date} - ${weekDays[6].date}, ${new Date(`${weekDays[6].key}T00:00:00`).getFullYear()}`;
+  const monthDays = (() => {
+    const firstOfMonth = new Date(calendarAnchor.getFullYear(), calendarAnchor.getMonth(), 1);
+    const start = new Date(firstOfMonth);
+    start.setDate(firstOfMonth.getDate() - firstOfMonth.getDay());
+    return Array.from({ length: 42 }, (_, index) => {
+      const date = new Date(start);
+      date.setDate(start.getDate() + index);
+      return {
+        key: toIsoDate(date),
+        dayNumber: date.getDate(),
+        inCurrentMonth: date.getMonth() === calendarAnchor.getMonth(),
+        isToday: toIsoDate(date) === toIsoDate(new Date()),
+      };
+    });
+  })();
+  const calendarLabel = view === 'Month'
+    ? calendarAnchor.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+    : weekLabel;
   const timeSlots = Array.from({ length: 15 }, (_, index) => `${String(index + 6).padStart(2, '0')}:00`);
+  const moveCalendar = (direction: -1 | 1) => {
+    setCalendarAnchor((current) => {
+      if (view === 'Month') return new Date(current.getFullYear(), current.getMonth() + direction, 1);
+      const next = new Date(current);
+      next.setDate(current.getDate() + direction * 7);
+      return next;
+    });
+  };
   const mapWorkoutSessionToSchedule = (session: any): ScheduleSession => {
     const date = session.sessionDate || '';
     const startTime = String(session.startTime || '').slice(0, 5);
@@ -112,6 +158,8 @@ export default function MySchedulePage() {
       packageName: session.packageName || activePackage?.packageName || currentPackage.title || 'Membership package',
       notes: session.note || 'No workout session',
       isPtSession: Boolean(session.isPtSession || session.trainerId),
+      hasContent: Boolean(session.hasContent),
+      workoutContent: Array.isArray(session.workoutContent) ? session.workoutContent : [],
     };
   };
 
@@ -125,6 +173,7 @@ export default function MySchedulePage() {
   const openRescheduleRequest = async (session: ScheduleSession) => {
     setRescheduleSession(session);
     setSelectedSlot(null);
+    setRescheduleReason('');
     setRescheduleMessage('');
     setIsLoadingSlots(true);
     const { data, error } = await getTrainerOpenScheduleSlots(session.trainerId, {
@@ -139,6 +188,11 @@ export default function MySchedulePage() {
   const submitRescheduleRequest = async () => {
     if (!rescheduleSession || !selectedSlot) {
       setRescheduleMessage('Chọn ngày và giờ muốn đổi sang.');
+      return;
+    }
+
+    if (!rescheduleReason.trim()) {
+      setRescheduleMessage('Nhập lý do muốn đổi lịch để PT xem xét.');
       return;
     }
 
@@ -159,6 +213,7 @@ export default function MySchedulePage() {
       requestedDate: selectedSlot.date,
       startTime: selectedSlot.startTime,
       endTime: selectedSlot.endTime,
+      reason: rescheduleReason.trim(),
     });
     setIsSubmittingReschedule(false);
 
@@ -171,19 +226,54 @@ export default function MySchedulePage() {
     window.dispatchEvent(new CustomEvent('gymster:training-requests-updated'));
   };
 
+  const openCancelBooking = (session: ScheduleSession) => {
+    setCancelSession(session);
+    setCancelReason('');
+    setCancelMessage('');
+  };
+
   const cancelSelectedBooking = async () => {
-    if (!selectedSession || !selectedSession.isPtSession) return;
+    if (!cancelSession || !cancelSession.isPtSession) return;
+    if (!cancelReason.trim()) {
+      setCancelMessage('Nhập lý do hủy booking trước khi gửi cho PT.');
+      return;
+    }
+
+    const currentUser = getCurrentUser();
     setIsCancellingBooking(true);
-    const { error, makeupSummary: nextMakeupSummary } = await cancelWorkoutSessionForMember(selectedSession, getCurrentUser());
+    const { error, makeupSummary: nextMakeupSummary } = await cancelWorkoutSessionForMember(cancelSession, currentUser);
+    if (!error) {
+      await createTrainingRequest({
+        requestType: 'cancel_booking',
+        type: 'cancel_booking',
+        status: 'cancelled',
+        memberId: cancelSession.memberId || currentUser?.memberId || currentUser?.member_id || currentUser?.id,
+        memberEmail: currentUser?.email,
+        memberName: currentUser?.name || currentUser?.fullName || '',
+        trainerId: cancelSession.trainerId,
+        packageId: cancelSession.packageId || activePackage?.packageId,
+        memberPackageId: cancelSession.memberPackageId || activePackage?.memberPackageId,
+        sourceWorkoutSessionId: cancelSession.id,
+        currentSchedule: `${cancelSession.dateIso} ${cancelSession.time}`,
+        requestedSchedule: `Cancel ${cancelSession.dateIso} ${cancelSession.time}`,
+        requestedDate: cancelSession.dateIso,
+        startTime: cancelSession.time.split(' - ')[0] || '',
+        endTime: cancelSession.time.split(' - ')[1] || '',
+        reason: cancelReason.trim(),
+      });
+    }
     setIsCancellingBooking(false);
     if (error) {
       setSessionLoadMessage('Không hủy được booking. Vui lòng thử lại.');
       return;
     }
 
-    setScheduleSessions((current) => current.filter((session) => session.id !== selectedSession.id));
+    setScheduleSessions((current) => current.filter((session) => session.id !== cancelSession.id));
     setMakeupSummary(nextMakeupSummary || getMakeupSessionSummary(getCurrentUser()));
+    setCancelSession(null);
+    setCancelReason('');
     setSelectedSession(null);
+    window.dispatchEvent(new CustomEvent('gymster:training-requests-updated'));
   };
 
   const createManualWorkout = async () => {
@@ -352,9 +442,9 @@ export default function MySchedulePage() {
         <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <button className="rounded-full border border-white/15 px-4 py-2 text-sm font-bold text-white hover:border-[#EF233C]/40" type="button" onClick={() => setCalendarAnchor(new Date())}>Today</button>
-            <button className="rounded-full border border-white/10 px-3 py-2 text-sm font-bold text-white/70 hover:text-white" type="button" onClick={() => setCalendarAnchor(current => new Date(current.getFullYear(), current.getMonth(), current.getDate() - 7))}>Previous</button>
-            <button className="rounded-full border border-white/10 px-3 py-2 text-sm font-bold text-white/70 hover:text-white" type="button" onClick={() => setCalendarAnchor(current => new Date(current.getFullYear(), current.getMonth(), current.getDate() + 7))}>Next</button>
-            <div className="ml-2 text-xl font-black text-white">{weekLabel}</div>
+            <button className="rounded-full border border-white/10 px-3 py-2 text-sm font-bold text-white/70 hover:text-white" type="button" onClick={() => moveCalendar(-1)}>Previous</button>
+            <button className="rounded-full border border-white/10 px-3 py-2 text-sm font-bold text-white/70 hover:text-white" type="button" onClick={() => moveCalendar(1)}>Next</button>
+            <div className="ml-2 text-xl font-black text-white">{calendarLabel}</div>
           </div>
           <div className="flex rounded-full border border-white/10 bg-[#222] p-1">
             {(['Week', 'Month', 'List'] as const).map((item) => (
@@ -411,6 +501,52 @@ export default function MySchedulePage() {
                     {session.isPtSession && <span className="absolute bottom-2 right-2 rounded-full bg-amber-400/15 px-2 py-0.5 text-[10px] font-black text-amber-300 ring-1 ring-amber-300/30">PT</span>}
                   </button>
                 ))}
+              </div>
+            </div>
+          </div>
+        ) : view === 'Month' ? (
+          <div className="overflow-x-auto">
+            <div className="min-w-[980px] overflow-hidden rounded-2xl border border-white/8 bg-[#111]">
+              <div className="grid grid-cols-7 border-b border-white/8 bg-[#101010]">
+                {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((label) => (
+                  <div key={label} className="border-l border-white/8 px-3 py-3 text-center text-xs font-black uppercase tracking-[0.16em] text-white/55 first:border-l-0">
+                    {label}
+                  </div>
+                ))}
+              </div>
+              <div className="grid grid-cols-7">
+                {monthDays.map((day) => {
+                  const events = scheduleSessions.filter((session) => session.dateIso === day.key);
+                  return (
+                    <div key={day.key} className="min-h-[136px] border-b border-l border-white/8 p-2 first:border-l-0">
+                      <div className="mb-2 flex justify-center">
+                        <span className={`flex size-7 items-center justify-center rounded-full text-xs font-black ${day.isToday ? 'bg-[#EF233C] text-white shadow-[0_0_18px_rgba(239,35,60,0.35)]' : day.inCurrentMonth ? 'text-white' : 'text-white/28'}`}>
+                          {day.dayNumber}
+                        </span>
+                      </div>
+                      <div className="space-y-1.5">
+                        {events.slice(0, 3).map((session) => (
+                          <button
+                            key={session.id}
+                            type="button"
+                            onClick={() => setSelectedSession(session)}
+                            className={`w-full truncate rounded-md px-2 py-1 text-left text-[11px] font-black text-white transition hover:brightness-110 ${
+                              session.status === 'Completed'
+                                ? 'bg-emerald-500/70'
+                                : session.status === 'Incomplete'
+                                  ? 'bg-red-500/70'
+                                  : 'bg-[#EF233C] shadow-[0_6px_16px_rgba(239,35,60,0.18)]'
+                            }`}
+                            title={`${session.title} - ${session.time}`}
+                          >
+                            {session.title}
+                          </button>
+                        ))}
+                        {events.length > 3 && <div className="px-2 text-[11px] font-bold text-white/45">+{events.length - 3} more</div>}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           </div>
@@ -504,7 +640,7 @@ export default function MySchedulePage() {
               </div>
             </div>
             <div className="mt-6 grid gap-3 sm:grid-cols-3">
-              <button className="rounded-xl bg-[#EF233C] px-4 py-3 text-sm font-bold text-white" type="button">View Details</button>
+              <button className="rounded-xl bg-[#EF233C] px-4 py-3 text-sm font-bold text-white" type="button" onClick={() => setDetailSession(selectedSession)}>View Details</button>
               {selectedSession.isPtSession && (
                 <button
                   className="rounded-xl border border-[#EF233C]/30 px-4 py-3 text-sm font-bold text-[#EF233C]"
@@ -519,7 +655,7 @@ export default function MySchedulePage() {
                   className="rounded-xl border border-white/10 px-4 py-3 text-sm font-bold text-white/60 hover:border-red-400/30 hover:text-red-300 disabled:opacity-60"
                   type="button"
                   disabled={isCancellingBooking}
-                  onClick={cancelSelectedBooking}
+                  onClick={() => openCancelBooking(selectedSession)}
                 >
                   {isCancellingBooking ? 'Cancelling...' : 'Hủy Booking'}
                 </button>
@@ -527,6 +663,113 @@ export default function MySchedulePage() {
             </div>
           </aside>
         </div>
+      )}
+
+      {detailSession && (
+        <ModalOverlay onClose={() => setDetailSession(null)}>
+          <div className="max-h-[calc(100vh-48px)] w-[min(1040px,calc(100vw-32px))] overflow-y-auto rounded-2xl border border-white/10 bg-[#181818] p-5 shadow-2xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.18em] text-[#EF233C]">Session Detail</p>
+                <h3 className="mt-1 text-3xl font-black text-white">{detailSession.title}</h3>
+                <p className="mt-1 text-sm text-white/45">{detailSession.trainer || 'Trainer'} - {detailSession.date} - {detailSession.time}</p>
+              </div>
+              <button type="button" onClick={() => setDetailSession(null)} className="rounded-xl p-2 text-white/50 hover:bg-white/5 hover:text-white"><X className="h-5 w-5" /></button>
+            </div>
+
+            <div className="mt-5 space-y-2 text-sm">
+              <div className="flex justify-between rounded-xl bg-[#222] p-3"><span className="text-white/40">Room/location</span><span className="font-bold text-white">{detailSession.room}</span></div>
+              <div className="flex justify-between rounded-xl bg-[#222] p-3"><span className="text-white/40">Package</span><span className="font-bold text-white">{detailSession.packageName}</span></div>
+              <div className="flex justify-between rounded-xl bg-[#222] p-3"><span className="text-white/40">Status</span><span className={`rounded-full px-3 py-1 text-xs font-black ${getStatusClass(detailSession.status)}`}>{detailSession.status}</span></div>
+            </div>
+
+            <div className="mt-5 space-y-4 rounded-xl border border-white/8 bg-[#111] p-4">
+              <label className="block">
+                <span className="mb-1.5 block text-xs font-black uppercase tracking-[0.16em] text-white/45">Workout name</span>
+                <input value={detailSession.title} readOnly className="w-full rounded-lg border border-white/10 bg-[#222] px-3 py-3 text-sm font-semibold text-white outline-none" />
+              </label>
+              <label className="block">
+                <span className="mb-1.5 block text-xs font-black uppercase tracking-[0.16em] text-white/45">General notes</span>
+                <textarea value={detailSession.notes} readOnly rows={4} className="w-full resize-none rounded-lg border border-white/10 bg-[#222] px-3 py-3 text-sm font-semibold leading-6 text-white outline-none" />
+              </label>
+
+              <div className="space-y-3">
+                {detailSession.workoutContent.map((exercise, index) => (
+                  <div key={exercise.exerciseId || `${detailSession.id}-${index}`} className="rounded-xl border border-white/5 bg-[#181818] p-4">
+                    <div className="mb-4 flex items-start gap-3">
+                      <div className="flex size-7 shrink-0 items-center justify-center rounded-lg border border-[#EF233C]/25 bg-[#EF233C]/15 text-xs font-black text-[#EF233C]">{index + 1}</div>
+                      <label className="min-w-0 flex-1">
+                        <span className="mb-1 block text-xs font-black uppercase tracking-wide text-white/55">Exercise name</span>
+                        <input value={exercise.exerciseName || ''} readOnly className="w-full rounded-lg border border-white/10 bg-[#222] px-3 py-3 text-sm font-semibold text-white outline-none" />
+                      </label>
+                    </div>
+                    <div className="mb-3 grid grid-cols-3 gap-3">
+                      <label className="block"><span className="mb-1 block text-xs text-white/35">Sets</span><input value={exercise.sets || 0} readOnly className="w-full rounded-lg border border-white/8 bg-[#222] px-2.5 py-1.5 text-sm text-white outline-none" /></label>
+                      <label className="block"><span className="mb-1 block text-xs text-white/35">Reps</span><input value={exercise.reps || ''} readOnly className="w-full rounded-lg border border-white/8 bg-[#222] px-2.5 py-1.5 text-sm text-white outline-none" /></label>
+                      <label className="block"><span className="mb-1 block text-xs text-white/35">Rest (s)</span><input value={exercise.restTime || 0} readOnly className="w-full rounded-lg border border-white/8 bg-[#222] px-2.5 py-1.5 text-sm text-white outline-none" /></label>
+                    </div>
+                    <div className="mb-3 grid gap-3 xl:grid-cols-[1fr_0.7fr]">
+                      <div>
+                        <div className="mb-1 text-xs text-white/35">Muscle group</div>
+                        <div className="flex min-h-[42px] items-center rounded-lg border border-white/8 bg-[#222] px-3 py-2 text-xs text-white">{exercise.muscleGroup || 'Chon mot hoac nhieu nhom co'}</div>
+                      </div>
+                      <div>
+                        <div className="mb-1 text-xs text-white/35">Difficulty</div>
+                        <div className="flex min-h-[42px] items-center rounded-lg border border-white/8 bg-[#222] px-3 py-2 text-xs text-white">{exercise.difficulty || 'Medium'}</div>
+                      </div>
+                    </div>
+                    <div className="mb-3">
+                      <MuscleGroupSelector value={exercise.muscleGroup || ''} onChange={() => undefined} readOnly />
+                    </div>
+                    <label className="block">
+                      <span className="mb-1 block text-xs text-white/35">Technique instruction</span>
+                      <input value={exercise.instruction || ''} readOnly className="w-full rounded-lg border border-white/8 bg-[#222] px-2.5 py-1.5 text-xs text-white outline-none" />
+                    </label>
+                  </div>
+                ))}
+                {!detailSession.workoutContent.length && (
+                  <div className="rounded-xl border border-dashed border-white/10 bg-[#181818] p-8 text-center text-sm font-bold text-white/45">
+                    No exercises added yet.
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </ModalOverlay>
+      )}
+
+      {cancelSession && (
+        <ModalOverlay onClose={() => !isCancellingBooking && setCancelSession(null)}>
+          <div className="w-[min(560px,calc(100vw-32px))] rounded-3xl border border-white/10 bg-[#181818] p-6 shadow-[0_28px_90px_rgba(0,0,0,0.8)]">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-2xl font-black text-white">Hủy booking</h2>
+                <p className="mt-1 text-sm text-white/50">Nhập lý do hủy để PT nắm được tình trạng buổi tập.</p>
+                <p className="mt-2 text-xs font-bold text-[#FF9AAB]">{cancelSession.dateIso} {cancelSession.time}</p>
+              </div>
+              <button type="button" disabled={isCancellingBooking} onClick={() => setCancelSession(null)} className="rounded-xl p-2 text-white/50 hover:bg-white/5 hover:text-white disabled:opacity-50"><X className="h-5 w-5" /></button>
+            </div>
+
+            <label className="mt-5 block">
+              <span className="mb-2 block text-xs font-black uppercase tracking-[0.16em] text-white/45">Lý do hủy</span>
+              <textarea
+                value={cancelReason}
+                onChange={(event) => setCancelReason(event.target.value)}
+                rows={5}
+                placeholder="Ví dụ: Mình có việc đột xuất nên không thể tham gia buổi này."
+                className="w-full resize-none rounded-2xl border border-white/10 bg-[#222] px-4 py-3 text-sm font-semibold leading-6 text-white outline-none transition focus:border-[#EF233C]/60"
+              />
+            </label>
+
+            {cancelMessage && <div className="mt-4 rounded-xl border border-amber-400/25 bg-amber-500/10 p-3 text-sm font-bold text-amber-300">{cancelMessage}</div>}
+            <div className="mt-6 flex flex-wrap justify-end gap-3 border-t border-white/8 pt-4">
+              <button type="button" disabled={isCancellingBooking} onClick={() => setCancelSession(null)} className="rounded-xl border border-white/10 px-5 py-3 text-sm font-bold text-white/65 hover:text-white disabled:opacity-50">Close</button>
+              <button type="button" disabled={isCancellingBooking} onClick={cancelSelectedBooking} className="rounded-xl bg-[#EF233C] px-5 py-3 text-sm font-black text-white transition hover:bg-[#c91930] disabled:opacity-60">
+                {isCancellingBooking ? 'Sending...' : 'Xác nhận gửi'}
+              </button>
+            </div>
+          </div>
+        </ModalOverlay>
       )}
 
       {rescheduleSession && (
@@ -575,6 +818,17 @@ export default function MySchedulePage() {
                 ))}
               </div>
             )}
+
+            <label className="mt-5 block">
+              <span className="mb-2 block text-xs font-black uppercase tracking-[0.16em] text-white/45">Lý do đổi lịch</span>
+              <textarea
+                value={rescheduleReason}
+                onChange={(event) => setRescheduleReason(event.target.value)}
+                rows={4}
+                placeholder="Ví dụ: Mình bận công việc đột xuất, muốn đổi sang buổi khác."
+                className="w-full resize-none rounded-2xl border border-white/10 bg-[#222] px-4 py-3 text-sm font-semibold leading-6 text-white outline-none transition focus:border-[#EF233C]/60"
+              />
+            </label>
 
             {rescheduleMessage && <div className="mt-5 rounded-xl border border-amber-400/25 bg-amber-500/10 p-3 text-sm font-bold text-amber-300">{rescheduleMessage}</div>}
             <div className="mt-6 flex flex-wrap justify-end gap-3 border-t border-white/8 pt-4">
@@ -634,5 +888,16 @@ export default function MySchedulePage() {
         </div>
       )}
     </div>
+  );
+}
+
+function ModalOverlay({ children, onClose }: { children: ReactNode; onClose: () => void }) {
+  return createPortal(
+    <div className="fixed inset-0 z-[200] overflow-y-auto bg-black/70 p-4 backdrop-blur-sm" onClick={onClose}>
+      <div className="flex min-h-full items-start justify-center py-4 sm:py-6">
+        <div onClick={(event) => event.stopPropagation()}>{children}</div>
+      </div>
+    </div>,
+    document.body,
   );
 }

@@ -114,10 +114,121 @@ export default function SelectPackageOnboarding({ onMemberActivated }: { onMembe
       return;
     }
 
-    setIsSubmitting(true);
-    setMessage('');
+	    setIsSubmitting(true);
+	    setMessage('');
 
-    const activeUser = {
+	    const sessionLimit = selectedPackage.sessionLimitValue ?? (selectedPackage.hasPersonalTrainer ? 4 : null);
+
+	    try {
+	      const activationResult = await withTimeout(activateMemberAccount(currentUser), 10000, 'Account activation timed out.');
+	      if (!activationResult.ok) {
+	        setMessage(activationResult.message || 'Account could not be activated.');
+	        setIsSubmitting(false);
+	        return;
+	      }
+
+	      const activatedUser = activationResult.user || {
+	        ...currentUser,
+	        role: currentUser?.role || 'member',
+	        accountStatus: 'Active',
+	        account_status: 'active',
+	      };
+
+	      const createdPackage = await withTimeout(createMemberPackage({
+	        memberId: activatedUser?.memberId || activatedUser?.member_id,
+	        memberEmail: activatedUser?.email || '',
+	        packageId: selectedPackage.id,
+	        trainerId: selectedTrainer?.id || null,
+	        status: 'pending_payment',
+	        remainingSessions: sessionLimit,
+	      }), 10000, 'Package registration timed out.');
+
+	      if (createdPackage.error || !createdPackage.data?.memberPackageId) {
+	        setMessage('Demo payment failed because the package could not be registered.');
+	        setIsSubmitting(false);
+	        return;
+	      }
+
+	      const transactionCode = `GYMSTER-DEMO-${Date.now()}`;
+	      const paymentDate = new Date().toISOString();
+	      const paymentResult = await withTimeout(createPayment({
+	        memberId: activatedUser?.memberId || activatedUser?.member_id,
+	        memberEmail: activatedUser?.email || '',
+	        packageId: selectedPackage.id,
+	        memberPackageId: createdPackage.data.memberPackageId,
+	        amount: selectedPackage.price,
+	        paymentMethod,
+	        paymentDate,
+	        transactionCode,
+	        transferContent: `GYMSTER DEMO ${selectedPackage.code || selectedPackage.id}`,
+	      }), 10000, 'Payment save timed out.');
+
+	      if (paymentResult.error) {
+	        setMessage('Demo payment could not be saved.');
+	        setIsSubmitting(false);
+	        return;
+	      }
+
+	      const startDate = toDateInputValue(new Date(paymentDate));
+	      const endDate = toDateInputValue(addMonths(new Date(paymentDate), getPackageDurationMonths(selectedPackage)));
+	      const packageUpdate = await withTimeout(updateMemberPackageStatus(createdPackage.data.memberPackageId, 'active', {
+	        start_date: startDate,
+	        end_date: endDate,
+	        remaining_sessions: sessionLimit,
+	        used_sessions: 0,
+	        activated_at: paymentDate,
+	      }), 10000, 'Package activation timed out.');
+
+	      if (packageUpdate.error) {
+	        setMessage('Demo payment was saved, but the package could not be activated.');
+	        setIsSubmitting(false);
+	        return;
+	      }
+
+	      if (selectedPackage.hasPersonalTrainer && selectedTrainer && selectedSlot) {
+	        await withTimeout(createWorkoutSessionsForSchedule({
+	          memberId: activatedUser?.memberId || activatedUser?.member_id,
+	          memberEmail: activatedUser?.email || '',
+	          trainerId: selectedTrainer.id,
+	          packageId: selectedPackage.id,
+	          memberPackageId: createdPackage.data.memberPackageId,
+	          selectedSchedule: selectedSlot.label,
+	          startDate,
+	          endDate,
+	        }), 8000, 'Workout session creation timed out.');
+
+	        await createNotification({
+	          notificationType: 'system',
+	          title: 'Your trainer information',
+	          message: [
+	            `PT: ${selectedTrainer.name}`,
+	            selectedTrainer.specialty ? `Specialty: ${selectedTrainer.specialty}` : '',
+	            selectedTrainer.rating ? `Rating: ${selectedTrainer.rating}/5` : '',
+	            selectedSlot.label ? `Schedule: ${selectedSlot.label}` : '',
+	          ].filter(Boolean).join(' | '),
+	        });
+	      }
+
+	      const activeUser = {
+	        ...activatedUser,
+	        role: activatedUser?.role || 'member',
+	        accountStatus: 'Active',
+	        account_status: 'active',
+	        memberPackageId: createdPackage.data.memberPackageId,
+	        currentPackage: packageUpdate.data,
+	      };
+	      setCurrentUser(activeUser);
+	      onMemberActivated?.(activeUser);
+	      setIsSubmitting(false);
+	      navigate('/member', { replace: true });
+	    } catch (error) {
+	      console.error('[Gymster system] Demo payment failed:', error);
+	      setMessage(error instanceof Error ? error.message : 'Demo payment could not be completed.');
+	      setIsSubmitting(false);
+	    }
+	    return;
+
+	    const activeUser = {
       ...currentUser,
       role: currentUser?.role || 'member',
       accountStatus: 'Active',
@@ -401,7 +512,7 @@ export default function SelectPackageOnboarding({ onMemberActivated }: { onMembe
                 onClick={completePayment}
                 className="w-full rounded-xl bg-[#EF233C] px-5 py-4 text-sm font-black text-white transition hover:bg-[#c91930] disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-white/35"
               >
-                {isSubmitting ? 'Activating...' : 'Skip payment (demo)'}
+	                {isSubmitting ? 'Activating...' : 'Demo payment success'}
               </button>
             </div>
           </div>

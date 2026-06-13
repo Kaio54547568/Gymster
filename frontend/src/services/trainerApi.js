@@ -10,6 +10,7 @@ const LOCAL_TRAINERS = [
     currentActiveMembers: 6,
     status: "active",
     avatarUrl: "",
+    bio: "Strength coach focused on safe progression, compound lifts, and sustainable conditioning for busy members.",
     availableSlots: [
       { day: "Monday", startTime: "08:00", endTime: "10:00" },
       { day: "Thursday", startTime: "08:00", endTime: "10:00" },
@@ -24,6 +25,7 @@ const LOCAL_TRAINERS = [
     currentActiveMembers: 4,
     status: "active",
     avatarUrl: "",
+    bio: "Mobility-first trainer helping members improve flexibility, posture, and recovery habits.",
     availableSlots: [
       { day: "Tuesday", startTime: "17:00", endTime: "19:00" },
       { day: "Saturday", startTime: "09:00", endTime: "11:00" },
@@ -38,6 +40,7 @@ const LOCAL_TRAINERS = [
     currentActiveMembers: 8,
     status: "active",
     avatarUrl: "",
+    bio: "Weight loss specialist combining resistance training, cardio planning, and habit coaching.",
     availableSlots: [
       { day: "Wednesday", startTime: "18:00", endTime: "20:00" },
       { day: "Friday", startTime: "07:00", endTime: "09:00" },
@@ -65,6 +68,7 @@ function mapTrainerRow(row) {
     currentActiveMembers: Number(row.current_active_members || 0),
     status: row.status || "active",
     avatarUrl: row.avatar_url || row.users?.avatar_url || "",
+    bio: row.bio || row.description || row.profile_summary || `${row.specialty || "Personal Training"} coach at Gymster.`,
     availableSlots,
   };
 }

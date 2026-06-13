@@ -5,6 +5,11 @@ import dotenv from "dotenv";
 import { handleAiChat } from "./services/aiChatService.js";
 import { createClaudeMessage, isMissingAnthropicApiKey } from "./services/claudeService.js";
 import { handleStaffAiChat } from "./services/staffAiChatService.js";
+import {
+  loginWithPassword,
+  requestRegistrationCode,
+  verifyRegistrationCode,
+} from "./services/authRegistrationService.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, ".env") });
@@ -189,6 +194,48 @@ const server = http.createServer(async (request, response) => {
 
   if (request.method === "POST" && url.pathname === "/api/staff/ai/chat") {
     await handleStaffAiChatRequest(request, response);
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/auth/login") {
+    let payload;
+    try {
+      payload = await readJsonBody(request);
+    } catch (error) {
+      sendJson(response, 400, { ok: false, message: error.message });
+      return;
+    }
+
+    const result = await loginWithPassword(payload);
+    sendJson(response, result.ok ? 200 : 400, result);
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/auth/register/request-code") {
+    let payload;
+    try {
+      payload = await readJsonBody(request);
+    } catch (error) {
+      sendJson(response, 400, { ok: false, message: error.message });
+      return;
+    }
+
+    const result = await requestRegistrationCode(payload);
+    sendJson(response, result.ok ? 200 : 400, result);
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/auth/register/verify-code") {
+    let payload;
+    try {
+      payload = await readJsonBody(request);
+    } catch (error) {
+      sendJson(response, 400, { ok: false, message: error.message });
+      return;
+    }
+
+    const result = await verifyRegistrationCode(payload);
+    sendJson(response, result.ok ? 200 : 400, result);
     return;
   }
 

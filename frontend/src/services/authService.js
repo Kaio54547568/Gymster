@@ -680,6 +680,34 @@ async function loginSupabaseUser(identifier, password, options = {}) {
     return { ok: false, message: "h\u1ec7 th\u1ed1ng is not configured." };
   }
 
+  try {
+    const response = await fetch("/api/auth/login", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ identifier, password }),
+    });
+    const result = await response.json().catch(() => ({}));
+
+    if (response.ok && result.ok && result.user) {
+      persistCurrentUser(result.user, options);
+      return { ok: true, user: result.user };
+    }
+
+    const canUseLegacyFallback = response.status === 404 ||
+      String(result.message || "").includes("service role is not configured");
+
+    if (!canUseLegacyFallback) {
+      return {
+        ok: false,
+        message: result.message || result.error || "Unable to verify account credentials.",
+      };
+    }
+  } catch (error) {
+    console.warn("[Gymster h\u1ec7 th\u1ed1ng] Backend auth login is unavailable, trying legacy login:", error);
+  }
+
   const { data, error } = await findUserByIdentifier(identifier);
 
   if (error) {

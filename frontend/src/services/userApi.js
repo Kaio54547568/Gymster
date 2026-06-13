@@ -1,5 +1,41 @@
 import { supabase } from "./supabaseClient";
 
+async function postAuthJson(path, payload) {
+  let response;
+  try {
+    response = await fetch(path, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+  } catch (error) {
+    return {
+      ok: false,
+      message: "Backend auth API is not available. Please start the backend server.",
+    };
+  }
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    return {
+      ok: false,
+      message: data.message || data.error || "Backend auth API is not available. Please start the backend server.",
+    };
+  }
+
+  return data;
+}
+
+export function requestMemberRegistrationCode(registrationData) {
+  return postAuthJson("/api/auth/register/request-code", registrationData);
+}
+
+export function verifyMemberRegistrationCode(data) {
+  return postAuthJson("/api/auth/register/verify-code", data);
+}
+
 function mapCreatedAccount(userRow, memberRow) {
   const fullName = [userRow.first_name, userRow.last_name].filter(Boolean).join(" ").trim();
 

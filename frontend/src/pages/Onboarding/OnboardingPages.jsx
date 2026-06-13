@@ -9,7 +9,7 @@ import {
   Star,
   UserCheck,
 } from "lucide-react";
-import { getCurrentUser } from "../../services/authService";
+import { getCurrentUser, setCurrentUser } from "../../services/authService";
 import {
   createMemberPackage,
   updateMemberPackageStatus,
@@ -26,6 +26,7 @@ import {
   updateTrainingRequestStatus,
 } from "../../services/trainingRequestApi";
 import { createWorkoutSessionsForSchedule } from "../../services/workoutSessionApi";
+import { activateMemberAccount } from "../../services/userApi";
 import {
   ACCOUNT_STATUSES,
   fixedScheduleOptions,
@@ -730,43 +731,88 @@ export function OnboardingPaymentPage() {
       transactionCode,
     };
 
-    setIsCreatingPayment(true);
-    setPaymentError("");
+	    setIsCreatingPayment(true);
+	    setPaymentError("");
 
-    const { data, error } = await createPayment({
-      memberId: state.memberId,
-      memberEmail: currentUser?.email || "",
-      packageId: state.selectedPackage.id,
-      memberPackageId: state.memberPackageId || state.memberPackage?.memberPackageId,
+	    const demoStartDate = toDateInputValue(new Date(paymentDate));
+	    const demoEndDate = toDateInputValue(addMonths(new Date(paymentDate), getPackageDurationMonths(state.selectedPackage)));
+	    const demoRemainingSessions = state.selectedPackage.sessionLimitValue ?? state.memberPackage?.remainingSessions ?? null;
+	    let resolvedMemberPackageId = state.memberPackageId || state.memberPackage?.memberPackageId;
+
+	    if (!resolvedMemberPackageId) {
+	      const createdPackage = await createMemberPackage({
+	        memberId: state.memberId || currentUser?.memberId || currentUser?.member_id,
+	        memberEmail: currentUser?.email || "",
+	        packageId: state.selectedPackage.id,
+	        trainerId: state.selectedTrainer?.id || null,
+	        status: "pending_payment",
+	        remainingSessions: demoRemainingSessions,
+	      });
+
+	      if (createdPackage.error || !createdPackage.data?.memberPackageId) {
+	        setPaymentError("Package could not be created for this payment.");
+	        setIsCreatingPayment(false);
+	        return;
+	      }
+
+	      resolvedMemberPackageId = createdPackage.data.memberPackageId;
+	    }
+
+	    const { data, error } = await createPayment({
+	      memberId: state.memberId,
+	      memberEmail: currentUser?.email || "",
+	      packageId: state.selectedPackage.id,
+	      memberPackageId: resolvedMemberPackageId,
       trainingRequestId: state.trainingRequestId,
       amount: state.selectedPackage.price,
       paymentMethod,
       paymentDate,
       transactionCode,
-      transferContent: `GYMSTER ${state.selectedPackage.id}`,
-    });
+	      transferContent: `GYMSTER ${state.selectedPackage.id}`,
+	    });
 
-    if (state.trainingRequestId && (state.trainingRequest?.status === "accepted" || state.trainingRequest?.status === "Approved")) {
+	    if (error) {
+	      setPaymentError("Payment could not be saved.");
+	      setIsCreatingPayment(false);
+	      return;
+	    }
+
+	    if (state.trainingRequestId && (state.trainingRequest?.status === "accepted" || state.trainingRequest?.status === "Approved")) {
       await updateTrainingRequestStatus(state.trainingRequestId, "completed");
     }
 
-    const startDate = toDateInputValue(new Date(paymentDate));
-    const endDate = toDateInputValue(addMonths(new Date(paymentDate), getPackageDurationMonths(state.selectedPackage)));
-    const memberPackageId = state.memberPackageId || state.memberPackage?.memberPackageId;
-    const remainingSessions = state.selectedPackage.sessionLimitValue ?? state.memberPackage?.remainingSessions ?? null;
+	    const startDate = demoStartDate;
+	    const endDate = demoEndDate;
+	    const memberPackageId = resolvedMemberPackageId;
+	    const remainingSessions = demoRemainingSessions;
     let activatedMemberPackage = null;
 
-    if (memberPackageId) {
-      const { data: memberPackageData } = await updateMemberPackageStatus(memberPackageId, "active", {
-        start_date: startDate,
-        end_date: endDate,
-        remaining_sessions: remainingSessions,
-        used_sessions: 0,
-      });
-      activatedMemberPackage = memberPackageData;
-    }
+	    if (memberPackageId) {
+	      const { data: memberPackageData, error: packageUpdateError } = await updateMemberPackageStatus(memberPackageId, "active", {
+	        start_date: startDate,
+	        end_date: endDate,
+	        remaining_sessions: remainingSessions,
+	        used_sessions: 0,
+	      });
+	      if (packageUpdateError) {
+	        setPaymentError("Payment was saved, but package information could not be activated.");
+	        setIsCreatingPayment(false);
+	        return;
+	      }
+	      activatedMemberPackage = memberPackageData;
+	    }
 
-    let workoutSessions = [];
+	    const activationResult = await activateMemberAccount(currentUser);
+	    if (!activationResult.ok) {
+	      setPaymentError(activationResult.message || "Payment was saved, but the account could not be activated.");
+	      setIsCreatingPayment(false);
+	      return;
+	    }
+	    if (activationResult.user) {
+	      setCurrentUser(activationResult.user);
+	    }
+
+	    let workoutSessions = [];
 
     if (state.selectedPackage.hasPersonalTrainer && state.selectedTrainer && state.selectedSchedule) {
       const { data: createdSessions } = await createWorkoutSessionsForSchedule({

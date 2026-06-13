@@ -170,11 +170,33 @@ function buildLocalPtPortalData() {
       status: "In Progress",
       progress: 25,
     }],
-    bodyMetrics: [],
+    bodyMetrics: [
+      { metricId: "local-body-metric-1", memberId, weight: 63.5, bodyFatRate: 22.4, measuredDate: displayDate(monday) },
+      { metricId: "local-body-metric-2", memberId, weight: 62.8, bodyFatRate: 21.7, measuredDate: displayDate(thursday) },
+    ],
     medicalHistories: [],
-    bodyMetricDetails: [],
+    bodyMetricDetails: [{
+      memberId,
+      height: "165 cm",
+      weight: "62.8 kg",
+      bmi: "23.1",
+      bodyFatPercentage: "21.7%",
+      bloodPressure: "",
+      restingHeartRate: "",
+      fitnessGoal: "",
+      latestMeasurementDate: displayDate(thursday),
+    }],
     mealPlans: [],
-    evaluations: [],
+    evaluations: [{
+      evaluationId: "local-member-evaluation-1",
+      memberId,
+      evaluationDate: displayDate(thursday),
+      overallComment: "Học viên duy trì lịch tập tốt và cải thiện kỹ thuật trong các buổi gần đây.",
+      strengths: "Kỷ luật, tập trung, phản hồi nhanh với chỉnh sửa kỹ thuật",
+      improvements: "Cần ổn định nhịp nghỉ và bổ sung giấc ngủ",
+      recommendation: "Tiếp tục strength training, thêm 1 buổi cardio nhẹ mỗi tuần",
+      rating: 4,
+    }],
     notifications: [],
     exercises: [],
     weeklySessions: [
@@ -260,12 +282,28 @@ export async function fetchPtPortalData() {
       if (result.error) throw result.error;
     });
 
+    const assignedMemberIds = [...new Set((assignmentResult.data || [])
+      .filter((row) => row.status !== "completed" && row.status !== "cancelled")
+      .map((row) => row.member_id)
+      .filter(Boolean))];
+
+    let bodyMetricRows = bodyMetricResult.data || [];
+    if (assignedMemberIds.length) {
+      const managedBodyMetricResult = await supabase
+        .from("body_metrics")
+        .select("*")
+        .in("member_id", assignedMemberIds)
+        .order("recorded_at", { ascending: false });
+      if (managedBodyMetricResult.error) throw managedBodyMetricResult.error;
+      bodyMetricRows = managedBodyMetricResult.data || [];
+    }
+
     const memberIds = [
       ...(assignmentResult.data || []).map((row) => row.member_id),
       ...(sessionResult.data || []).map((row) => row.member_id),
       ...(goalResult.data || []).map((row) => row.member_id),
       ...(progressResult.data || []).map((row) => row.member_id),
-      ...(bodyMetricResult.data || []).map((row) => row.member_id),
+      ...bodyMetricRows.map((row) => row.member_id),
       ...(medicalResult.data || []).map((row) => row.member_id),
       ...(mealAssignmentResult.data || []).map((row) => row.member_id),
     ];
@@ -348,7 +386,7 @@ export async function fetchPtPortalData() {
       progress: row.target_value ? Math.min(100, Math.round((Number(row.current_value || 0) / Number(row.target_value || 1)) * 100)) : 0,
     }));
 
-    const bodyMetrics = (bodyMetricResult.data || []).map((row) => ({
+    const bodyMetrics = bodyMetricRows.map((row) => ({
       metricId: row.body_metric_id,
       memberId: row.member_id,
       weight: Number(row.weight_kg || 0),
@@ -370,7 +408,7 @@ export async function fetchPtPortalData() {
       }));
 
     const latestMetricByMember = {};
-    bodyMetricResult.data?.forEach((row) => {
+    bodyMetricRows.forEach((row) => {
       if (!latestMetricByMember[row.member_id]) latestMetricByMember[row.member_id] = row;
     });
     const bodyMetricDetails = Object.entries(latestMetricByMember).map(([memberId, row]) => ({
