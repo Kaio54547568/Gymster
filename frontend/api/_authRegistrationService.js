@@ -286,6 +286,27 @@ async function sendRegistrationEmail(email, code) {
   return { delivered: true };
 }
 
+function getRegistrationRequestErrorMessage(error) {
+  if (error?.code === "42P01") {
+    return "Registration verification table is missing. Please run database/email_registration_verification.sql.";
+  }
+
+  if (error?.code === "EAUTH" || error?.responseCode === 535) {
+    return "SMTP authentication failed. Please check SMTP_USER and SMTP_PASS.";
+  }
+
+  if (["ECONNECTION", "ETIMEDOUT", "ESOCKET"].includes(error?.code)) {
+    return "Could not connect to SMTP server. Please check SMTP_HOST, SMTP_PORT, and SMTP_SECURE.";
+  }
+
+  const detail = String(error?.response || error?.message || "").toLowerCase();
+  if (detail.includes("domain") || detail.includes("sender") || detail.includes("from")) {
+    return "SMTP sender is not accepted. Please verify MAIL_FROM domain/address in your email provider.";
+  }
+
+  return "Could not send registration verification code.";
+}
+
 function mapCreatedAccount(userRow, memberRow) {
   const fullName = [userRow.first_name, userRow.last_name].filter(Boolean).join(" ").trim();
 
@@ -443,9 +464,7 @@ export async function requestRegistrationCode(payload) {
     console.error("[Gymster auth] Failed to request registration code:", error);
     return {
       ok: false,
-      message: error.code === "42P01"
-        ? "Registration verification table is missing. Please run database/email_registration_verification.sql."
-        : "Could not send registration verification code.",
+      message: getRegistrationRequestErrorMessage(error),
     };
   }
 }
