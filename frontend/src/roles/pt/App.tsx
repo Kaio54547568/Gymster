@@ -1453,6 +1453,9 @@ function ScheduleProgressScreen({
     isRescheduleRequest(request) &&
     isPendingRequest(request)
   );
+  const pendingRequestMemberName = (request: any) => (
+    request.memberName || getMember(request.memberId)?.name || "Member"
+  );
   const selectedSessionRequests = getRequestsForSession(selectedSession);
   const selectedSessionRequest = selectedSessionRequests.find(request => isRescheduleRequest(request) && isPendingRequest(request)) || null;
   const selectedCancelRequest = selectedSessionRequests.find(request => isCancelRequest(request)) || null;
@@ -1709,7 +1712,7 @@ function ScheduleProgressScreen({
         {pendingRescheduleRequests.length > 0 && (
           <button
             type="button"
-            onClick={() => onNavigate("notifications")}
+            onClick={() => openRequestDetail(pendingRescheduleRequests[0])}
             className="inline-flex items-center gap-2 rounded-xl border border-[#FF3B3B]/35 bg-[#FF3B3B]/15 px-4 py-2 text-xs font-bold text-[#FFB3B3] hover:bg-[#FF3B3B]/25"
           >
             <Bell className="size-4" />
@@ -1746,6 +1749,39 @@ function ScheduleProgressScreen({
           <span className="text-xs text-[#555]">{filteredSessions.length} sessions displayed</span>
         </div>
       </div>
+
+      {pendingRescheduleRequests.length > 0 && (
+        <SectionCard title="Pending Reschedule Requests">
+          <div className="space-y-3">
+            {pendingRescheduleRequests.map((request: any) => (
+              <div key={request.requestId || request.id} className="rounded-xl border border-amber-300/25 bg-amber-400/10 p-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <div className="flex items-center gap-2 text-sm font-bold text-amber-100">
+                      <AlertTriangle className="size-4" />
+                      {pendingRequestMemberName(request)}
+                    </div>
+                    <div className="mt-2 grid gap-1 text-xs text-white/60 sm:grid-cols-2">
+                      <span>Current: {request.currentSchedule || "Current schedule"}</span>
+                      <span>Requested: {request.requestedSchedule || `${request.requestedDate || ""} ${request.startTime || ""}`.trim()}</span>
+                    </div>
+                    {requestReason(request) && (
+                      <p className="mt-2 text-xs text-amber-200/80">Reason: {requestReason(request)}</p>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => openRequestDetail(request)}
+                    className="rounded-lg border border-amber-300/30 bg-amber-400/15 px-3 py-2 text-xs font-bold text-amber-100 hover:bg-amber-400/25"
+                  >
+                    Review
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </SectionCard>
+      )}
 
       {isLoadingSessions && (
         <div className="rounded-xl border border-white/5 bg-[#181818] p-4 text-sm font-semibold text-[#777]">

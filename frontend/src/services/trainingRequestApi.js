@@ -283,6 +283,13 @@ async function insertTrainingRequest(payload) {
     .single();
   if (!isMissingSchemaColumn(result.error)) return result;
 
+  if (String(payload.request_type || "").toLowerCase() !== "assignment") {
+    return {
+      data: null,
+      error: new Error("Database chưa hỗ trợ request đổi lịch/hủy lịch. Vui lòng chạy database/training_request_cancel_reschedule_upgrade.sql trên Supabase."),
+    };
+  }
+
   const legacyPayload = {
     member_id: payload.member_id,
     trainer_id: payload.trainer_id,
