@@ -1,6 +1,7 @@
-import { FormEvent, useMemo, useState } from 'react';
-import { Bot, Loader2, Send, X } from 'lucide-react';
+import { FormEvent, useMemo, useRef, useState } from 'react';
+import { Bot, Loader2, Mic, Send, Square, X } from 'lucide-react';
 import { sendStaffAiChatMessage } from '../../../services/staffAiChatApi';
+import { transcribeAudio } from '../../../services/speechToTextApi';
 
 type ChatMessage = {
   id: string;
@@ -14,6 +15,34 @@ type PendingAction = {
   status?: string;
   data: Record<string, unknown>;
 } | null;
+
+type SpeechRecognitionConstructor = new () => SpeechRecognition;
+
+type SpeechRecognition = {
+  lang: string;
+  interimResults: boolean;
+  continuous: boolean;
+  onresult: ((event: SpeechRecognitionEvent) => void) | null;
+  onerror: ((event: { error?: string }) => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+};
+
+type SpeechRecognitionEvent = {
+  results: ArrayLike<{
+    0: {
+      transcript: string;
+    };
+  }>;
+};
+
+declare global {
+  interface Window {
+    SpeechRecognition?: SpeechRecognitionConstructor;
+    webkitSpeechRecognition?: SpeechRecognitionConstructor;
+  }
+}
 
 function makeMessage(role: ChatMessage['role'], text: string, type?: string): ChatMessage {
   return {
@@ -32,7 +61,15 @@ export function StaffAIAssistantChat() {
   ]);
   const [pendingAction, setPendingAction] = useState<PendingAction>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const canSend = useMemo(() => input.trim().length > 0 && !isLoading, [input, isLoading]);
+  const [isRecording, setIsRecording] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const speechRecognitionRef = useRef<SpeechRecognition | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const canSend = useMemo(
+    () => input.trim().length > 0 && !isLoading && !isTranscribing,
+    [input, isLoading, isTranscribing],
+  );
 
   const submitMessage = async (messageText: string, action: PendingAction = pendingAction) => {
     const trimmed = messageText.trim();
@@ -60,6 +97,100 @@ export function StaffAIAssistantChat() {
 
   const useSuggestion = (value: string) => {
     setInput(value);
+  };
+
+  const handleVoiceClick = async () => {
+    if (isRecording) {
+      speechRecognitionRef.current?.stop();
+      mediaRecorderRef.current?.stop();
+      return;
+    }
+
+    const SpeechRecognitionClass = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (SpeechRecognitionClass) {
+      try {
+        const recognition = new SpeechRecognitionClass();
+        speechRecognitionRef.current = recognition;
+        recognition.lang = 'vi-VN';
+        recognition.interimResults = false;
+        recognition.continuous = false;
+        recognition.onresult = (event) => {
+          const text = Array.from(event.results)
+            .map((result) => result[0]?.transcript || '')
+            .join(' ')
+            .trim();
+          if (text) {
+            setInput((current) => `${current}${current ? ' ' : ''}${text}`);
+          }
+        };
+        recognition.onerror = (event) => {
+          setMessages((current) => [
+            ...current,
+            makeMessage('assistant', event.error || 'Khong the nhan dien voice tieng Viet.', 'error'),
+          ]);
+        };
+        recognition.onend = () => {
+          setIsRecording(false);
+          speechRecognitionRef.current = null;
+        };
+        recognition.start();
+        setIsRecording(true);
+        return;
+      } catch (error: any) {
+        speechRecognitionRef.current = null;
+      }
+    }
+
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+      setMessages((current) => [...current, makeMessage('assistant', 'Trinh duyet nay khong ho tro ghi am.', 'error')]);
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      audioChunksRef.current = [];
+      mediaRecorderRef.current = mediaRecorder;
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorder.onstop = async () => {
+        setIsRecording(false);
+        stream.getTracks().forEach((track) => track.stop());
+
+        const audioBlob = new Blob(audioChunksRef.current, { type: mediaRecorder.mimeType || 'audio/webm' });
+        if (!audioBlob.size) return;
+
+        setIsTranscribing(true);
+        try {
+          const text = await transcribeAudio(audioBlob);
+          if (text.trim()) {
+            setInput((current) => `${current}${current ? ' ' : ''}${text.trim()}`);
+          }
+        } catch (error: any) {
+          setMessages((current) => [
+            ...current,
+            makeMessage('assistant', error.message || 'Khong the chuyen voice thanh van ban.', 'error'),
+          ]);
+        } finally {
+          setIsTranscribing(false);
+          audioChunksRef.current = [];
+          mediaRecorderRef.current = null;
+        }
+      };
+
+      mediaRecorder.start();
+      setIsRecording(true);
+    } catch (error: any) {
+      setMessages((current) => [
+        ...current,
+        makeMessage('assistant', error.message || 'Khong the truy cap microphone.', 'error'),
+      ]);
+    }
   };
 
   return (
@@ -155,6 +286,24 @@ export function StaffAIAssistantChat() {
               placeholder="Nhập lệnh cho AI staff..."
               className="min-w-0 flex-1 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none placeholder:text-white/35 focus:border-[#EF233C]/50"
             />
+            <button
+              type="button"
+              onClick={() => void handleVoiceClick()}
+              disabled={isLoading || isTranscribing}
+              className={`flex h-10 w-10 items-center justify-center rounded-xl text-white transition disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-white/35 ${
+                isRecording ? 'bg-[#EF233C]' : 'bg-white/10 hover:bg-white/15'
+              }`}
+              aria-label={isRecording ? 'Dung ghi am' : 'Ghi am voice'}
+              title={isRecording ? 'Dung ghi am' : 'Ghi am voice'}
+            >
+              {isTranscribing ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : isRecording ? (
+                <Square className="h-4 w-4 fill-current" />
+              ) : (
+                <Mic className="h-4 w-4" />
+              )}
+            </button>
             <button
               type="submit"
               disabled={!canSend}

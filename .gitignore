@@ -1,2 +1,6 @@
 backend/.env
 node_modules/
+.codex/
+speech_service/.venv/
+speech_service/__pycache__/
+*.pyc
