@@ -1491,7 +1491,7 @@ function ScheduleProgressScreen({
         if (!isMounted) return;
 
         if (error) {
-          setSessions(SCHEDULES);
+          setSessions([]);
           setSessionLoadMessage("Some workout sessions could not be loaded. Please try again.");
         } else if (data.length) {
           setSessions(data.map(mapWorkoutSessionToTrainingSchedule));
@@ -1505,7 +1505,7 @@ function ScheduleProgressScreen({
       })
       .catch(() => {
         if (!isMounted) return;
-        setSessions(SCHEDULES);
+        setSessions([]);
         setSessionLoadMessage("Some workout sessions could not be loaded. Please try again.");
         setIsLoadingSessions(false);
       });

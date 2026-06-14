@@ -110,26 +110,8 @@ function nextWeekday(dayIndex) {
 
 function buildLocalPtPortalData() {
   const memberId = "00000000-0000-4000-8000-000000000005";
-  const trainerId = "local-trainer-khoa";
   const monday = nextWeekday(1);
   const thursday = nextWeekday(4);
-  const schedules = [monday, thursday].map((dateValue) => ({
-    scheduleId: `local-fixed-pt-${memberId}-${dateValue}`,
-    memberId,
-    trainingDate: displayDate(dateValue),
-    trainingDateIso: dateValue,
-    trainingTime: "08:00 - 10:00",
-    exerciseType: "Personal Training",
-    status: "Scheduled",
-    duration: 120,
-    memberName: "Mai Do",
-    packageName: "PT Progress 3 Months",
-    roomName: "PT Room",
-    notes: "Fixed PT schedule.",
-    workoutContent: [],
-    hasContent: true,
-    source: "local",
-  }));
 
   return {
     trainer: {
@@ -159,7 +141,7 @@ function buildLocalPtPortalData() {
       progress: 25,
       totalSessions: 24,
     }],
-    schedules,
+    schedules: [],
     progressRecords: [],
     trainingGoals: [{
       goalId: "local-goal-strength",
@@ -199,10 +181,7 @@ function buildLocalPtPortalData() {
     }],
     notifications: [],
     exercises: [],
-    weeklySessions: [
-      { day: "Mon", sessions: 1, target: 1 },
-      { day: "Thu", sessions: 1, target: 1 },
-    ],
+    weeklySessions: [],
     progressChart: [{ name: "Mai Do", progress: 25 }],
     attendanceData: [
       { name: "Completed", value: 0, color: "#FF3B3B" },

@@ -88,7 +88,7 @@ async function fetchPackagesByIds(packageIds) {
   if (!ids.length) return {};
   const { data, error } = await supabase
     .from("packages")
-    .select("package_id,package_name,package_type,price,duration_months,status")
+    .select("package_id,package_name,package_type,price,duration_months,status,sessions_per_week")
     .in("package_id", ids);
   if (error) throw error;
   return Object.fromEntries((data || []).map((pkg) => [pkg.package_id, pkg]));

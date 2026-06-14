@@ -39,6 +39,7 @@ const packageColumns = `
   session_limit,
   has_personal_trainer,
   is_popular,
+  sessions_per_week,
   status
 `;
 
@@ -81,8 +82,23 @@ function combineUserName(user, fallback = "Member") {
 }
 
 async function resolveMemberId(data) {
-  if (data.memberId && uuidPattern.test(String(data.memberId))) {
-    return data.memberId;
+  const memberIdVal = data.memberId;
+  if (memberIdVal && uuidPattern.test(String(memberIdVal))) {
+    const { data: memberById } = await supabase
+      .from("members")
+      .select("member_id")
+      .eq("member_id", memberIdVal)
+      .maybeSingle();
+    if (memberById?.member_id) return memberById.member_id;
+
+    const { data: memberByUserId } = await supabase
+      .from("members")
+      .select("member_id")
+      .eq("user_id", memberIdVal)
+      .maybeSingle();
+    if (memberByUserId?.member_id) return memberByUserId.member_id;
+
+    return memberIdVal;
   }
 
   if (data.memberEmail) {

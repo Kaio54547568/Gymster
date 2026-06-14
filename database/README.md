@@ -5,7 +5,7 @@ This folder contains the PostgreSQL-compatible database design files for the Gym
 ## Files
 
 - `schema.sql` - Creates the MVP tables, constraints, foreign keys, indexes, and `updated_at` triggers.
-- `seed.sql` - Inserts initial records for users, employees, trainers, packages, package features, members, member packages, training requests, payments, invoices, workout sessions, notifications, and the extended portal tables.
+- `seed.sql` - Rebuilds a complete coherent demo dataset for users, settings, employees, trainers, packages, members, PT schedules, payments, invoices, workout sessions, training requests, makeup sessions, notifications, and the extended portal tables.
 
 ## Scope
 
@@ -47,10 +47,16 @@ It also includes extension tables needed to migrate the remaining portal feature
 - `meal_plan_assignments`
 - `package_change_requests`
 - `member_usage_history`
+- `user_settings`
+- `trainer_weekly_availability`
+- `medical_history_requests`
+- `makeup_sessions`
 
 All table and column names use `snake_case`. Primary keys are UUIDs. Tables that are expected to change over time include `created_at` and `updated_at` columns.
 
 ## Running In Supabase SQL Editor
+
+### Fresh local/demo setup
 
 1. Open your Supabase project.
 2. Go to **SQL Editor**.
@@ -62,6 +68,23 @@ All table and column names use `snake_case`. Primary keys are UUIDs. Tables that
 8. Click **Run**.
 
 Run `schema.sql` before `seed.sql`. The seed file depends on tables, constraints, and foreign keys created by the schema file.
+
+### Existing database upgrade setup
+
+If your Supabase project already existed before the latest Gymster updates, run the upgrade files before reseeding:
+
+1. `database/schema.sql`
+2. `database/member_care_upgrade.sql`
+3. `database/ai_makeup_booking_upgrade.sql`
+4. `database/workout_plan_crud_upgrade.sql`
+5. `database/member_manual_workout_upgrade.sql`
+6. `database/training_request_cancel_reschedule_upgrade.sql`
+7. `database/production_cleanup.sql` if you want the optional production support columns.
+8. `database/seed.sql`
+9. `database/email_registration_verification.sql` if using email-code registration.
+10. Create the `pics` storage bucket, then run `database/storage_pics_policies.sql` if using avatar/image upload.
+
+`member_activation_rpc.sql` is kept for older databases; the current `schema.sql` already defines the activation RPC, but rerunning the standalone file is safe when you want to refresh that function.
 
 ## Portal Feature Table Map
 
@@ -118,7 +141,7 @@ Run `schema.sql` before `seed.sql`. The seed file depends on tables, constraints
 - Payment rows are application records. No real payment provider is integrated yet.
 - The schema uses text fields with check constraints for statuses so the app can evolve without managing PostgreSQL enum migrations early.
 - Re-running `schema.sql` is designed to be mostly safe because tables and indexes use `if not exists`; trigger definitions are refreshed.
-- Re-running `seed.sql` updates the fixed UUID rows through `on conflict`.
+- Re-running `seed.sql` truncates the app-owned demo tables and rebuilds a clean local/demo dataset. Do not run it against production data you want to keep.
 
 ## Suggested Next Step
 

@@ -30,6 +30,7 @@ import { activateMemberAccount } from "../../services/userApi";
 import {
   ACCOUNT_STATUSES,
   fixedScheduleOptions,
+  individualScheduleOptions,
   formatVnd,
   getOnboardingState,
   saveOnboardingState,
@@ -529,10 +530,40 @@ export function TrainerSelectionPage() {
   const [isLoadingTrainers, setIsLoadingTrainers] = useState(true);
   const [trainerLoadError, setTrainerLoadError] = useState("");
   const [selectedTrainerId, setSelectedTrainerId] = useState(state.selectedTrainer?.id || "");
-  const [selectedSchedule, setSelectedSchedule] = useState(state.selectedSchedule || "");
+  const sessionsPerWeek = state.selectedPackage?.sessionsPerWeek || 1;
+  const [selectedSlots, setSelectedSlots] = useState(() => {
+    if (state.selectedSchedule) {
+      return state.selectedSchedule.split("&").map(s => s.trim()).filter(Boolean);
+    }
+    return [];
+  });
   const [isCreatingRequest, setIsCreatingRequest] = useState(false);
+
+  const isScheduleValid = useMemo(() => {
+    if (sessionsPerWeek === 2) {
+      if (selectedSlots.length !== 2) return false;
+      const dayOfWeekMap = {
+        monday: 1,
+        tuesday: 2,
+        wednesday: 3,
+        thursday: 4,
+        friday: 5,
+        saturday: 6,
+        sunday: 0,
+      };
+      const getDayFromSlot = (slot) => dayOfWeekMap[slot.split(",")[0].trim().toLowerCase()];
+      const day1 = getDayFromSlot(selectedSlots[0]);
+      const day2 = getDayFromSlot(selectedSlots[1]);
+      if (day1 === undefined || day2 === undefined) return false;
+      if (day1 === day2) return false;
+      const diff = Math.abs(day1 - day2);
+      return diff !== 1 && diff !== 6;
+    }
+    return selectedSlots.length === 1;
+  }, [selectedSlots, sessionsPerWeek]);
+
   const selectedTrainer = trainers.find((trainer) => trainer.id === selectedTrainerId);
-  const canConfirm = Boolean(selectedTrainer && selectedSchedule && selectedTrainer.currentActiveMembers < selectedTrainer.maxActiveMembers);
+  const canConfirm = Boolean(selectedTrainer && isScheduleValid && selectedTrainer.currentActiveMembers < selectedTrainer.maxActiveMembers);
 
   useEffect(() => {
     let isMounted = true;
@@ -576,6 +607,7 @@ export function TrainerSelectionPage() {
 
   const confirmTrainer = async () => {
     const currentUser = getCurrentUser();
+    const finalScheduleString = selectedSlots.join(" & ");
     const request = {
       requestId: `REQ-${Date.now()}`,
       memberId: state.memberId || currentUser?.id || "MOCK-MEMBER",
@@ -583,7 +615,7 @@ export function TrainerSelectionPage() {
       trainerId: selectedTrainer.id,
       packageId: state.selectedPackage.id,
       memberPackageId: state.memberPackageId,
-      requestedSchedule: selectedSchedule,
+      requestedSchedule: finalScheduleString,
       status: ACCOUNT_STATUSES.PendingPTApproval,
       declineReason: "",
       createdAt: new Date().toISOString(),
@@ -602,7 +634,7 @@ export function TrainerSelectionPage() {
     save({
       accountStatus: ACCOUNT_STATUSES.PendingPTApproval,
       selectedTrainer,
-      selectedSchedule,
+      selectedSchedule: finalScheduleString,
       memberPackage: state.memberPackage
         ? { ...state.memberPackage, trainerId: selectedTrainer.id, status: state.memberPackage.status || "pending_pt_approval" }
         : null,
@@ -682,20 +714,56 @@ export function TrainerSelectionPage() {
           })}
         </div> : null}
 
-        <Panel title="Fixed Schedule">
+        <Panel title={sessionsPerWeek === 2 ? "Chọn 2 buổi tập PT/tuần" : "Chọn lịch tập PT/tuần"}>
           <div className="space-y-3">
-            {fixedScheduleOptions.map((slot) => (
-              <button
-                key={slot}
-                className={`w-full rounded-xl border px-4 py-3 text-left text-sm font-bold transition ${
-                  selectedSchedule === slot ? "border-[#EF233C] bg-[#EF233C]/10 text-white" : "border-white/8 bg-[#222] text-white/60 hover:border-[#EF233C]/45"
-                }`}
-                type="button"
-                onClick={() => setSelectedSchedule(slot)}
-              >
-                {slot}
-              </button>
-            ))}
+            <p className="text-xs text-white/55">
+              {sessionsPerWeek === 2 
+                ? "Gói VIP yêu cầu chọn 2 buổi tập khác ngày nhau và không liền kề." 
+                : "Chọn 1 buổi tập hàng tuần làm lịch cố định."}
+            </p>
+            {individualScheduleOptions.map((slot) => {
+              const isSelected = selectedSlots.includes(slot);
+              return (
+                <button
+                  key={slot}
+                  className={`w-full rounded-xl border px-4 py-3 text-left text-sm font-bold transition ${
+                    isSelected ? "border-[#EF233C] bg-[#EF233C]/10 text-white" : "border-white/8 bg-[#222] text-white/60 hover:border-[#EF233C]/45"
+                  }`}
+                  type="button"
+                  onClick={() => {
+                    if (sessionsPerWeek === 2) {
+                      if (selectedSlots.includes(slot)) {
+                        setSelectedSlots(selectedSlots.filter(s => s !== slot));
+                      } else {
+                        if (selectedSlots.length < 2) {
+                          setSelectedSlots([...selectedSlots, slot]);
+                        } else {
+                          setSelectedSlots([selectedSlots[1], slot]);
+                        }
+                      }
+                    } else {
+                      setSelectedSlots([slot]);
+                    }
+                  }}
+                >
+                  <div className="flex justify-between items-center">
+                    <span>{slot}</span>
+                    {isSelected && (
+                      <span className="text-xs font-black text-[#EF233C] uppercase tracking-wider bg-[#EF233C]/15 px-2 py-0.5 rounded">
+                        Selected
+                      </span>
+                    )}
+                  </div>
+                </button>
+              );
+            })}
+            
+            {sessionsPerWeek === 2 && selectedSlots.length === 2 && !isScheduleValid && (
+              <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-xs font-bold text-red-200 leading-5">
+                ⚠ Vui lòng chọn 2 buổi tập khác ngày nhau và không liền kề (ví dụ: Thứ Hai và Thứ Tư, tránh Thứ Hai và Thứ Ba).
+              </div>
+            )}
+            
             <PrimaryButton className="mt-3 w-full" disabled={!canConfirm || isCreatingRequest} onClick={confirmTrainer}>
               {isCreatingRequest ? "Creating Request..." : "Confirm Trainer and Schedule"}
             </PrimaryButton>

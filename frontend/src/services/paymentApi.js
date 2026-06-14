@@ -62,8 +62,23 @@ export function mapPaymentRow(row) {
 }
 
 async function resolveMemberId(paymentData) {
-  if (paymentData.memberId && uuidPattern.test(String(paymentData.memberId))) {
-    return paymentData.memberId;
+  const memberIdVal = paymentData.memberId;
+  if (memberIdVal && uuidPattern.test(String(memberIdVal))) {
+    const { data: memberById } = await supabase
+      .from("members")
+      .select("member_id")
+      .eq("member_id", memberIdVal)
+      .maybeSingle();
+    if (memberById?.member_id) return memberById.member_id;
+
+    const { data: memberByUserId } = await supabase
+      .from("members")
+      .select("member_id")
+      .eq("user_id", memberIdVal)
+      .maybeSingle();
+    if (memberByUserId?.member_id) return memberByUserId.member_id;
+
+    return memberIdVal;
   }
 
   if (paymentData.memberEmail) {

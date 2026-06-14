@@ -17,6 +17,7 @@ import Section from '../components/Section';
 import { currentPackage } from '../domain/memberConstants';
 import { useMemberTrainingRequests } from '../hooks/useMemberTrainingRequests';
 import MuscleGroupSelector from '../../pt/components/workout-guidance/MuscleGroupSelector';
+import { isSessionBefore2Hours } from '../../../services/workoutSessionConflict';
 
 type Exercise = {
   exerciseId: string;
@@ -61,6 +62,7 @@ export default function MySchedulePage() {
   const [sessionLoadMessage, setSessionLoadMessage] = useState('');
   const [showAddWorkout, setShowAddWorkout] = useState(false);
   const [rescheduleSession, setRescheduleSession] = useState<ScheduleSession | null>(null);
+  const [isMakeupModalOpen, setIsMakeupModalOpen] = useState(false);
   const [availableDays, setAvailableDays] = useState<any[]>([]);
   const [selectedSlot, setSelectedSlot] = useState<any>(null);
   const [rescheduleReason, setRescheduleReason] = useState('');
@@ -270,7 +272,15 @@ export default function MySchedulePage() {
     }
 
     setScheduleSessions((current) => current.filter((session) => session.id !== cancelSession.id));
-    setMakeupSummary(nextMakeupSummary || getMakeupSessionSummary(getCurrentUser()));
+    const finalSummary = nextMakeupSummary || getMakeupSessionSummary(getCurrentUser());
+    setMakeupSummary(finalSummary);
+    if (finalSummary) {
+      if (finalSummary.granted) {
+        alert("Hủy lịch thành công! Bạn được cộng 1 buổi tập bù.");
+      } else {
+        alert("Hủy lịch thành công! Do bạn hủy lịch trễ (dưới 2 tiếng trước giờ tập), bạn không được cộng buổi tập bù.");
+      }
+    }
     setCancelSession(null);
     setCancelReason('');
     setSelectedSession(null);
@@ -411,11 +421,17 @@ export default function MySchedulePage() {
           <div className="mt-2 text-xl font-black text-white">{nextSession ? nextSession.title : 'No upcoming session'}</div>
           {nextSession && <div className="mt-1 text-sm text-white/50">{nextSession.date} - {nextSession.time}</div>}
         </div>
-        <div className="rounded-2xl border border-[#EF233C]/25 bg-[#211316] p-5 text-white">
+        <div 
+          onClick={() => setIsMakeupModalOpen(true)}
+          className="rounded-2xl border border-[#EF233C]/25 bg-[#211316] p-5 text-white hover:border-[#EF233C] cursor-pointer transition-all duration-200"
+        >
           <div className="text-xs font-bold uppercase tracking-[0.18em] text-[#FF7A8D]">Buổi bù</div>
-          <div className="mt-2 text-xl font-black text-white">{makeupSummary.credits}/{makeupSummary.resetBalance}</div>
+          <div className="mt-2 text-xl font-black text-white">Còn lại: {makeupSummary.credits} buổi</div>
           <div className="mt-1 text-xs font-semibold text-[#FF9AAB]">
-            Tháng này: {makeupSummary.grantedThisMonth}/{makeupSummary.monthlyLimit}
+            Đã nhận tháng này: {makeupSummary.grantedThisMonth}/{makeupSummary.monthlyLimit}
+          </div>
+          <div className="mt-2 text-[10px] font-medium text-white/50 border-t border-white/5 pt-2">
+            Ghi chú: Hủy/đổi lịch trước 2 giờ để được cộng buổi bù
           </div>
         </div>
       </div>
@@ -781,6 +797,11 @@ export default function MySchedulePage() {
                 <h2 className="text-2xl font-black text-white">Request đổi lịch</h2>
                 <p className="mt-1 text-sm text-white/50">Chọn ngày và giờ PT còn trống để gửi yêu cầu xác nhận.</p>
                 <p className="mt-2 text-xs font-bold text-[#FF9AAB]">Lịch hiện tại: {rescheduleSession.dateIso} {rescheduleSession.time}</p>
+                {!isSessionBefore2Hours(rescheduleSession.dateIso, rescheduleSession.time.split(' - ')[0]) && (
+                  <div className="mt-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs font-semibold text-amber-300">
+                    ⚠️ Chú ý: Bạn đang yêu cầu đổi lịch sát giờ (dưới 2 tiếng). Nếu PT duyệt, bạn sẽ bị tính là đổi lịch trễ và sẽ bị trừ 1 buổi bù mà không được cộng lại buổi cũ.
+                  </div>
+                )}
               </div>
               <button type="button" onClick={() => setRescheduleSession(null)} className="rounded-xl p-2 text-white/50 hover:bg-white/5 hover:text-white"><X className="h-5 w-5" /></button>
             </div>
@@ -888,6 +909,13 @@ export default function MySchedulePage() {
           </div>
         </div>
       )}
+      {isMakeupModalOpen && (
+        <MakeupHistoryModal 
+          isOpen={isMakeupModalOpen} 
+          onClose={() => setIsMakeupModalOpen(false)} 
+          summary={makeupSummary} 
+        />
+      )}
     </div>
   );
 }
@@ -902,3 +930,98 @@ function ModalOverlay({ children, onClose }: { children: ReactNode; onClose: () 
     document.body,
   );
 }
+
+function getHistoryItemLabelAndValue(item: any) {
+  switch (item.type) {
+    case 'fixed_session_cancelled':
+      return { label: 'Hủy lịch (Hợp lệ)', value: '+1', color: 'text-emerald-400' };
+    case 'fixed_session_cancelled_late':
+      return { label: 'Hủy trễ dưới 2 tiếng', value: '0', color: 'text-amber-500' };
+    case 'reschedule_pending_credit':
+      return {
+        label: item.granted ? 'Yêu cầu đổi lịch (Hợp lệ - Chờ duyệt)' : 'Yêu cầu đổi lịch (Trễ giờ - Chờ duyệt)',
+        value: item.granted ? '+1 (Chờ duyệt)' : '0',
+        color: item.granted ? 'text-blue-400' : 'text-amber-500'
+      };
+    case 'reschedule_rejected':
+      return { label: 'Đổi lịch bị từ chối', value: '0', color: 'text-white/40' };
+    case 'makeup_used':
+      return { label: 'Đã dùng buổi bù (Trainer duyệt)', value: '-1', color: 'text-rose-500' };
+    default:
+      return { label: 'Khác', value: '0', color: 'text-white' };
+  }
+}
+
+const MakeupHistoryModal = ({ isOpen, onClose, summary }: { isOpen: boolean; onClose: () => void; summary: any }) => {
+  if (!isOpen || !summary) return null;
+
+  const history = summary.history || [];
+
+  return (
+    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/85 p-4 backdrop-blur-sm" onClick={onClose}>
+      <div className="w-full max-w-2xl rounded-3xl border border-white/10 bg-[#141414] p-6 shadow-[0_28px_90px_rgba(0,0,0,0.8)]" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between border-b border-white/10 pb-4">
+          <div>
+            <h2 className="text-xl font-black text-white">Lịch sử buổi tập bù</h2>
+            <p className="mt-1 text-xs text-white/50">Chi tiết nhận và sử dụng các buổi tập bù trong tháng</p>
+          </div>
+          <button type="button" onClick={onClose} className="rounded-xl p-2 text-white/50 hover:bg-white/5 hover:text-white">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="mt-5 grid grid-cols-2 gap-4 rounded-2xl bg-white/5 p-4">
+          <div className="text-center border-r border-white/10">
+            <div className="text-xs font-bold text-white/50 uppercase">Số buổi còn lại</div>
+            <div className="mt-1 text-2xl font-black text-[#EF233C]">{summary.credits} buổi</div>
+          </div>
+          <div className="text-center">
+            <div className="text-xs font-bold text-white/50 uppercase">Đã nhận tháng này</div>
+            <div className="mt-1 text-2xl font-black text-white">{summary.grantedThisMonth} / {summary.monthlyLimit}</div>
+          </div>
+        </div>
+
+        <div className="mt-6">
+          <div className="text-xs font-bold text-white/45 uppercase tracking-wider">Nhật ký hoạt động</div>
+          <div className="mt-3 max-h-[300px] overflow-y-auto space-y-2 pr-2">
+            {history.length === 0 ? (
+              <div className="text-center py-6 text-sm text-white/35 font-bold">Chưa có lịch sử nhận/dùng buổi bù nào.</div>
+            ) : (
+              history.map((item: any, idx: number) => {
+                const eventInfo = getHistoryItemLabelAndValue(item);
+                const recordedDateStr = item.recordedAt ? new Date(item.recordedAt).toLocaleString('vi-VN', {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                  day: '2-digit',
+                  month: '2-digit',
+                  year: 'numeric'
+                }) : '';
+
+                return (
+                  <div key={idx} className="flex items-center justify-between rounded-xl border border-white/5 bg-[#1c1c1c] p-3 transition hover:bg-white/5">
+                    <div>
+                      <div className="text-sm font-bold text-white">{eventInfo.label}</div>
+                      <div className="mt-1 text-[11px] text-white/45">
+                        {item.date && item.time ? `Lịch tập: ${item.date} (${item.time})` : ''}
+                        {recordedDateStr && ` • ${recordedDateStr}`}
+                      </div>
+                    </div>
+                    <div className={`text-base font-black ${eventInfo.color}`}>
+                      {eventInfo.value}
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+
+        <div className="mt-6 flex justify-end border-t border-white/10 pt-4">
+          <button type="button" onClick={onClose} className="rounded-xl bg-white/10 hover:bg-white/15 px-6 py-3 text-sm font-black text-white transition">
+            Đóng
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};

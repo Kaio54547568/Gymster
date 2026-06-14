@@ -27,7 +27,7 @@ function toDateValue(date) {
   return `${year}-${month}-${day}`;
 }
 
-export function parseFixedSchedule(schedule) {
+function parseSingleSchedulePart(schedule) {
   const [daysText = "", timeText = ""] = String(schedule || "").split(",");
   const [startTime = "07:00", endTime = "08:00"] = timeText.split("-").map((value) => value.trim());
   const days = daysText
@@ -37,6 +37,23 @@ export function parseFixedSchedule(schedule) {
     .filter((day) => day !== undefined);
 
   return { days, startTime, endTime };
+}
+
+export function parseFixedSchedule(schedule) {
+  const parts = String(schedule || "").split("&");
+  if (parts.length > 1) {
+    const days = [];
+    const timeSlots = [];
+    parts.forEach((part) => {
+      const parsedPart = parseSingleSchedulePart(part.trim());
+      parsedPart.days.forEach((d) => {
+        days.push(d);
+        timeSlots.push({ day: d, startTime: parsedPart.startTime, endTime: parsedPart.endTime });
+      });
+    });
+    return { days, isCompound: true, timeSlots };
+  }
+  return parseSingleSchedulePart(schedule);
 }
 
 export function generateSessionsForPackageRange({ schedule, startDate, endDate }) {
@@ -52,12 +69,24 @@ export function generateSessionsForPackageRange({ schedule, startDate, endDate }
   const cursor = new Date(rangeStart);
 
   while (cursor <= rangeEnd) {
-    if (parsed.days.includes(cursor.getDay())) {
-      sessions.push({
-        sessionDate: toDateValue(cursor),
-        startTime: parsed.startTime,
-        endTime: parsed.endTime,
+    const currentDay = cursor.getDay();
+    if (parsed.isCompound) {
+      const slots = parsed.timeSlots.filter((s) => s.day === currentDay);
+      slots.forEach((slot) => {
+        sessions.push({
+          sessionDate: toDateValue(cursor),
+          startTime: slot.startTime,
+          endTime: slot.endTime,
+        });
       });
+    } else {
+      if (parsed.days.includes(currentDay)) {
+        sessions.push({
+          sessionDate: toDateValue(cursor),
+          startTime: parsed.startTime,
+          endTime: parsed.endTime,
+        });
+      }
     }
     cursor.setDate(cursor.getDate() + 1);
   }
@@ -73,12 +102,26 @@ export function generateUpcomingSessions(schedule, count = 4, fromDate = new Dat
   cursor.setDate(cursor.getDate() + 1);
 
   while (sessions.length < count) {
-    if (days.includes(cursor.getDay())) {
-      sessions.push({
-        sessionDate: toDateValue(cursor),
-        startTime: parsed.startTime,
-        endTime: parsed.endTime,
+    const currentDay = cursor.getDay();
+    if (parsed.isCompound) {
+      const slots = parsed.timeSlots.filter((s) => s.day === currentDay);
+      slots.forEach((slot) => {
+        if (sessions.length < count) {
+          sessions.push({
+            sessionDate: toDateValue(cursor),
+            startTime: slot.startTime,
+            endTime: slot.endTime,
+          });
+        }
       });
+    } else {
+      if (days.includes(currentDay)) {
+        sessions.push({
+          sessionDate: toDateValue(cursor),
+          startTime: parsed.startTime,
+          endTime: parsed.endTime,
+        });
+      }
     }
     cursor.setDate(cursor.getDate() + 1);
   }

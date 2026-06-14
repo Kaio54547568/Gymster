@@ -26,6 +26,7 @@ type SupabasePackage = {
   features?: string[];
   isPopular?: boolean;
   popular?: boolean;
+  sessionsPerWeek?: number;
 };
 
 type GymPackage = {
@@ -44,6 +45,7 @@ type GymPackage = {
   features: string[];
   popular: boolean;
   isPopular?: boolean;
+  sessionsPerWeek?: number;
 };
 
 const emptyPackageForm = {
@@ -56,6 +58,7 @@ const emptyPackageForm = {
   sessionLimit: '',
   hasPersonalTrainer: false,
   isPopular: false,
+  sessionsPerWeek: 1,
 };
 
 function mapSupabasePackageToAdminPackage(pkg: SupabasePackage): GymPackage {
@@ -85,6 +88,7 @@ function mapSupabasePackageToAdminPackage(pkg: SupabasePackage): GymPackage {
         ],
     popular: Boolean(pkg.isPopular || pkg.popular),
     isPopular: Boolean(pkg.isPopular || pkg.popular),
+    sessionsPerWeek: pkg.sessionsPerWeek || 1,
   };
 }
 
@@ -172,6 +176,7 @@ export default function PackagesPayments() {
       sessionLimit: pkg.sessionLimit,
       hasPersonalTrainer: pkg.hasPersonalTrainer,
       isPopular: Boolean(pkg.isPopular || pkg.popular),
+      sessionsPerWeek: pkg.sessionsPerWeek || 1,
     });
     setShowPackageModal(true);
   };
@@ -317,6 +322,12 @@ export default function PackagesPayments() {
                 <span>Personal trainer</span>
                 <span className="font-bold text-white">{pkg.hasPersonalTrainer ? 'Yes' : 'No'}</span>
               </div>
+              {pkg.hasPersonalTrainer && (
+                <div className="mt-2 flex justify-between gap-3">
+                  <span>Sessions/week</span>
+                  <span className="font-bold text-white">{pkg.sessionsPerWeek} session{pkg.sessionsPerWeek && pkg.sessionsPerWeek > 1 ? 's' : ''}</span>
+                </div>
+              )}
             </div>
 
             <ul className="mb-6 space-y-3">
@@ -383,6 +394,13 @@ export default function PackagesPayments() {
               <label className="block">
                 <span className="mb-2 block text-xs font-bold uppercase tracking-[0.18em] text-[#A1A1AA]">Session limit</span>
                 <input value={packageForm.sessionLimit} onChange={(event) => setPackageForm({ ...packageForm, sessionLimit: event.target.value })} placeholder="Example: 12 PT sessions" className="w-full rounded-xl border border-[#EF233C]/20 bg-[#050607] px-4 py-3 text-white outline-none focus:border-[#EF233C]" />
+              </label>
+              <label className="block">
+                <span className="mb-2 block text-xs font-bold uppercase tracking-[0.18em] text-[#A1A1AA]">Sessions per week (PT)</span>
+                <select value={packageForm.sessionsPerWeek} onChange={(event) => setPackageForm({ ...packageForm, sessionsPerWeek: Number(event.target.value) })} className="w-full rounded-xl border border-[#EF233C]/20 bg-[#050607] px-4 py-3 text-white outline-none focus:border-[#EF233C]">
+                  <option value={1}>1 session / week</option>
+                  <option value={2}>2 sessions / week (VIP)</option>
+                </select>
               </label>
               <label className="block md:col-span-2">
                 <span className="mb-2 block text-xs font-bold uppercase tracking-[0.18em] text-[#A1A1AA]">Description</span>

@@ -207,19 +207,20 @@ insert into public.packages (
   session_limit,
   has_personal_trainer,
   is_popular,
+  sessions_per_week,
   is_active,
   status
 ) values
-  ('GYM-1M', 'Gym Access 1 Month', 'gym', 1, 390000, 'Monthly access to gym floor, locker room, and basic check-in tracking.', null, false, false, true, 'active'),
-  ('GYM-3M', 'Gym Access 3 Months', 'gym', 3, 990000, 'Quarterly gym membership for members building a routine.', null, false, false, true, 'active'),
-  ('GYM-6M', 'Gym Access 6 Months', 'gym', 6, 1750000, 'Semiannual membership with better price per month.', null, false, true, true, 'active'),
-  ('GYM-12M', 'Gym Access 12 Months', 'gym', 12, 3150000, 'Annual access for long-term members and retention analytics.', null, false, true, true, 'active'),
-  ('PT-1M', 'PT Starter 1 Month', 'pt', 1, 1800000, 'Eight private coaching sessions for beginners or short goals.', 8, true, false, true, 'active'),
-  ('PT-3M', 'PT Progress 3 Months', 'pt', 3, 4800000, 'Twenty-four sessions with trainer assignment, goals, and progress records.', 24, true, true, true, 'active'),
-  ('PT-6M', 'PT Performance 6 Months', 'pt', 6, 8600000, 'Forty-eight sessions for transformation, strength, or conditioning cycles.', 48, true, true, true, 'active'),
-  ('VIP-PT-6M', 'VIP PT 6 Months', 'vip_pt', 6, 12800000, 'Sixty VIP sessions with priority trainer slots and monthly body metrics.', 60, true, true, true, 'active'),
-  ('VIP-PT-12M', 'VIP PT 12 Months', 'vip_pt', 12, 22800000, 'Annual VIP coaching with premium scheduling and ongoing nutrition support.', 120, true, false, true, 'active'),
-  ('GYM-OLD', 'Archived 2024 Gym Package', 'gym', 6, 1200000, 'Archived historical package for reporting filters.', null, false, false, false, 'archived');
+  ('GYM-1M', 'Gym Access 1 Month', 'gym', 1, 390000, 'Monthly access to gym floor, locker room, and basic check-in tracking.', null, false, false, 1, true, 'active'),
+  ('GYM-3M', 'Gym Access 3 Months', 'gym', 3, 990000, 'Quarterly gym membership for members building a routine.', null, false, false, 1, true, 'active'),
+  ('GYM-6M', 'Gym Access 6 Months', 'gym', 6, 1750000, 'Semiannual membership with better price per month.', null, false, true, 1, true, 'active'),
+  ('GYM-12M', 'Gym Access 12 Months', 'gym', 12, 3150000, 'Annual access for long-term members and retention analytics.', null, false, true, 1, true, 'active'),
+  ('PT-1M', 'PT Starter 1 Month', 'pt', 1, 1800000, 'Eight private coaching sessions for beginners or short goals.', 8, true, false, 1, true, 'active'),
+  ('PT-3M', 'PT Progress 3 Months', 'pt', 3, 4800000, 'Twenty-four sessions with trainer assignment, goals, and progress records.', 24, true, true, 1, true, 'active'),
+  ('PT-6M', 'PT Performance 6 Months', 'pt', 6, 8600000, 'Forty-eight sessions for transformation, strength, or conditioning cycles.', 48, true, true, 1, true, 'active'),
+  ('VIP-PT-6M', 'VIP PT 6 Months', 'vip_pt', 6, 12800000, 'Sixty VIP sessions with priority trainer slots and monthly body metrics.', 60, true, true, 2, true, 'active'),
+  ('VIP-PT-12M', 'VIP PT 12 Months', 'vip_pt', 12, 22800000, 'Annual VIP coaching with premium scheduling and ongoing nutrition support.', 120, true, false, 2, true, 'active'),
+  ('GYM-OLD', 'Archived 2024 Gym Package', 'gym', 6, 1200000, 'Archived historical package for reporting filters.', null, false, false, 1, false, 'archived');
 
 insert into public.package_features (
   package_id,

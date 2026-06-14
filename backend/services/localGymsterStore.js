@@ -98,28 +98,7 @@ export function cancelLocalBooking(memberId, data) {
     ? state.bookings.find((item) => item.workout_session_id === data.sessionId && item.member_id === memberId)
     : rows[0];
 
-  if (!target) {
-    const date = new Date(`${data.date}T00:00:00`);
-    if (![1, 4].includes(date.getDay())) return null;
-    const sessionId = `local-fixed-pt-${memberId}-${data.date}`;
-    const fixedSession = {
-      workout_session_id: sessionId,
-      session_id: sessionId,
-      member_id: memberId,
-      trainer_id: "local-trainer-khoa",
-      title: "PT Session",
-      exercise_type: "Personal Training",
-      room_name: "PT Room",
-      session_date: data.date,
-      start_time: "08:00",
-      end_time: "10:00",
-      status: "cancelled",
-      notes: "Fixed PT session cancelled by Gymster AI Assistant.",
-      created_at: new Date().toISOString(),
-    };
-    state.bookings.push(fixedSession);
-    return fixedSession;
-  }
+  if (!target) return null;
   if (false && (target.trainer_id || String(target.title || "").toLowerCase().includes("pt") || String(target.exercise_type || "").toLowerCase().includes("personal training"))) {
     throw new Error("Lịch tập với PT là lịch cố định nên không thể hủy hoặc thay đổi bằng AI chat.");
   }

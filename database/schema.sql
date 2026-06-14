@@ -286,6 +286,7 @@ create table if not exists public.packages (
   session_limit integer check (session_limit is null or session_limit >= 0),
   has_personal_trainer boolean not null default false,
   is_popular boolean not null default false,
+  sessions_per_week integer not null default 1 check (sessions_per_week in (1, 2)),
   status text not null default 'active' check (status in ('active', 'inactive', 'archived')),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -1097,6 +1098,7 @@ alter table public.member_packages add constraint member_packages_status_check c
 alter table public.training_requests add column if not exists request_id uuid unique default gen_random_uuid();
 alter table public.training_requests add column if not exists expires_at timestamptz;
 alter table public.training_requests add column if not exists request_type text not null default 'assignment';
+alter table public.training_requests add column if not exists request_reason text not null default '';
 alter table public.training_requests add column if not exists requested_date date;
 alter table public.training_requests add column if not exists start_time time;
 alter table public.training_requests add column if not exists end_time time;
@@ -1117,7 +1119,7 @@ alter table public.training_requests add constraint training_requests_status_che
 );
 alter table public.training_requests drop constraint if exists training_requests_request_type_check;
 alter table public.training_requests add constraint training_requests_request_type_check check (
-  request_type in ('assignment', 'reschedule', 'makeup_pt_session')
+  request_type in ('assignment', 'reschedule', 'makeup_pt_session', 'cancel_booking', 'cancel')
 );
 
 create table if not exists public.makeup_sessions (

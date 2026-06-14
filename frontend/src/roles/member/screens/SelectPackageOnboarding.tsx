@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { CreditCard, Dumbbell, Star, Users } from 'lucide-react';
 import { getCurrentUser, setCurrentUser } from '../../../services/authService';
@@ -22,12 +22,36 @@ export default function SelectPackageOnboarding({ onMemberActivated }: { onMembe
   const [selectedPackage, setSelectedPackage] = useState<any | null>(null);
   const [selectedTrainer, setSelectedTrainer] = useState<any | null>(null);
   const [selectedSlot, setSelectedSlot] = useState<any | null>(null);
+  const [selectedSlots, setSelectedSlots] = useState<any[]>([]);
   const [paymentMethod, setPaymentMethod] = useState('Bank Transfer');
   const [step, setStep] = useState<'package' | 'trainer' | 'payment'>('package');
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingAvailability, setIsLoadingAvailability] = useState(false);
   const [message, setMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const sessionsPerWeek = selectedPackage?.sessionsPerWeek || 1;
+  const isScheduleValid = useMemo(() => {
+    if (sessionsPerWeek === 2) {
+      if (selectedSlots.length !== 2) return false;
+      const dayOfWeekMap: Record<string, number> = {
+        monday: 1,
+        tuesday: 2,
+        wednesday: 3,
+        thursday: 4,
+        friday: 5,
+        saturday: 6,
+        sunday: 0,
+      };
+      const day1 = dayOfWeekMap[selectedSlots[0].dayKey.toLowerCase()];
+      const day2 = dayOfWeekMap[selectedSlots[1].dayKey.toLowerCase()];
+      if (day1 === undefined || day2 === undefined) return false;
+      if (day1 === day2) return false;
+      const diff = Math.abs(day1 - day2);
+      return diff !== 1 && diff !== 6;
+    }
+    return selectedSlots.length === 1;
+  }, [selectedSlots, sessionsPerWeek]);
 
   useEffect(() => {
     let isMounted = true;
@@ -84,6 +108,7 @@ export default function SelectPackageOnboarding({ onMemberActivated }: { onMembe
     setSelectedPackage(pkg);
     setSelectedTrainer(null);
     setSelectedSlot(null);
+    setSelectedSlots([]);
     setStep(pkg.hasPersonalTrainer ? 'trainer' : 'payment');
     setMessage('');
   };
@@ -91,20 +116,71 @@ export default function SelectPackageOnboarding({ onMemberActivated }: { onMembe
   const chooseTrainer = (trainer: any) => {
     setSelectedTrainer(trainer);
     setSelectedSlot(null);
+    setSelectedSlots([]);
     setMessage('');
   };
 
   const chooseSlot = (day: any, slot: any) => {
     if (!slot.available) return;
-    setSelectedSlot({
+    const newSlot = {
       dayKey: day.key,
       dayLabel: day.label,
       startTime: slot.startTime,
       endTime: slot.endTime,
       label: `${day.label}, ${slot.label}`,
-    });
-    setStep('payment');
-    setMessage('');
+    };
+
+    if (sessionsPerWeek === 2) {
+      const exists = selectedSlots.some(s => s.dayKey === day.key && s.startTime === slot.startTime);
+      let nextSlots;
+      if (exists) {
+        nextSlots = selectedSlots.filter(s => !(s.dayKey === day.key && s.startTime === slot.startTime));
+      } else {
+        if (selectedSlots.length < 2) {
+          nextSlots = [...selectedSlots, newSlot];
+        } else {
+          nextSlots = [selectedSlots[1], newSlot];
+        }
+      }
+      setSelectedSlots(nextSlots);
+      
+      if (nextSlots.length === 2) {
+        const dayOfWeekMap: Record<string, number> = {
+          monday: 1,
+          tuesday: 2,
+          wednesday: 3,
+          thursday: 4,
+          friday: 5,
+          saturday: 6,
+          sunday: 0,
+        };
+        const day1 = dayOfWeekMap[nextSlots[0].dayKey.toLowerCase()];
+        const day2 = dayOfWeekMap[nextSlots[1].dayKey.toLowerCase()];
+        const diff = Math.abs(day1 - day2);
+        if (day1 !== day2 && diff !== 1 && diff !== 6) {
+          setSelectedSlot({
+            dayKey: 'multiple',
+            dayLabel: 'Multiple',
+            startTime: 'multiple',
+            endTime: 'multiple',
+            label: `${nextSlots[0].label} & ${nextSlots[1].label}`,
+          });
+          setStep('payment');
+          setMessage('');
+        } else {
+          setSelectedSlot(null);
+          setMessage('Vui lòng chọn 2 buổi tập khác ngày nhau và không liền kề.');
+        }
+      } else {
+        setSelectedSlot(null);
+        setMessage('Vui lòng chọn đủ 2 buổi tập.');
+      }
+    } else {
+      setSelectedSlots([newSlot]);
+      setSelectedSlot(newSlot);
+      setStep('payment');
+      setMessage('');
+    }
   };
 
   const completePayment = async () => {
@@ -341,7 +417,7 @@ export default function SelectPackageOnboarding({ onMemberActivated }: { onMembe
       <div>
         <h1 className="text-4xl font-black text-white">Select Package</h1>
         <p className="mt-1 text-sm text-white/50">
-          Choose a membership package. PT packages require a trainer and one available weekly training slot.
+          Choose a membership package. PT packages require a trainer and the required weekly training slots.
         </p>
       </div>
 
@@ -455,11 +531,17 @@ export default function SelectPackageOnboarding({ onMemberActivated }: { onMembe
                             disabled={!slot.available}
                             onClick={() => chooseSlot(day, slot)}
                             className={`rounded-lg border px-2 py-2 text-xs font-black transition ${
-                              selectedSlot?.dayKey === day.key && selectedSlot?.startTime === slot.startTime
-                                ? 'border-[#EF233C] bg-[#EF233C] text-white'
-                                : slot.available
-                                  ? 'border-white/10 bg-white/5 text-white/70 hover:border-[#EF233C]/45 hover:text-white'
-                                  : 'cursor-not-allowed border-white/5 bg-white/[0.02] text-white/20 line-through'
+                              sessionsPerWeek === 2
+                                ? selectedSlots.some(s => s.dayKey === day.key && s.startTime === slot.startTime)
+                                  ? 'border-[#EF233C] bg-[#EF233C] text-white'
+                                  : slot.available
+                                    ? 'border-white/10 bg-white/5 text-white/70 hover:border-[#EF233C]/45 hover:text-white'
+                                    : 'cursor-not-allowed border-white/5 bg-white/[0.02] text-white/20 line-through'
+                                : selectedSlot?.dayKey === day.key && selectedSlot?.startTime === slot.startTime
+                                  ? 'border-[#EF233C] bg-[#EF233C] text-white'
+                                  : slot.available
+                                    ? 'border-white/10 bg-white/5 text-white/70 hover:border-[#EF233C]/45 hover:text-white'
+                                    : 'cursor-not-allowed border-white/5 bg-white/[0.02] text-white/20 line-through'
                             }`}
                           >
                             {slot.label}

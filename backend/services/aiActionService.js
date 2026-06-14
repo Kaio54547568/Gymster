@@ -112,7 +112,25 @@ export function resolveUserContext(user) {
 
 async function resolveMemberId(client, context) {
   if (!client) return context.memberId;
-  if (context.memberId) return context.memberId;
+  const memberIdVal = context.memberId;
+  if (memberIdVal) {
+    if (typeof memberIdVal === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(memberIdVal)) {
+      const { data: memberById } = await client
+        .from("members")
+        .select("member_id")
+        .eq("member_id", memberIdVal)
+        .maybeSingle();
+      if (memberById?.member_id) return memberById.member_id;
+
+      const { data: memberByUserId } = await client
+        .from("members")
+        .select("member_id")
+        .eq("user_id", memberIdVal)
+        .maybeSingle();
+      if (memberByUserId?.member_id) return memberByUserId.member_id;
+    }
+    return memberIdVal;
+  }
   if (!context.userId && !context.email) return null;
 
   let userId = context.userId;

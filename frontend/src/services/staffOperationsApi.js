@@ -48,7 +48,7 @@ async function fetchPackagesByIds(packageIds) {
   if (!ids.length) return {};
   const { data, error } = await supabase
     .from("packages")
-    .select("package_id,package_name,package_type,duration_months,price,session_limit,has_personal_trainer,status,is_active")
+    .select("package_id,package_name,package_type,duration_months,price,session_limit,has_personal_trainer,sessions_per_week,status,is_active")
     .in("package_id", ids);
   if (error) throw error;
   return Object.fromEntries((data || []).map((pkg) => [pkg.package_id, pkg]));
@@ -217,7 +217,7 @@ async function fetchPackageById(packageId) {
   if (!packageId || !uuidPattern.test(String(packageId))) return null;
   const { data, error } = await supabase
     .from("packages")
-    .select("package_id,package_name,duration_months,price,session_limit,status,is_active")
+    .select("package_id,package_name,duration_months,price,session_limit,sessions_per_week,status,is_active")
     .eq("package_id", packageId)
     .maybeSingle();
   if (error) throw error;

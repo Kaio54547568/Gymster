@@ -104,8 +104,23 @@ function fail(message, status = 400) {
 }
 
 async function resolveMemberId(client, request) {
-  if (uuidPattern.test(String(request.memberId || request.member_id || ""))) {
-    return request.memberId || request.member_id;
+  const memberIdVal = request.memberId || request.member_id || "";
+  if (uuidPattern.test(String(memberIdVal))) {
+    const { data: memberById } = await client
+      .from("members")
+      .select("member_id")
+      .eq("member_id", memberIdVal)
+      .maybeSingle();
+    if (memberById?.member_id) return memberById.member_id;
+
+    const { data: memberByUserId } = await client
+      .from("members")
+      .select("member_id")
+      .eq("user_id", memberIdVal)
+      .maybeSingle();
+    if (memberByUserId?.member_id) return memberByUserId.member_id;
+
+    return memberIdVal;
   }
 
   const memberEmail = String(request.memberEmail || request.member_email || "").trim().toLowerCase();
@@ -436,13 +451,31 @@ async function recordMakeupUsage(client, row) {
       .gte("session_date", `${year}-${monthText}-01`)
       .lte("session_date", `${year}-${monthText}-31`);
 
-    const fixedScheduleCancelCount = Number(count || 0);
+    const { data: reschedules } = await client
+      .from("training_requests")
+      .select("created_at,current_schedule")
+      .eq("member_id", row.member_id)
+      .eq("request_type", "reschedule")
+      .in("status", ["accepted", "approved", "completed"])
+      .gte("created_at", `${year}-${monthText}-01T00:00:00`)
+      .lte("created_at", `${year}-${monthText}-31T23:59:59`);
+
+    let validRescheduleCount = 0;
+    if (reschedules) {
+      for (const req of reschedules) {
+        if (isRequestBefore2Hours(req)) {
+          validRescheduleCount++;
+        }
+      }
+    }
+
+    const fixedScheduleCancelCount = Number(count || 0) + validRescheduleCount;
     const maxMakeupAllowed = Math.min(fixedScheduleCancelCount, MONTHLY_MAKEUP_LIMIT);
     const { count: usedCount } = await client
       .from("training_requests")
       .select("training_request_id", { count: "exact", head: true })
       .eq("member_id", row.member_id)
-      .eq("request_type", "makeup_pt_session")
+      .in("request_type", ["makeup_pt_session", "reschedule"])
       .in("status", ["accepted", "approved", "completed"])
       .gte("created_at", `${year}-${monthText}-01T00:00:00`)
       .lte("created_at", `${year}-${monthText}-31T23:59:59`);
@@ -486,6 +519,25 @@ export async function createTrainingRequestServer(request) {
     }
 
     const sourceWorkoutSessionId = request?.sourceWorkoutSessionId || request?.sessionId || "";
+
+    if (requestType === "makeup_pt_session") {
+      const now = new Date();
+      const month = now.getMonth() + 1;
+      const year = now.getFullYear();
+      const { data: makeupSession } = await client
+        .from("makeup_sessions")
+        .select("remaining_makeup_count")
+        .eq("customer_id", memberId)
+        .eq("month", month)
+        .eq("year", year)
+        .maybeSingle();
+
+      const remaining = makeupSession ? Number(makeupSession.remaining_makeup_count || 0) : 0;
+      if (remaining <= 0) {
+        return fail("Bạn đã hết buổi tập bù khả dụng trong tháng này.", 400);
+      }
+    }
+
     const payload = {
       member_id: memberId,
       trainer_id: trainerId,
@@ -532,6 +584,35 @@ export async function updateTrainingRequestStatusServer({ requestId, status, dec
   }
 
   try {
+    const { data: requestRow, error: fetchError } = await client
+      .from("training_requests")
+      .select("request_type, member_id")
+      .or(`training_request_id.eq.${requestId},request_id.eq.${requestId}`)
+      .maybeSingle();
+
+    if (fetchError || !requestRow) {
+      return fail("Training request not found.", 404);
+    }
+
+    const requestType = String(requestRow.request_type || "").toLowerCase();
+    if (requestType === "makeup_pt_session" && ["accepted", "approved"].includes(normalizedStatus)) {
+      const now = new Date();
+      const month = now.getMonth() + 1;
+      const year = now.getFullYear();
+      const { data: makeupSession } = await client
+        .from("makeup_sessions")
+        .select("remaining_makeup_count")
+        .eq("customer_id", requestRow.member_id)
+        .eq("month", month)
+        .eq("year", year)
+        .maybeSingle();
+
+      const remaining = makeupSession ? Number(makeupSession.remaining_makeup_count || 0) : 0;
+      if (remaining <= 0) {
+        return fail("Hội viên đã hết buổi tập bù khả dụng trong tháng này.", 400);
+      }
+    }
+
     const updates = {
       status: normalizedStatus,
       decline_reason: declineReason,
@@ -552,17 +633,18 @@ export async function updateTrainingRequestStatusServer({ requestId, status, dec
 
     if (error) throw error;
 
-    const requestType = String(data?.request_type || "").toLowerCase();
-    if (requestType === "reschedule" && ["accepted", "approved"].includes(normalizedStatus)) {
+    const requestTypeReal = String(data?.request_type || "").toLowerCase();
+    if (requestTypeReal === "reschedule" && ["accepted", "approved"].includes(normalizedStatus)) {
       await applyAcceptedReschedule(client, data);
+      await recordMakeupUsage(client, data);
       await notifyMemberAboutRequest(client, data, "accepted");
-    } else if (requestType === "reschedule" && ["declined", "rejected"].includes(normalizedStatus)) {
+    } else if (requestTypeReal === "reschedule" && ["declined", "rejected"].includes(normalizedStatus)) {
       await notifyMemberAboutRequest(client, data, "declined");
-    } else if (requestType === "makeup_pt_session" && ["accepted", "approved"].includes(normalizedStatus)) {
+    } else if (requestTypeReal === "makeup_pt_session" && ["accepted", "approved"].includes(normalizedStatus)) {
       await createAcceptedMakeupPtSession(client, data);
       await recordMakeupUsage(client, data);
       await notifyMemberAboutMakeupRequest(client, data, "accepted");
-    } else if (requestType === "makeup_pt_session" && ["declined", "rejected"].includes(normalizedStatus)) {
+    } else if (requestTypeReal === "makeup_pt_session" && ["declined", "rejected"].includes(normalizedStatus)) {
       await notifyMemberAboutMakeupRequest(client, data, "declined");
     } else if (["accepted", "approved"].includes(normalizedStatus)) {
       await createTrainerSelectionNotification(client, data);
@@ -574,3 +656,45 @@ export async function updateTrainingRequestStatusServer({ requestId, status, dec
     return fail(error.message || "Training request could not be updated.", 500);
   }
 }
+
+function parseDateTimeAsGmt7(dateStr, timeStr) {
+  if (!dateStr || !timeStr) return null;
+  const [year, month, day] = dateStr.split("-").map(Number);
+  const [hours, minutes] = timeStr.slice(0, 5).split(":").map(Number);
+  if (isNaN(year) || isNaN(month) || isNaN(day) || isNaN(hours) || isNaN(minutes)) return null;
+
+  const pad = (n) => String(n).padStart(2, "0");
+  const isoStr = `${year}-${pad(month)}-${pad(day)}T${pad(hours)}:${pad(minutes)}:00+07:00`;
+  const dateObj = new Date(isoStr);
+  if (isNaN(dateObj.getTime())) return null;
+  return dateObj;
+}
+
+function isSessionBefore2Hours(dateStr, timeStr) {
+  const sessionTime = parseDateTimeAsGmt7(dateStr, timeStr);
+  if (!sessionTime) return false;
+  const now = new Date();
+  const diffHours = (sessionTime.getTime() - now.getTime()) / (1000 * 60 * 60);
+  return diffHours >= 2.0;
+}
+
+function isRequestBefore2Hours(request) {
+  if (!request) return false;
+  const currentSchedule = request.currentSchedule || request.current_schedule;
+  if (!currentSchedule) return false;
+
+  const parts = currentSchedule.trim().split(" ");
+  if (parts.length < 2) return false;
+  const dateStr = parts[0];
+  const timeStr = parts[1];
+
+  const sessionTime = parseDateTimeAsGmt7(dateStr, timeStr);
+  if (!sessionTime) return false;
+
+  const createdAtStr = request.createdAt || request.created_at || new Date().toISOString();
+  const requestTime = new Date(createdAtStr);
+
+  const diffHours = (sessionTime.getTime() - requestTime.getTime()) / (1000 * 60 * 60);
+  return diffHours >= 2.0;
+}
+

@@ -171,12 +171,18 @@ Thư mục `database/` chứa các file SQL chính:
 - `storage_pics_policies.sql`: policy cho bucket/avatar `pics`.
 - `production_cleanup.sql`: script dọn dẹp/production hardening tham khảo.
 
-Thiết lập database trong Supabase SQL Editor:
+Thứ tự chạy SQL trong Supabase SQL Editor:
 
 1. Chạy `database/schema.sql`.
-2. Chạy `database/seed.sql`.
-3. Nếu cần luồng kích hoạt hội viên, chạy `database/member_activation_rpc.sql`.
-4. Nếu cần upload avatar/hình ảnh, tạo bucket `pics` và chạy `database/storage_pics_policies.sql`.
+2. Chạy `database/member_care_upgrade.sql` nếu database đã tồn tại từ bản cũ.
+3. Chạy `database/ai_makeup_booking_upgrade.sql` nếu database đã tồn tại từ bản cũ.
+4. Chạy `database/workout_plan_crud_upgrade.sql` nếu database đã tồn tại từ bản cũ.
+5. Chạy `database/member_manual_workout_upgrade.sql` nếu database đã tồn tại từ bản cũ.
+6. Chạy `database/training_request_cancel_reschedule_upgrade.sql` nếu database đã tồn tại từ bản cũ.
+7. Chạy `database/production_cleanup.sql` nếu cần các cột hỗ trợ production như `address`, `citizen_id`, `certification`, `performance_score`.
+8. Chạy `database/seed.sql` để reset và dựng lại bộ data demo đầy đủ.
+9. Chạy `database/email_registration_verification.sql` nếu dùng luồng đăng ký bằng mã email.
+10. Nếu cần upload avatar/hình ảnh, tạo bucket `pics` và chạy `database/storage_pics_policies.sql`.
 
 Chi tiết mapping bảng theo từng portal nằm trong `database/README.md`.
 

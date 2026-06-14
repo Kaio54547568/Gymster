@@ -1,11 +1,12 @@
 alter table public.training_requests add column if not exists request_type text not null default 'assignment';
+alter table public.training_requests add column if not exists request_reason text not null default '';
 alter table public.training_requests add column if not exists requested_date date;
 alter table public.training_requests add column if not exists start_time time;
 alter table public.training_requests add column if not exists end_time time;
 
 alter table public.training_requests drop constraint if exists training_requests_request_type_check;
 alter table public.training_requests add constraint training_requests_request_type_check check (
-  request_type in ('assignment', 'reschedule', 'makeup_pt_session')
+  request_type in ('assignment', 'reschedule', 'makeup_pt_session', 'cancel_booking', 'cancel')
 );
 
 create table if not exists public.makeup_sessions (

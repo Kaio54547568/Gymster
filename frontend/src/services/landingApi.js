@@ -74,6 +74,7 @@ async function fetchPackageRows() {
     session_limit,
     has_personal_trainer,
     is_popular,
+    sessions_per_week,
     status
   `;
 

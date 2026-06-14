@@ -1,4 +1,4 @@
-import { parseGymsterIntent } from "./claudeService.js";
+import { parseGymsterIntent, createClaudeMessage, isMissingAnthropicApiKey } from "./claudeService.js";
 import {
   cancelBooking,
   createBooking,
@@ -388,10 +388,161 @@ export async function handleAiChat({ message, pendingAction, user }) {
     }
   }
 
+async function handleGeneralGymQuery(message) {
+  if (isMissingAnthropicApiKey()) {
+    return {
+      type: "success",
+      reply: "Quy định phòng tập Gymster:\n" +
+             "- Phải đăng ký đổi/hủy lịch trước giờ tập ít nhất 2 giờ để được cộng buổi tập bù.\n" +
+             "- Số buổi tập bù tối đa được nhận trong mỗi tháng là 2 buổi.\n" +
+             "- Đăng ký buổi tập bù yêu cầu số dư buổi bù khả dụng của bạn lớn hơn 0.\n" +
+             "- Giờ hoạt động của phòng tập từ 08:00 đến 20:00 hàng ngày.",
+      action: "unknown",
+      redirectUrl: null,
+      result: null,
+    };
+  }
+
+  const systemPrompt = `You are a helpful gym receptionist assistant for the Gymster fitness app.
+Answer user questions in Vietnamese about Gymster's gym policies, schedules, package registration, and makeup session rules.
+
+Gymster's Policies & Rules:
+1. Giờ hoạt động (Gym Hours): 08:00 - 20:00 hàng ngày.
+2. Buổi bù (Makeup PT Session Rules):
+   - Hội viên có thể đăng ký buổi tập bù với PT (makeup_pt_session) nếu còn số buổi bù khả dụng (availableMakeupBalance > 0).
+   - Số buổi bù tối đa nhận được trong tháng (monthlyLimit) là 2 buổi.
+   - Để nhận được buổi bù, hội viên phải yêu cầu Hủy lịch (cancel_booking) hoặc Đổi lịch (reschedule) trước ít nhất 2 giờ so với giờ tập dự kiến.
+   - Hủy lịch trễ (dưới 2 tiếng): Không được cộng buổi bù (history ghi nhận Hủy trễ dưới 2 tiếng và nhận 0 buổi bù).
+   - Đổi lịch trễ (dưới 2 tiếng): Nếu PT duyệt đổi lịch, buổi tập mới sẽ tiêu tốn 1 buổi bù của hội viên, và buổi cũ bị tính trễ nên không được cộng lại buổi bù nào (mất 1 buổi bù).
+   - Đổi lịch hợp lệ (trước 2 tiếng): Được cộng 1 buổi bù cho buổi cũ, và khi PT duyệt thì trừ 1 buổi bù cho buổi mới (net change = 0).
+   - Khi PT từ chối yêu cầu đổi lịch (reject reschedule): Không có thay đổi nào về số buổi bù.
+3. Các gói tập PT VIP: gói tập VIP hỗ trợ 2 buổi tập PT một tuần (các ngày không được quá gần nhau hoặc trùng nhau).
+
+Keep answers concise, polite, clear, and in Vietnamese. Avoid listing technical JSON parameters.`;
+
+  try {
+    const response = await createClaudeMessage({
+      prompt: message,
+      system: systemPrompt,
+      maxTokens: 500,
+    });
+    return {
+      type: "success",
+      reply: response.text,
+      action: "unknown",
+      redirectUrl: null,
+      result: null,
+    };
+  } catch (error) {
+    return {
+      type: "success",
+      reply: "Rất tiếc, tôi đang gặp lỗi kết nối. Hãy hỏi lại sau nhé!",
+      action: "unknown",
+      redirectUrl: null,
+      result: null,
+    };
+  }
+}
+
+export async function handleAiChat({ message, pendingAction, user }) {
+  if (!user?.id && !user?.userId && !user?.user_id && !user?.email) {
+    return { type: "error", reply: "Bạn cần đăng nhập trước khi dùng AI Assistant." };
+  }
+
+  if (pendingAction) {
+    if (isCancellation(message)) {
+      return { type: "cancelled", reply: "Thao tác đã được từ chối." };
+    }
+    if (pendingAction.status === "collecting") {
+      const parsed = await parseGymsterIntent(message);
+      const currentData = pendingAction.data || {};
+
+      if (pendingAction.name === "create_booking") {
+        const parsedDate = resolveDate(parsed.entities.date_text);
+        const parsedTime = normalizeTime(parsed.entities.time);
+        const data = {
+          ...currentData,
+          date: currentData.date || (parsedDate && typeof parsedDate !== "object" ? parsedDate : null),
+          time: currentData.time || parsedTime,
+          note: currentData.note || parsed.entities.note || null,
+        };
+
+        if (data.date && data.time) {
+          if (!isWithinGymHours(data.time)) {
+            return {
+              type: "question",
+              reply: "Phòng gym chỉ mở từ 08:00 đến 20:00. Bạn vui lòng chọn giờ tập trong khung này.",
+              pendingAction: { ...pendingAction, data: { ...data, time: null } },
+              parsed,
+            };
+          }
+          const action = { name: "create_booking", data };
+          return {
+            type: "confirmation_required",
+            reply: confirmationReply(action),
+            pendingAction: action,
+            parsed,
+          };
+        }
+
+        return {
+          type: "question",
+          reply: data.date ? "Bạn muốn đặt lịch lúc mấy giờ?" : "Bạn muốn đặt lịch vào ngày nào?",
+          pendingAction: { ...pendingAction, data },
+          parsed,
+        };
+      }
+
+      if (pendingAction.name === "cancel_booking") {
+        const parsedDate = resolveDate(parsed.entities.date_text);
+        const data = {
+          ...currentData,
+          date: currentData.date || (parsedDate && typeof parsedDate !== "object" ? parsedDate : null),
+        };
+
+        if (data.date) {
+          const action = { name: "cancel_booking", data };
+          return {
+            type: "confirmation_required",
+            reply: confirmationReply(action),
+            pendingAction: action,
+            parsed,
+          };
+        }
+
+        return {
+          type: "question",
+          reply: "Ban muon huy lich tap ngay nao?",
+          pendingAction: { ...pendingAction, data },
+          parsed,
+        };
+      }
+    }
+    if (!isConfirmation(message)) {
+      return {
+        type: "confirmation_required",
+        reply: confirmationReply(pendingAction),
+        pendingAction,
+      };
+    }
+
+    try {
+      const result = await executeAction(user, pendingAction);
+      return successResponse(pendingAction, result);
+    } catch (error) {
+      return { type: "error", reply: error.message || "Không thể thực hiện thao tác." };
+    }
+  }
+
   let parsed = await parseGymsterIntent(message);
   if (isExplicitCancelRequest(message)) {
     parsed = { ...parsed, intent: "cancel_booking" };
   }
+
+  if (parsed.intent === "unknown") {
+    return handleGeneralGymQuery(message);
+  }
+
   const requirement = requiredDataForIntent(parsed.intent, parsed.entities);
   if (!requirement.ok) {
     return {

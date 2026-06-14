@@ -5,7 +5,7 @@ import { sendAiChatMessage } from '../../services/aiChatApi';
 import { transcribeAudio } from '../../services/speechToTextApi';
 import { saveAiServiceFeedback } from '../../services/memberEngagementApi';
 import { saveAiTrainingRequest } from '../../services/trainingRequestApi';
-import { recordMakeupForCancelledSession, saveAiWorkoutSession, updateLocalWorkoutSessionStatus } from '../../services/workoutSessionApi';
+import { recordMakeupForCancelledSession } from '../../services/workoutSessionApi';
 
 type ChatMessage = {
   id: string;
@@ -125,8 +125,6 @@ export default function AIAssistantChat() {
         saveAiTrainingRequest(result.result);
       }
       if (result.type === 'success' && successfulAction === 'cancel_booking' && result.result?.sessionId) {
-        saveAiWorkoutSession(result.result);
-        updateLocalWorkoutSessionStatus(result.result.sessionId, 'cancelled');
         const makeupResult = recordMakeupForCancelledSession(result.result);
         if (makeupResult.granted || makeupResult.reason !== 'not_fixed_pt_session') {
           const makeupMessage = makeupCancelMessage(makeupResult);

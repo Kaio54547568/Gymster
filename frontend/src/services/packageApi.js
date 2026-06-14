@@ -25,6 +25,7 @@ const fallbackPackageRows = [
     session_limit: null,
     has_personal_trainer: false,
     is_popular: false,
+    sessions_per_week: 1,
     is_active: true,
     status: "active",
   },
@@ -39,6 +40,7 @@ const fallbackPackageRows = [
     session_limit: null,
     has_personal_trainer: false,
     is_popular: true,
+    sessions_per_week: 1,
     is_active: true,
     status: "active",
   },
@@ -53,6 +55,7 @@ const fallbackPackageRows = [
     session_limit: 8,
     has_personal_trainer: true,
     is_popular: false,
+    sessions_per_week: 1,
     is_active: true,
     status: "active",
   },
@@ -67,6 +70,7 @@ const fallbackPackageRows = [
     session_limit: 24,
     has_personal_trainer: true,
     is_popular: true,
+    sessions_per_week: 1,
     is_active: true,
     status: "active",
   },
@@ -81,6 +85,7 @@ const fallbackPackageRows = [
     session_limit: 60,
     has_personal_trainer: true,
     is_popular: true,
+    sessions_per_week: 2,
     is_active: true,
     status: "active",
   },
@@ -148,6 +153,7 @@ function mapPackageRow(row) {
     hasPersonalTrainer,
     isPopular: Boolean(row.is_popular),
     popular: Boolean(row.is_popular),
+    sessionsPerWeek: row.sessions_per_week ?? (packageType === "vip_pt" ? 2 : 1),
     isActive,
     status: row.status || (isActive ? "active" : "inactive"),
     statusLabel: isActive ? "Active" : "Inactive",
@@ -172,6 +178,7 @@ async function queryPackages() {
       session_limit,
       has_personal_trainer,
       is_popular,
+      sessions_per_week,
       is_active,
       status
     `;
@@ -220,6 +227,7 @@ export async function createPackageInSupabase(packageData) {
     session_limit: parseSessionLimit(packageData.sessionLimit, hasPersonalTrainer),
     has_personal_trainer: hasPersonalTrainer || packageType.includes("pt"),
     is_popular: Boolean(packageData.isPopular || packageData.popular),
+    sessions_per_week: Number(packageData.sessionsPerWeek || (packageType === "vip_pt" ? 2 : 1)),
     is_active: status === "active",
     status,
   };
@@ -238,6 +246,7 @@ export async function createPackageInSupabase(packageData) {
       session_limit,
       has_personal_trainer,
       is_popular,
+      sessions_per_week,
       is_active,
       status
     `)
@@ -273,6 +282,7 @@ export async function updatePackageInSupabase(packageId, packageData) {
     session_limit: parseSessionLimit(packageData.sessionLimit, hasPersonalTrainer),
     has_personal_trainer: hasPersonalTrainer || packageType.includes("pt"),
     is_popular: Boolean(packageData.isPopular || packageData.popular),
+    sessions_per_week: Number(packageData.sessionsPerWeek || (packageType === "vip_pt" ? 2 : 1)),
     is_active: status === "active",
     status,
   };
@@ -292,6 +302,7 @@ export async function updatePackageInSupabase(packageId, packageData) {
       session_limit,
       has_personal_trainer,
       is_popular,
+      sessions_per_week,
       is_active,
       status
     `)

@@ -3,6 +3,10 @@ import {
   markMakeupSessionUsedForAcceptedRequest,
   saveAcceptedLocalPtSessionFromRequest,
   updateLocalWorkoutSessionSchedule,
+  readMakeupState,
+  writeMakeupState,
+  normalizeMakeupState,
+  resolveLocalMemberId,
 } from "./workoutSessionApi";
 import { getMonthlyLeaveLimit } from "./packageEntitlement";
 import { createLocalNotification } from "./notificationApi";
@@ -11,6 +15,7 @@ import {
   getTrainingRequestStatusLabel,
   isLocalTrainingRequestId,
 } from "./trainingRequestLocal.js";
+import { isSessionBefore2Hours, isRequestBefore2Hours } from "./workoutSessionConflict.js";
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const LOCAL_TRAINING_REQUESTS_KEY = "gymster_local_training_requests";
@@ -291,8 +296,23 @@ function mapTrainingRequestRow(row) {
 }
 
 async function resolveMemberId(request) {
-  if (request.memberId && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(request.memberId))) {
-    return request.memberId;
+  const memberIdVal = request.memberId;
+  if (memberIdVal && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(memberIdVal))) {
+    const { data: memberById } = await supabase
+      .from("members")
+      .select("member_id")
+      .eq("member_id", memberIdVal)
+      .maybeSingle();
+    if (memberById?.member_id) return memberById.member_id;
+
+    const { data: memberByUserId } = await supabase
+      .from("members")
+      .select("member_id")
+      .eq("user_id", memberIdVal)
+      .maybeSingle();
+    if (memberByUserId?.member_id) return memberByUserId.member_id;
+
+    return memberIdVal;
   }
 
   if (request.memberEmail) {
@@ -460,15 +480,30 @@ function legacyTrainingRequestSelect() {
 }
 
 async function resolveMemberIdFromLookup(memberLookup) {
-  if (uuidPattern.test(String(memberLookup || ""))) {
-    return memberLookup;
+  const lookupVal = memberLookup || "";
+  if (uuidPattern.test(String(lookupVal))) {
+    const { data: memberById } = await supabase
+      .from("members")
+      .select("member_id")
+      .eq("member_id", lookupVal)
+      .maybeSingle();
+    if (memberById?.member_id) return memberById.member_id;
+
+    const { data: memberByUserId } = await supabase
+      .from("members")
+      .select("member_id")
+      .eq("user_id", lookupVal)
+      .maybeSingle();
+    if (memberByUserId?.member_id) return memberByUserId.member_id;
+
+    return lookupVal;
   }
 
-  if (String(memberLookup || "").includes("@")) {
+  if (String(lookupVal).includes("@")) {
     const { data: user } = await supabase
       .from("users")
       .select("user_id")
-      .eq("email", memberLookup)
+      .eq("email", lookupVal)
       .maybeSingle();
 
     if (!user?.user_id) return null;
@@ -643,13 +678,32 @@ async function recordMakeupUsage(row) {
       .eq("status", "cancelled")
       .gte("session_date", `${year}-${String(month).padStart(2, "0")}-01`)
       .lte("session_date", `${year}-${String(month).padStart(2, "0")}-31`);
-    const fixedScheduleCancelCount = Number(count || 0);
+
+    const { data: reschedules } = await supabase
+      .from("training_requests")
+      .select("created_at,current_schedule")
+      .eq("member_id", row.member_id)
+      .eq("request_type", "reschedule")
+      .in("status", ["accepted", "approved", "completed"])
+      .gte("created_at", `${year}-${String(month).padStart(2, "0")}-01T00:00:00`)
+      .lte("created_at", `${year}-${String(month).padStart(2, "0")}-31T23:59:59`);
+
+    let validRescheduleCount = 0;
+    if (reschedules) {
+      for (const req of reschedules) {
+        if (isRequestBefore2Hours(req)) {
+          validRescheduleCount++;
+        }
+      }
+    }
+
+    const fixedScheduleCancelCount = Number(count || 0) + validRescheduleCount;
     const maxMakeupAllowed = Math.min(fixedScheduleCancelCount, getMonthlyLeaveLimit());
     const { count: usedCount } = await supabase
       .from("training_requests")
       .select("training_request_id", { count: "exact", head: true })
       .eq("member_id", row.member_id)
-      .eq("request_type", "makeup_pt_session")
+      .in("request_type", ["makeup_pt_session", "reschedule"])
       .in("status", ["accepted", "approved", "completed"])
       .gte("created_at", `${year}-${String(month).padStart(2, "0")}-01T00:00:00`)
       .lte("created_at", `${year}-${String(month).padStart(2, "0")}-31T23:59:59`);
@@ -665,7 +719,7 @@ async function recordMakeupUsage(row) {
       updated_at: new Date().toISOString(),
     }, { onConflict: "customer_id,month,year" });
   } catch (error) {
-    console.warn("[Gymster h\u1ec7 th\u1ed1ng] Makeup summary table could not be updated:", error);
+    console.warn("[Gymster hệ thống] Makeup summary table could not be updated:", error);
   }
 }
 
@@ -805,6 +859,15 @@ async function resolveSourceWorkoutSessionId(row) {
 
 export async function createTrainingRequest(request) {
   const requestType = request.requestType || request.type || "assignment";
+  const memberId = request.memberId || request.member_id || "";
+  
+  if (String(requestType).toLowerCase() === "makeup_pt_session") {
+    const state = readMakeupState(memberId);
+    if (state.remainingMakeupCount <= 0) {
+      return { data: null, error: new Error("Bạn đã hết buổi tập bù khả dụng trong tháng này.") };
+    }
+  }
+
   const hasLocalIdentifiers = [
     request.trainerId,
     request.packageId,
@@ -815,6 +878,34 @@ export async function createTrainingRequest(request) {
   if (!supabase || (String(requestType).toLowerCase() !== "assignment" && hasLocalIdentifiers)) {
     const now = new Date().toISOString();
     const localRequestId = `LOCAL-TR-${Date.now()}`;
+
+    if (String(requestType).toLowerCase() === "reschedule") {
+      const currentSchedule = request.currentSchedule || "";
+      const parts = currentSchedule.trim().split(" ");
+      if (parts.length >= 2) {
+        const dateStr = parts[0];
+        const timeStr = parts[1];
+        const isBefore2Hours = isSessionBefore2Hours(dateStr, timeStr);
+        
+        const state = readMakeupState(memberId);
+        const historyItem = {
+          requestId: localRequestId,
+          sessionId: request.sourceWorkoutSessionId || request.sessionId || "",
+          date: dateStr,
+          time: timeStr,
+          recordedAt: now,
+          granted: isBefore2Hours,
+          type: "reschedule_pending_credit",
+        };
+        const nextState = {
+          ...state,
+          fixedScheduleCancelCount: isBefore2Hours ? Number(state.fixedScheduleCancelCount || 0) + 1 : Number(state.fixedScheduleCancelCount || 0),
+          history: [historyItem, ...state.history],
+        };
+        writeMakeupState(normalizeMakeupState(nextState, memberId));
+      }
+    }
+
     const row = {
       id: localRequestId,
       requestId: localRequestId,
@@ -855,9 +946,9 @@ export async function createTrainingRequest(request) {
     return { data: apiResult.data, error: apiResult.error };
   }
 
-  const memberId = await resolveMemberId(request);
+  const dbMemberId = await resolveMemberId(request);
   const payload = {
-    member_id: memberId,
+    member_id: dbMemberId,
     trainer_id: request.trainerId,
     package_id: request.packageId,
     member_package_id: request.memberPackageId || null,
@@ -968,11 +1059,39 @@ export async function updateTrainingRequestStatus(requestId, status, declineReas
     const nextTarget = localUpdate.target;
     const normalizedStatus = String(nextTarget.status || "").toLowerCase();
     if (normalizedStatus === "accepted") {
-      if (nextTarget.type === "reschedule") {
+      if (nextTarget.type === "makeup_pt_session") {
+        const memberId = nextTarget.memberId || nextTarget.member_id || "";
+        const state = readMakeupState(memberId);
+        if (state.remainingMakeupCount <= 0) {
+          return { data: null, error: new Error("Hội viên đã hết buổi tập bù khả dụng trong tháng này.") };
+        }
+        saveAcceptedLocalPtSessionFromRequest(nextTarget);
+        markMakeupSessionUsedForAcceptedRequest(nextTarget);
+      } else if (nextTarget.type === "reschedule") {
         updateLocalWorkoutSessionSchedule(nextTarget.sourceWorkoutSessionId, nextTarget);
+        markMakeupSessionUsedForAcceptedRequest(nextTarget);
       } else {
         saveAcceptedLocalPtSessionFromRequest(nextTarget);
         markMakeupSessionUsedForAcceptedRequest(nextTarget);
+      }
+    }
+    if (["declined", "rejected"].includes(normalizedStatus)) {
+      if (nextTarget.type === "reschedule") {
+        const memberId = nextTarget.memberId || nextTarget.member_id || "";
+        const state = readMakeupState(memberId);
+        const pendingIndex = state.history.findIndex(item => item.requestId === nextTarget.requestId && item.type === "reschedule_pending_credit");
+        if (pendingIndex !== -1) {
+          const pendingItem = state.history[pendingIndex];
+          if (pendingItem.granted) {
+            state.fixedScheduleCancelCount = Math.max(0, Number(state.fixedScheduleCancelCount || 0) - 1);
+          }
+          state.history[pendingIndex] = {
+            ...pendingItem,
+            type: "reschedule_rejected",
+            granted: false,
+          };
+          writeMakeupState(normalizeMakeupState(state, memberId));
+        }
       }
     }
     writeLocalTrainingRequests(localUpdate.rows);
@@ -1034,6 +1153,7 @@ export async function updateTrainingRequestStatus(requestId, status, declineReas
   if (requestType === "reschedule" && ["accepted", "approved"].includes(normalizedStatus)) {
     try {
       await applyAcceptedReschedule(data);
+      await recordMakeupUsage(data);
       await notifyMemberAboutRequest(data, "accepted");
     } catch (actionError) {
       console.error("[Gymster hệ thống] Failed to finalize reschedule request:", actionError);

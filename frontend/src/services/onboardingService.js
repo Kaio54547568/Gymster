@@ -16,6 +16,16 @@ export const fixedScheduleOptions = [
   "Saturday / Sunday, 07:00 - 08:00",
 ];
 
+export const individualScheduleOptions = [
+  "Monday, 18:00 - 19:00",
+  "Tuesday, 19:00 - 20:00",
+  "Wednesday, 18:00 - 19:00",
+  "Thursday, 19:00 - 20:00",
+  "Friday, 18:00 - 19:00",
+  "Saturday, 07:00 - 08:00",
+  "Sunday, 07:00 - 08:00",
+];
+
 const defaultState = {
   memberId: null,
   accountStatus: ACCOUNT_STATUSES.PendingOnboarding,

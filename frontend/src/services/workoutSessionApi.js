@@ -6,7 +6,7 @@ import {
   generateUpcomingSessions,
 } from "./workoutScheduleGenerator";
 import { formatSessionExerciseContent, getSessionStatusLabel, normalizeSessionStatus } from "./sessionModel";
-import { findConflictingPtSession } from "./workoutSessionConflict";
+import { findConflictingPtSession, isSessionBefore2Hours } from "./workoutSessionConflict";
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const LOCAL_WORKOUT_SESSIONS_KEY = "gymster_local_workout_sessions";
@@ -120,7 +120,7 @@ function defaultMakeupState(memberId = LOCAL_DEMO_MEMBER_ID) {
   };
 }
 
-function normalizeMakeupState(rawState, memberId = LOCAL_DEMO_MEMBER_ID) {
+export function normalizeMakeupState(rawState, memberId = LOCAL_DEMO_MEMBER_ID) {
   const state = {
     ...defaultMakeupState(memberId),
     ...(rawState && typeof rawState === "object" ? rawState : {}),
@@ -153,7 +153,7 @@ function normalizeMakeupState(rawState, memberId = LOCAL_DEMO_MEMBER_ID) {
   };
 }
 
-function readMakeupState(memberId = LOCAL_DEMO_MEMBER_ID) {
+export function readMakeupState(memberId = LOCAL_DEMO_MEMBER_ID) {
   if (!canUseStorage()) return defaultMakeupState(memberId);
 
   try {
@@ -164,7 +164,7 @@ function readMakeupState(memberId = LOCAL_DEMO_MEMBER_ID) {
   }
 }
 
-function writeMakeupState(state) {
+export function writeMakeupState(state) {
   if (!canUseStorage()) return;
 
   window.localStorage.setItem(LOCAL_MAKEUP_SESSIONS_KEY, JSON.stringify(state));
@@ -192,21 +192,36 @@ export function recordMakeupForCancelledSession(session, currentUser = null) {
     return { ...state, granted: false, reason: "already_recorded" };
   }
 
+  const sessionDate = session?.sessionDate || session?.date || session?.dateIso || "";
+  const startTime = session?.startTime || session?.time || "";
+  const actualStartTime = startTime.includes(" - ") ? startTime.split(" - ")[0] : startTime;
+
+  const isBefore2Hours = isSessionBefore2Hours(sessionDate, actualStartTime);
+
   const historyItem = {
     sessionId,
-    date: session?.date || session?.sessionDate || "",
-    time: session?.time || session?.startTime || "",
+    date: sessionDate,
+    time: startTime,
     recordedAt: new Date().toISOString(),
   };
 
-  const nextState = {
-    ...state,
-    fixedScheduleCancelCount: Number(state.fixedScheduleCancelCount || 0) + 1,
-    history: [{ ...historyItem, granted: true, type: "fixed_session_cancelled" }, ...state.history],
-  };
+  let nextState;
+  if (isBefore2Hours) {
+    nextState = {
+      ...state,
+      fixedScheduleCancelCount: Number(state.fixedScheduleCancelCount || 0) + 1,
+      history: [{ ...historyItem, granted: true, type: "fixed_session_cancelled" }, ...state.history],
+    };
+  } else {
+    nextState = {
+      ...state,
+      history: [{ ...historyItem, granted: false, type: "fixed_session_cancelled_late" }, ...state.history],
+    };
+  }
+
   const normalized = normalizeMakeupState(nextState, memberId);
   writeMakeupState(normalized);
-  return { ...normalized, granted: true };
+  return { ...normalized, granted: isBefore2Hours };
 }
 
 export function markMakeupSessionUsedForAcceptedRequest(request, currentUser = null) {
@@ -347,7 +362,7 @@ function toDateValue(date) {
   return `${year}-${month}-${day}`;
 }
 
-function resolveLocalMemberId(currentUser) {
+export function resolveLocalMemberId(currentUser) {
   return currentUser?.memberId || currentUser?.member_id || currentUser?.id || LOCAL_DEMO_MEMBER_ID;
 }
 
@@ -624,8 +639,23 @@ async function enrichWorkoutSessions(rows) {
 }
 
 async function resolveMemberId(data) {
-  if (data.memberId && uuidPattern.test(String(data.memberId))) {
-    return data.memberId;
+  const memberIdVal = data.memberId;
+  if (memberIdVal && uuidPattern.test(String(memberIdVal))) {
+    const { data: memberById } = await supabase
+      .from("members")
+      .select("member_id")
+      .eq("member_id", memberIdVal)
+      .maybeSingle();
+    if (memberById?.member_id) return memberById.member_id;
+
+    const { data: memberByUserId } = await supabase
+      .from("members")
+      .select("member_id")
+      .eq("user_id", memberIdVal)
+      .maybeSingle();
+    if (memberByUserId?.member_id) return memberByUserId.member_id;
+
+    return memberIdVal;
   }
 
   if (data.memberEmail) {

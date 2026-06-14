@@ -579,6 +579,18 @@ function validateOAuthProfile(profile) {
   return "";
 }
 
+function shouldFallbackToLegacyLogin(response, result) {
+  const message = String(result?.message || result?.error || "").toLowerCase();
+  return (
+    response.status === 404
+    || response.status >= 500
+    || message.includes("service role is not configured")
+    || message.includes("backend supabase service role is not configured")
+    || message.includes("proxy")
+    || message.includes("econnrefused")
+  );
+}
+
 async function createUserFromOAuth(authUser, profile = null) {
   const email = String(authUser?.email || "").trim().toLowerCase();
   if (!email) {
@@ -695,8 +707,7 @@ async function loginSupabaseUser(identifier, password, options = {}) {
       return { ok: true, user: result.user };
     }
 
-    const canUseLegacyFallback = response.status === 404 ||
-      String(result.message || "").includes("service role is not configured");
+    const canUseLegacyFallback = shouldFallbackToLegacyLogin(response, result);
 
     if (!canUseLegacyFallback) {
       return {
