@@ -1,0 +1,23 @@
+<svg width="64" height="64" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="redBg" x1="42" x2="470" y1="36" y2="480" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ff1717"/>
+      <stop offset="0.55" stop-color="#d60000"/>
+      <stop offset="1" stop-color="#8d0000"/>
+    </linearGradient>
+    <linearGradient id="arm" x1="121" x2="329" y1="106" y2="404" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffe23f"/>
+      <stop offset="0.5" stop-color="#ffc324"/>
+      <stop offset="1" stop-color="#ff7a00"/>
+    </linearGradient>
+    <linearGradient id="bolt" x1="198" x2="390" y1="40" y2="476" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#2f3032"/>
+      <stop offset="1" stop-color="#050505"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="96" fill="url(#redBg)"/>
+  <path d="M342 36 170 236h89l-77 240 184-244h-90L342 36Z" fill="url(#bolt)" stroke="#070707" stroke-width="18" stroke-linejoin="round"/>
+  <path d="M132 317c8-69 21-135 47-188 12-25 31-35 57-28l48 14c21 6 34 22 37 43 2 13-4 25-17 31 10 9 13 20 8 32-6 15-19 22-38 20l-33-3c17 14 39 29 75 28 32-1 53-14 76-31 13-10 30-5 35 11-38 89-110 153-228 149-45-1-71-29-65-78Z" fill="url(#arm)" stroke="#060606" stroke-width="18" stroke-linejoin="round"/>
+  <path d="M205 127c-19 43-32 100-39 171" fill="none" stroke="#171717" stroke-width="10" stroke-linecap="round"/>
+  <path d="M225 197c25 25 61 29 88 7" fill="none" stroke="#070707" stroke-width="14" stroke-linecap="round"/>
+</svg>

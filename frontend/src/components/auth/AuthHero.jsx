@@ -41,7 +41,9 @@ function AuthHero() {
 
       <div className="auth-hero-inner">
         <Link className="forge-brand" to="/" aria-label="Về trang chủ Gymster">
-          <span className="forge-brand-icon">G</span>
+          <span className="forge-brand-icon">
+            <img src="/assets/brand/gymster-icon.svg" alt="" />
+          </span>
           <span>
             <span className="forge-brand-main">GYMSTER</span>
             <span className="forge-brand-sub">Quản lý phòng gym</span>

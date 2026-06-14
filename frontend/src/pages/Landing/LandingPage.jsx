@@ -26,7 +26,9 @@ function scrollToSection(id) {
 function Brand() {
   return (
     <Link className="landing-brand" to="/">
-      <span>G</span>
+      <span>
+        <img src="/assets/brand/gymster-icon.svg" alt="" />
+      </span>
       <strong>GYMSTER</strong>
     </Link>
   );
@@ -121,7 +123,9 @@ function FeaturesSection() {
         <div className="landing-card-grid">
           {features.map(([title, text]) => (
             <article className="feature-card" key={title}>
-              <div className="feature-icon">G</div>
+              <div className="feature-icon">
+                <img src="/assets/brand/gymster-icon.svg" alt="" />
+              </div>
               <h3>{title}</h3>
               <p>{text}</p>
             </article>

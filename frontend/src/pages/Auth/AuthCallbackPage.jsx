@@ -42,7 +42,9 @@ function AuthCallbackPage() {
       <section className="auth-main auth-callback-main">
         <div className="auth-card auth-callback-card">
           <div className="card-head">
-            <div className="card-icon">G</div>
+            <div className="card-icon">
+              <img src="/assets/brand/gymster-icon.svg" alt="Gymster" />
+            </div>
             <h1>Social Login</h1>
             <p>{message}</p>
           </div>

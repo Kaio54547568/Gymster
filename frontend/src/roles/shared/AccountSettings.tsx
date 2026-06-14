@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Bell, Edit2, Eye, EyeOff, Globe, Lock, Mail, Moon, Phone, Shield, Sun, X } from 'lucide-react';
+import { Bell, CheckCircle, Edit2, Eye, EyeOff, Globe, Lock, Mail, Moon, Phone, Shield, Sun, X } from 'lucide-react';
 import ThemeToggle from '../../components/theme/ThemeToggle';
 import { getCurrentUser, setCurrentUser } from '../../services/authService';
 import { getCurrentUserSettings, updateCurrentUserContactInfo, updateCurrentUserPassword, updateCurrentUserSettings } from '../../services/userProfileApi';
@@ -20,7 +20,8 @@ type PasswordFieldProps = {
   label: string;
   value: string;
   visible: boolean;
-  disabled: boolean;
+  placeholder: string;
+  error?: string;
   onChange: (value: string) => void;
   onToggleVisible: () => void;
 };
@@ -45,29 +46,30 @@ const notificationPreferenceOptions: Array<{ key: NotificationPreferenceKey; lab
   },
 ];
 
-function PasswordField({ label, value, visible, disabled, onChange, onToggleVisible }: PasswordFieldProps) {
+function PasswordField({ label, value, visible, placeholder, error, onChange, onToggleVisible }: PasswordFieldProps) {
   return (
-    <label className="text-xs font-bold uppercase tracking-wide text-white/55">
+    <label className="block text-xs font-bold uppercase tracking-wide text-white/55">
       {label}
       <div className="relative mt-2">
         <input
           type={visible ? 'text' : 'password'}
           value={value}
-          disabled={disabled}
           onChange={(event) => onChange(event.target.value)}
-          placeholder="Enter password"
-          className="w-full rounded-xl border border-white/10 bg-[#222] px-4 py-3 pr-11 text-sm text-white outline-none transition-colors disabled:cursor-not-allowed disabled:opacity-55 focus:border-[#EF233C]/60"
+          placeholder={placeholder}
+          className={`w-full rounded-xl border bg-[#222] px-4 py-3 pr-11 text-sm text-white outline-none transition-colors focus:border-[#EF233C]/60 ${
+            error ? 'border-[#EF233C]/70' : 'border-white/10'
+          }`}
         />
         <button
           type="button"
-          disabled={disabled}
           onClick={onToggleVisible}
-          className="absolute right-3 top-1/2 -translate-y-1/2 text-white/45 transition-colors hover:text-[#EF233C] disabled:cursor-not-allowed disabled:opacity-40"
+          className="absolute right-3 top-1/2 -translate-y-1/2 text-white/45 transition-colors hover:text-[#EF233C]"
           aria-label={visible ? 'Hide password' : 'Show password'}
         >
           {visible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
         </button>
       </div>
+      {error && <p className="mt-2 text-xs font-semibold normal-case tracking-normal text-[#EF233C]">{error}</p>}
     </label>
   );
 }
@@ -86,14 +88,17 @@ export default function AccountSettings({
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [isEditingPassword, setIsEditingPassword] = useState(false);
+  const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
+  const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
   const [visiblePasswords, setVisiblePasswords] = useState<Record<string, boolean>>({});
+  const [passwordErrors, setPasswordErrors] = useState<Record<string, string>>({});
   const [mainEmail, setMainEmail] = useState(primaryEmail);
   const [extraEmails, setExtraEmails] = useState<string[]>([]);
   const [newEmail, setNewEmail] = useState('');
   const [phone, setPhone] = useState(phoneNumber);
   const [isEditingContact, setIsEditingContact] = useState(false);
   const [passwordMessage, setPasswordMessage] = useState('');
+  const [passwordToast, setPasswordToast] = useState('');
   const [contactMessage, setContactMessage] = useState('');
   const [notificationMessage, setNotificationMessage] = useState('');
   const [notificationPrefs, setNotificationPrefs] = useState<Record<NotificationPreferenceKey, boolean>>({
@@ -139,13 +144,20 @@ export default function AccountSettings({
     setNewPassword('');
     setConfirmPassword('');
     setVisiblePasswords({});
+    setPasswordErrors({});
   };
 
-  const togglePasswordEdit = () => {
-    setIsEditingPassword((current) => {
-      if (current) resetPasswordFields();
-      return !current;
-    });
+  const openPasswordModal = () => {
+    setPasswordMessage('');
+    resetPasswordFields();
+    setIsPasswordModalOpen(true);
+  };
+
+  const closePasswordModal = () => {
+    if (isUpdatingPassword) return;
+    setIsPasswordModalOpen(false);
+    setPasswordMessage('');
+    resetPasswordFields();
   };
 
   const toggleContactEdit = () => {
@@ -162,24 +174,45 @@ export default function AccountSettings({
 
   const updatePassword = () => {
     setPasswordMessage('');
+    const nextErrors: Record<string, string> = {};
 
-    if (!currentPassword || !newPassword || !confirmPassword) {
-      setPasswordMessage('Please fill in all password fields.');
+    if (!currentPassword) {
+      nextErrors.current = 'Current password is required.';
+    }
+    if (!newPassword) {
+      nextErrors.new = 'New password is required.';
+    } else if (newPassword.length < 8) {
+      nextErrors.new = 'New password must be at least 8 characters.';
+    }
+    if (!confirmPassword) {
+      nextErrors.confirm = 'Please confirm your new password.';
+    } else if (newPassword && confirmPassword !== newPassword) {
+      nextErrors.confirm = 'Confirm password must match the new password.';
+    }
+
+    setPasswordErrors(nextErrors);
+    if (Object.keys(nextErrors).length) {
       return;
     }
 
-    if (newPassword !== confirmPassword) {
-      setPasswordMessage('New password and confirmation do not match.');
-      return;
-    }
-
-    updateCurrentUserPassword(getCurrentUser(), currentPassword, newPassword).then((result) => {
-      setPasswordMessage(result.message);
-      if (result.ok) {
-        resetPasswordFields();
-        setIsEditingPassword(false);
-      }
-    });
+    setIsUpdatingPassword(true);
+    updateCurrentUserPassword(getCurrentUser(), currentPassword, newPassword)
+      .then((result) => {
+        if (result.ok) {
+          setPasswordToast('Password updated successfully');
+          window.setTimeout(() => setPasswordToast(''), 3500);
+          resetPasswordFields();
+          setIsPasswordModalOpen(false);
+          return;
+        }
+        setPasswordMessage(result.message || 'Password could not be updated.');
+      })
+      .catch(() => {
+        setPasswordMessage('Password could not be updated.');
+      })
+      .finally(() => {
+        setIsUpdatingPassword(false);
+      });
   };
 
   const saveContactInfo = () => {
@@ -269,50 +302,19 @@ export default function AccountSettings({
             </div>
             <button
               type="button"
-              onClick={togglePasswordEdit}
+              onClick={openPasswordModal}
               className="grid h-9 w-9 place-items-center rounded-lg border border-white/10 text-white/70 transition-colors hover:border-[#EF233C]/50 hover:text-[#EF233C]"
-              aria-label={isEditingPassword ? 'Cancel password edit' : 'Edit password'}
+              aria-label="Edit password"
             >
-              {isEditingPassword ? <X className="h-4 w-4" /> : <Edit2 className="h-4 w-4" />}
+              <Edit2 className="h-4 w-4" />
             </button>
           </div>
-          <div className="grid gap-4 p-6 md:grid-cols-3">
-            <PasswordField
-              label="Current Password"
-              value={currentPassword}
-              visible={Boolean(visiblePasswords.current)}
-              disabled={!isEditingPassword}
-              onChange={setCurrentPassword}
-              onToggleVisible={() => toggleVisible('current')}
-            />
-            <PasswordField
-              label="New Password"
-              value={newPassword}
-              visible={Boolean(visiblePasswords.new)}
-              disabled={!isEditingPassword}
-              onChange={setNewPassword}
-              onToggleVisible={() => toggleVisible('new')}
-            />
-            <PasswordField
-              label="Confirm New Password"
-              value={confirmPassword}
-              visible={Boolean(visiblePasswords.confirm)}
-              disabled={!isEditingPassword}
-              onChange={setConfirmPassword}
-              onToggleVisible={() => toggleVisible('confirm')}
-            />
-            <div className="md:col-span-3">
-              <button
-                type="button"
-                disabled={!isEditingPassword}
-                onClick={updatePassword}
-                className="rounded-xl border border-[#EF233C]/40 px-5 py-3 text-sm font-bold text-[#EF233C] transition-colors hover:bg-[#EF233C]/10 disabled:cursor-not-allowed disabled:border-white/10 disabled:text-white/30 disabled:hover:bg-transparent"
-              >
-                Update Password
-              </button>
-              {passwordMessage && <p className="mt-3 text-xs font-semibold text-white/55">{passwordMessage}</p>}
+          {passwordToast && (
+            <div className="flex items-center gap-3 px-6 py-4 text-sm font-semibold text-[#D1FAE5]">
+              <CheckCircle className="h-5 w-5 text-[#22C55E]" />
+              {passwordToast}
             </div>
-          </div>
+          )}
         </section>
 
         <section className="rounded-2xl border border-white/8 bg-[#181818]">
@@ -429,6 +431,65 @@ export default function AccountSettings({
           </div>
         </section>
       </div>
+
+      {isPasswordModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm" onClick={closePasswordModal}>
+          <div className="w-full max-w-md rounded-2xl border border-[#EF233C]/30 bg-[#0c1014] p-6 shadow-[0_0_50px_rgba(239,35,60,0.22)]" onClick={(event) => event.stopPropagation()}>
+            <div className="mb-6 flex items-center justify-between gap-4">
+              <h2 className="text-2xl font-black text-white">Change Password</h2>
+              <button type="button" onClick={closePasswordModal} className="rounded-lg p-2 text-white/55 transition-colors hover:bg-white/10 hover:text-white">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="space-y-5">
+              <PasswordField
+                label="Current Password"
+                value={currentPassword}
+                visible={Boolean(visiblePasswords.current)}
+                placeholder="Enter current password"
+                error={passwordErrors.current}
+                onChange={setCurrentPassword}
+                onToggleVisible={() => toggleVisible('current')}
+              />
+              <PasswordField
+                label="New Password"
+                value={newPassword}
+                visible={Boolean(visiblePasswords.new)}
+                placeholder="Enter new password"
+                error={passwordErrors.new}
+                onChange={setNewPassword}
+                onToggleVisible={() => toggleVisible('new')}
+              />
+              <PasswordField
+                label="Confirm New Password"
+                value={confirmPassword}
+                visible={Boolean(visiblePasswords.confirm)}
+                placeholder="Confirm new password"
+                error={passwordErrors.confirm}
+                onChange={setConfirmPassword}
+                onToggleVisible={() => toggleVisible('confirm')}
+              />
+            </div>
+
+            {passwordMessage && <p className="mt-4 rounded-xl border border-[#EF233C]/30 bg-[#EF233C]/10 px-4 py-3 text-xs font-semibold text-white">{passwordMessage}</p>}
+
+            <div className="mt-7 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+              <button type="button" onClick={closePasswordModal} className="rounded-xl border border-white/10 px-5 py-3 text-sm font-bold text-white transition-colors hover:border-[#EF233C]/40 hover:bg-white/5">
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isUpdatingPassword}
+                onClick={updatePassword}
+                className="rounded-xl bg-[#EF233C] px-5 py-3 text-sm font-bold text-white transition-colors hover:bg-[#990000] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isUpdatingPassword ? 'Updating...' : 'Update Password'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

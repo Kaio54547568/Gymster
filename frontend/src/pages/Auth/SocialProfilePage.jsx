@@ -131,7 +131,9 @@ function SocialProfilePage() {
         <div className="auth-main-inner register">
           <div className="auth-card">
             <div className="card-head">
-              <div className="card-icon">G</div>
+              <div className="card-icon">
+                <img src="/assets/brand/gymster-icon.svg" alt="Gymster" />
+              </div>
               <h1>Complete Profile</h1>
               <p>Fill in the missing details so Gymster can finish creating your account.</p>
             </div>

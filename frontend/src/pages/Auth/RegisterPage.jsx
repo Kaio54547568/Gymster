@@ -224,13 +224,17 @@ function RegisterPage() {
       <section className="auth-main">
         <div className="auth-main-inner register">
           <Link className="mobile-brand" to="/" aria-label="Go to Gymster home">
-            <span className="mobile-brand-icon">G</span>
+            <span className="mobile-brand-icon">
+              <img src="/assets/brand/gymster-icon.svg" alt="" />
+            </span>
             <span className="mobile-brand-text">GYMSTER</span>
           </Link>
 
           <div className="auth-card">
             <div className="card-head">
-              <div className="card-icon">G</div>
+              <div className="card-icon">
+                <img src="/assets/brand/gymster-icon.svg" alt="Gymster" />
+              </div>
               <h1>Create Member Account</h1>
               <p>Create your Gymster account first, then complete package, trainer, and payment setup in onboarding.</p>
             </div>

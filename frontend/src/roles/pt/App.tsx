@@ -532,11 +532,11 @@ function Sidebar({ screen, onNavigate }: { screen: Screen; onNavigate: (s: Scree
     <aside className="w-60 bg-[#111] border-r border-white/5 flex flex-col shrink-0 h-full">
       <div className="px-5 py-5 border-b border-white/5">
         <div className="flex items-center gap-3">
-          <div className="size-9 bg-[#FF3B3B] rounded-xl flex items-center justify-center shadow-lg shadow-red-500/30">
-            <Dumbbell className="size-5 text-white" />
+          <div className="size-9 overflow-hidden rounded-xl border border-[#FF3B3B]/35 bg-[#120f10] shadow-lg shadow-red-500/30">
+            <img src="/assets/brand/gymster-icon.svg" alt="Gymster" className="h-full w-full object-cover" />
           </div>
           <div>
-            <div className="text-white font-bold text-sm leading-none tracking-wide">GymFit</div>
+            <div className="text-white font-bold text-sm leading-none tracking-wide">Gymster</div>
             <div className="text-[#FF3B3B] text-xs mt-0.5 font-medium">PT Module</div>
           </div>
         </div>

@@ -60,8 +60,8 @@ function PageShell({ children }) {
       <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1534438327276-14e5300c3a48?w=1920&h=1080&fit=crop')] bg-cover bg-center opacity-[0.04]" />
       <div className="relative mx-auto max-w-6xl">
         <div className="mb-8 flex items-center gap-3">
-          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-[#EF233C] to-[#990000] shadow-[0_0_24px_rgba(239,35,60,0.35)]">
-            <Dumbbell className="h-6 w-6" />
+          <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-2xl border border-[#EF233C]/35 bg-[#120f10] shadow-[0_0_24px_rgba(239,35,60,0.35)]">
+            <img src="/assets/brand/gymster-icon.svg" alt="Gymster" className="h-full w-full object-cover" />
           </div>
           <div>
             <div className="text-2xl font-black tracking-wide">Gymster</div>

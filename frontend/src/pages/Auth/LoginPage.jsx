@@ -56,13 +56,17 @@ function LoginPage() {
       <section className="auth-main">
         <div className="auth-main-inner">
           <Link className="mobile-brand" to="/" aria-label="Về trang chủ Gymster">
-            <span className="mobile-brand-icon">G</span>
+            <span className="mobile-brand-icon">
+              <img src="/assets/brand/gymster-icon.svg" alt="" />
+            </span>
             <span className="mobile-brand-text">GYMSTER</span>
           </Link>
 
           <div className="auth-card">
             <div className="card-head">
-              <div className="card-icon">G</div>
+              <div className="card-icon">
+                <img src="/assets/brand/gymster-icon.svg" alt="Gymster" />
+              </div>
               <h1>Chào mừng trở lại</h1>
               <p>Đăng nhập bằng tên đăng nhập hoặc email Gymster của bạn</p>
             </div>

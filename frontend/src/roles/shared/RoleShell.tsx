@@ -7,7 +7,6 @@ import {
   ChevronsRight,
   CheckCircle,
   Clock,
-  Dumbbell,
   Info,
   LogOut,
   Search,
@@ -23,6 +22,8 @@ import { useAppearance } from './AppearanceContext';
 import { useRoleTranslationEffect } from './LanguageContext';
 import { useRoleNotifications, type RoleNotification } from './notificationStore';
 import { openMedicalHistoryForm } from '../../services/medicalHistoryApi';
+
+const BRAND_ICON_SRC = '/assets/brand/gymster-icon.svg';
 
 export type RoleShellItem = {
   id: string;
@@ -180,12 +181,16 @@ export default function RoleShell({
         <div className={`h-28 flex items-center border-b border-white/5 ${sidebarOpen ? 'px-6' : 'px-4'}`}>
           <div className="flex items-center gap-3 min-w-0 w-full">
             <div
-              className={`bg-gradient-to-br from-[#EF233C] via-[#FF2D2D] to-[#990000] rounded-2xl flex items-center justify-center shadow-glow-red relative overflow-hidden group shrink-0 ${
+              className={`rounded-2xl flex items-center justify-center shadow-glow-red relative overflow-hidden group shrink-0 bg-[#120f10] border border-[#EF233C]/35 ${
                 sidebarOpen ? 'w-14 h-14' : 'w-12 h-12'
               }`}
             >
               <div className="absolute inset-0 bg-gradient-to-br from-white/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-              <Dumbbell className={`${sidebarOpen ? 'w-8 h-8' : 'w-7 h-7'} text-white relative z-10`} />
+              <img
+                src={BRAND_ICON_SRC}
+                alt="Gymster"
+                className={`${sidebarOpen ? 'w-12 h-12' : 'w-10 h-10'} relative z-10 rounded-xl object-cover`}
+              />
             </div>
             {sidebarOpen && (
               <div className="min-w-0 flex-1">
@@ -247,6 +252,10 @@ export default function RoleShell({
 
       <div className="flex-1 flex flex-col overflow-hidden">
         <header className="h-24 glass border-b border-white/5 px-8 flex items-center justify-between relative z-[80] shadow-premium">
+          <div className="mr-5 hidden items-center gap-3 rounded-2xl border border-white/5 bg-white/[0.03] px-3 py-2 xl:flex">
+            <img src={BRAND_ICON_SRC} alt="Gymster" className="h-10 w-10 rounded-xl object-cover shadow-glow-red" />
+            <span className="text-sm font-black uppercase tracking-[0.18em] text-white">Gymster</span>
+          </div>
           <div className="flex-1 max-w-2xl">
             <div className="relative group">
               <Search className="absolute left-5 top-1/2 -translate-y-1/2 w-6 h-6 text-white/40 group-hover:text-[#EF233C] transition-colors duration-300" />
