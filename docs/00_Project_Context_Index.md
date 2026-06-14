@@ -22,6 +22,7 @@ Tai lieu nay gom context hien tai cua du an Gymster de phuc vu cac folder bai ta
 - `05_UnitTest_Context.md`: test hien co, cach chay, test case de xuat theo tung module.
 - `06_GoodDesign_Context.md`: context danh gia coupling/cohesion/SOLID va cac diem thiet ke tot.
 - `07_Project_Summary_Context.md`: ban tong hop ngan de dua vao file tong hop BTL.
+- `08_WorkBreakdown_Context.md`: context va prompt de GPT sinh bang phan chia cong viec/WBS theo sprint.
 
 ## Cau truc source can biet
 
@@ -63,6 +64,7 @@ Gymster/
 | `05 - UnitTest` | `05_UnitTest_Context.md` |
 | `06 - GoodDesign` | `06_GoodDesign_Context.md` |
 | `07 - Tong hop ket qua BTL` | `07_Project_Summary_Context.md` |
+| `Phan chia cong viec / Project plan` | `08_WorkBreakdown_Context.md` |
 
 ## Ghi chu hien trang
 
