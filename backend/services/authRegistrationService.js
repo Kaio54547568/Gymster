@@ -723,8 +723,9 @@ async function sendPasswordResetEmail(email, code) {
   }
 
   try {
+    const from = process.env.MAIL_FROM || process.env.SMTP_USER;
     const info = await transporter.sendMail({
-      from: `"Gymster Notifications" <${process.env.SMTP_USER}>`,
+      from,
       to: email,
       subject: "Gymster Password Reset Verification Code",
       text: `Your Gymster password reset verification code is ${code}. This code expires in ${CODE_TTL_MINUTES} minutes.`,

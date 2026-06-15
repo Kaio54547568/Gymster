@@ -9,7 +9,10 @@
     "dev": "npm --prefix frontend run dev",
     "build": "npm --prefix frontend install && npm --prefix frontend run build",
     "preview": "npm --prefix frontend run preview",
-    "lint": "npm --prefix frontend run lint"
+    "lint": "npm --prefix frontend run lint",
+    "test:backend": "vitest run backend",
+    "test:backend:watch": "vitest backend",
+    "test:speech": "speech_service\\.venv\\Scripts\\pytest speech_service/tests"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.100.1",
@@ -18,5 +21,10 @@
     "bcryptjs": "^3.0.3",
     "dotenv": "^17.4.2",
     "nodemailer": "^8.0.11"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "^4.1.9",
+    "supertest": "^7.2.2",
+    "vitest": "^4.1.9"
   }
 }

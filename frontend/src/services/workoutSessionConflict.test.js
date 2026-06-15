@@ -1,11 +1,9 @@
-import test from "node:test";
-import assert from "node:assert/strict";
+import { test, expect } from "vitest";
 
 import {
   findConflictingPtSession,
   parseDateTimeAsGmt7,
   isSessionBefore2Hours,
-  isRequestBefore2Hours,
 } from "./workoutSessionConflict.js";
 
 test("rejects a manual workout that overlaps a PT session", () => {
@@ -21,7 +19,7 @@ test("rejects a manual workout that overlaps a PT session", () => {
     status: "scheduled",
   }]);
 
-  assert.equal(conflict?.trainerId, "trainer-1");
+  expect(conflict?.trainerId).toBe("trainer-1");
 });
 
 test("does not flag conflict for different trainers", () => {
@@ -38,7 +36,7 @@ test("does not flag conflict for different trainers", () => {
     status: "scheduled",
   }]);
 
-  assert.equal(conflict, null);
+  expect(conflict).toBe(null);
 });
 
 test("flags conflict for the same trainer", () => {
@@ -55,13 +53,13 @@ test("flags conflict for the same trainer", () => {
     status: "scheduled",
   }]);
 
-  assert.equal(conflict?.trainerId, "trainer-1");
+  expect(conflict?.trainerId).toBe("trainer-1");
 });
 
 test("parseDateTimeAsGmt7 parses GMT+7 date time accurately", () => {
   const parsed = parseDateTimeAsGmt7("2026-06-15", "08:00");
-  assert.equal(parsed instanceof Date, true);
-  assert.equal(parsed.toISOString(), "2026-06-15T01:00:00.000Z");
+  expect(parsed instanceof Date).toBe(true);
+  expect(parsed.toISOString()).toBe("2026-06-15T01:00:00.000Z");
 });
 
 test("isSessionBefore2Hours detects if session start time is >= 2 hours from now", () => {
@@ -74,7 +72,7 @@ test("isSessionBefore2Hours detects if session start time is >= 2 hours from now
   const dateStr = gmt7Future.toISOString().slice(0, 10);
   const timeStr = gmt7Future.toISOString().slice(11, 16);
   
-  assert.equal(isSessionBefore2Hours(dateStr, timeStr), true);
+  expect(isSessionBefore2Hours(dateStr, timeStr)).toBe(true);
   
   // Past or very close session
   const past = new Date(now.getTime() - 1 * 60 * 60 * 1000);
@@ -82,6 +80,6 @@ test("isSessionBefore2Hours detects if session start time is >= 2 hours from now
   const pastDateStr = gmt7Past.toISOString().slice(0, 10);
   const pastTimeStr = gmt7Past.toISOString().slice(11, 16);
   
-  assert.equal(isSessionBefore2Hours(pastDateStr, pastTimeStr), false);
+  expect(isSessionBefore2Hours(pastDateStr, pastTimeStr)).toBe(false);
 });
 

@@ -1,6 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { Link, useNavigate } from "react-router";
 import { fetchLandingPageData } from "../../services/landingApi";
+import { useRoleTranslationEffect } from "../../roles/shared/LanguageContext";
+import ThemeToggle from "../../components/theme/ThemeToggle";
+import LanguageToggle from "../../components/theme/LanguageToggle";
 import "./LandingPage.css";
 
 const navItems = [
@@ -59,7 +62,9 @@ function Navbar() {
           ))}
         </nav>
         <div className="landing-nav-actions">
-          <Link className="outline-btn" to="/login">Đăng nhập</Link>
+          <LanguageToggle />
+          <ThemeToggle />
+          <Link className="outline-btn small" to="/login">Đăng nhập</Link>
           <Link className="red-btn small" to="/register">Đăng ký ngay</Link>
         </div>
       </div>
@@ -284,8 +289,11 @@ function LandingPage() {
     };
   }, []);
 
+  const containerRef = useRef(null);
+  useRoleTranslationEffect(containerRef);
+
   return (
-    <div className="landing-page">
+    <div className="landing-page" ref={containerRef}>
       <Navbar />
       <HeroSection stats={landingData.stats} />
       <FeaturesSection />

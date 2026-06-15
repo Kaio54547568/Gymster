@@ -1,7 +1,9 @@
 import { Link, useNavigate } from "react-router";
-import { useState } from "react";
+import { useState, useRef } from "react";
 import AuthHero from "../../components/auth/AuthHero";
 import ThemeToggle from "../../components/theme/ThemeToggle";
+import LanguageToggle from "../../components/theme/LanguageToggle";
+import { useRoleTranslationEffect } from "../../roles/shared/LanguageContext";
 import { setCurrentUser, signInWithOAuthProvider } from "../../services/authService";
 import { resetOnboardingState } from "../../services/onboardingService";
 import { requestMemberRegistrationCode, verifyMemberRegistrationCode } from "../../services/userApi";
@@ -216,9 +218,15 @@ function RegisterPage() {
     }
   };
 
+  const pageRef = useRef(null);
+  useRoleTranslationEffect(pageRef);
+
   return (
-    <main className="auth-page">
-      <ThemeToggle className="auth-theme-toggle" />
+    <main className="auth-page" ref={pageRef}>
+      <div className="auth-theme-toggle" style={{ display: "flex", gap: "10px" }}>
+        <LanguageToggle />
+        <ThemeToggle />
+      </div>
       <AuthHero />
 
       <section className="auth-main">

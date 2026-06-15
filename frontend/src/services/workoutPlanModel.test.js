@@ -1,5 +1,4 @@
-import test from "node:test";
-import assert from "node:assert/strict";
+import { test, expect } from "vitest";
 
 import { normalizeWorkoutPlanDraft } from "./workoutPlanModel.js";
 
@@ -21,7 +20,7 @@ test("normalizes a workout draft into database-ready plan and exercise values", 
     }],
   });
 
-  assert.deepEqual(result.plan, {
+  expect(result.plan).toEqual({
     member_id: "member-1",
     plan_name: "Upper Body Strength",
     plan_goal: "Build strength",
@@ -30,7 +29,7 @@ test("normalizes a workout draft into database-ready plan and exercise values", 
     status: "active",
     notes: "Keep good form",
   });
-  assert.deepEqual(result.exercises[0], {
+  expect(result.exercises[0]).toEqual({
     exercise_name: "Bench Press",
     exercise_type: "Chest",
     sets: 4,
@@ -48,5 +47,5 @@ test("allows a reusable workout draft without assigning a member", () => {
     exercises: [{ exerciseName: "Hip Opener" }],
   });
 
-  assert.equal(result.plan.member_id, null);
+  expect(result.plan.member_id).toBe(null);
 });

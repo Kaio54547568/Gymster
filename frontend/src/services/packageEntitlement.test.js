@@ -1,13 +1,12 @@
-import test from "node:test";
-import assert from "node:assert/strict";
+import { test, expect } from "vitest";
 
 import { getAllowedLeaveDaysForPackage } from "./packageEntitlement.js";
 
 test("allows two valid leave days per package month", () => {
-  assert.equal(getAllowedLeaveDaysForPackage({ packageDurationMonths: 1 }), 2);
-  assert.equal(getAllowedLeaveDaysForPackage({ packageDurationMonths: 12 }), 24);
+  expect(getAllowedLeaveDaysForPackage({ packageDurationMonths: 1 })).toBe(2);
+  expect(getAllowedLeaveDaysForPackage({ packageDurationMonths: 12 })).toBe(24);
 });
 
 test("falls back to one package month when duration is missing", () => {
-  assert.equal(getAllowedLeaveDaysForPackage({}), 2);
+  expect(getAllowedLeaveDaysForPackage({})).toBe(2);
 });

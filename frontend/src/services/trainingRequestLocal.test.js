@@ -1,5 +1,4 @@
-import test from "node:test";
-import assert from "node:assert/strict";
+import { test, expect } from "vitest";
 
 import {
   applyLocalTrainingRequestStatus,
@@ -20,17 +19,17 @@ test("updates a local reschedule request without needing Supabase", () => {
 
   const result = applyLocalTrainingRequestStatus(rows, "LOCAL-TR-1", "accepted");
 
-  assert.equal(result.error, null);
-  assert.equal(result.target.status, "accepted");
-  assert.equal(result.target.statusLabel, "Accepted");
-  assert.equal(result.rows[0].rawStatus, "accepted");
+  expect(result.error).toBe(null);
+  expect(result.target.status).toBe("accepted");
+  expect(result.target.statusLabel).toBe("Accepted");
+  expect(result.rows[0].rawStatus).toBe("accepted");
 });
 
 test("maps rejected local request statuses as declined", () => {
-  assert.equal(getTrainingRequestStatusLabel("rejected"), "Declined");
+  expect(getTrainingRequestStatusLabel("rejected")).toBe("Declined");
 });
 
 test("detects local training request ids", () => {
-  assert.equal(isLocalTrainingRequestId("LOCAL-TR-1"), true);
-  assert.equal(isLocalTrainingRequestId("75f8449e-55a2-4ccc-a692-350c49d7d3bd"), false);
+  expect(isLocalTrainingRequestId("LOCAL-TR-1")).toBe(true);
+  expect(isLocalTrainingRequestId("75f8449e-55a2-4ccc-a692-350c49d7d3bd")).toBe(false);
 });

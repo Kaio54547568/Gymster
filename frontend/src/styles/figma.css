@@ -313,3 +313,43 @@
 [data-theme="light"] .gymster-light .recharts-tooltip-item-value {
   color: var(--text) !important;
 }
+
+/* Custom legibility and refinement rules for Light Mode */
+[data-theme="light"] .gymster-light .text-white:not(.bg-red-600 *, .bg-\[\#EF233C\] *, .bg-red-500 *, .bg-green-600 *, .bg-green-500 *, .bg-blue-600 *, .bg-blue-500 *, .red-btn *, .outline-btn *, .auth-submit *, .social-btn *, .theme-toggle *, .btn-send-code *),
+[data-theme="light"] .text-white:not(.bg-red-600 *, .bg-\[\#EF233C\] *, .bg-red-500 *, .bg-green-600 *, .bg-green-500 *, .bg-blue-600 *, .bg-blue-500 *, .red-btn *, .outline-btn *, .auth-submit *, .social-btn *, .theme-toggle *, .btn-send-code *) {
+  color: var(--text) !important;
+}
+
+[data-theme="light"] .gymster-light .text-white\/90, [data-theme="light"] .gymster-light .text-white\/80, [data-theme="light"] .gymster-light .text-white\/70,
+[data-theme="light"] .text-white\/90, [data-theme="light"] .text-white\/80, [data-theme="light"] .text-white\/70 {
+  color: var(--text-secondary) !important;
+}
+
+[data-theme="light"] .gymster-light .text-white\/55, [data-theme="light"] .gymster-light .text-white\/45,
+[data-theme="light"] .text-white\/55, [data-theme="light"] .text-white\/45 {
+  color: var(--text-muted) !important;
+}
+
+/* Auth forms controls and sidebar adjustments in Light Mode */
+[data-theme="light"] .auth-card {
+  border-color: var(--border) !important;
+  background: rgba(255, 255, 255, 0.94) !important;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.08) !important;
+}
+
+[data-theme="light"] .auth-card input,
+[data-theme="light"] .auth-card select {
+  background: #ffffff !important;
+  border-color: var(--border) !important;
+  color: var(--text) !important;
+}
+
+[data-theme="light"] .auth-card input::placeholder {
+  color: var(--text-muted) !important;
+  opacity: 0.6;
+}
+
+[data-theme="light"] .auth-card label {
+  color: var(--text-secondary) !important;
+}
+

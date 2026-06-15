@@ -319,6 +319,10 @@ const server = http.createServer(async (request, response) => {
   sendJson(response, 404, { error: "Not found." });
 });
 
-server.listen(PORT, () => {
-  console.log(`Backend API listening on http://localhost:${PORT}`);
-});
+if (process.env.NODE_ENV !== "test") {
+  server.listen(PORT, () => {
+    console.log(`Backend API listening on http://localhost:${PORT}`);
+  });
+}
+
+export default server;
