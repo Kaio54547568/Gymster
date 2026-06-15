@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { CreditCard, Dumbbell, Star, Users } from 'lucide-react';
 import { getCurrentUser, setCurrentUser } from '../../../services/authService';
-import { createMemberPackage, updateMemberPackageStatus } from '../../../services/memberPackageApi';
+import { createMemberPackage, updateMemberPackageStatus, assignTrainerToMember } from '../../../services/memberPackageApi';
 import { createNotification } from '../../../services/notificationApi';
 import { fetchPackagesFromSupabase } from '../../../services/packageApi';
 import { createPayment } from '../../../services/paymentApi';
@@ -262,6 +262,19 @@ export default function SelectPackageOnboarding({ onMemberActivated }: { onMembe
 	      }
 
 	      if (selectedPackage.hasPersonalTrainer && selectedTrainer && selectedSlot) {
+	        // Assign member to trainer
+	        await withTimeout(assignTrainerToMember(activatedUser?.memberId || activatedUser?.member_id, selectedTrainer.id, 'Assigned during package selection onboarding'), 5000, 'Trainer assignment timed out.');
+
+	        // Notify the trainer
+	        if (selectedTrainer.userId) {
+	          await createNotification({
+	            userId: selectedTrainer.userId,
+	            notificationType: 'info',
+	            title: 'Học viên mới đăng ký',
+	            message: `Học viên ${currentUser?.fullName || currentUser?.username || 'Thành viên mới'} đã đăng ký bạn làm huấn luyện viên cho gói tập ${selectedPackage.name}.`,
+	          });
+	        }
+
 	        await withTimeout(createWorkoutSessionsForSchedule({
 	          memberId: activatedUser?.memberId || activatedUser?.member_id,
 	          memberEmail: activatedUser?.email || '',
@@ -377,6 +390,19 @@ export default function SelectPackageOnboarding({ onMemberActivated }: { onMembe
         }
 
         if (flowData.selectedPackage.hasPersonalTrainer && flowData.selectedTrainer && flowData.selectedSlot) {
+          // Assign member to trainer
+          await withTimeout(assignTrainerToMember(flowData.currentUser?.memberId || flowData.currentUser?.member_id, flowData.selectedTrainer.id, 'Assigned during package selection onboarding (Demo)'), 5000, 'Trainer assignment timed out.');
+
+          // Notify the trainer
+          if (flowData.selectedTrainer.userId) {
+            await createNotification({
+              userId: flowData.selectedTrainer.userId,
+              notificationType: 'info',
+              title: 'Học viên mới đăng ký',
+              message: `Học viên ${flowData.currentUser?.fullName || flowData.currentUser?.username || 'Thành viên mới'} đã đăng ký bạn làm huấn luyện viên cho gói tập ${flowData.selectedPackage.name}.`,
+            });
+          }
+
           await withTimeout(createWorkoutSessionsForSchedule({
             memberId: flowData.currentUser?.memberId || flowData.currentUser?.member_id,
             memberEmail: flowData.currentUser?.email || '',

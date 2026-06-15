@@ -14,6 +14,7 @@ import {
   createMemberPackage,
   updateMemberPackageStatus,
   updateMemberPackageTrainer,
+  assignTrainerToMember,
 } from "../../services/memberPackageApi";
 import { fetchPackagesFromSupabase } from "../../services/packageApi";
 import { createPayment } from "../../services/paymentApi";
@@ -883,6 +884,19 @@ export function OnboardingPaymentPage() {
 	    let workoutSessions = [];
 
     if (state.selectedPackage.hasPersonalTrainer && state.selectedTrainer && state.selectedSchedule) {
+      // Create trainer assignment in trainer_assignments table
+      await assignTrainerToMember(state.memberId, state.selectedTrainer.id, "Assigned during onboarding registration");
+
+      // Notify the trainer
+      if (state.selectedTrainer.userId) {
+        await createNotification({
+          userId: state.selectedTrainer.userId,
+          notificationType: "info",
+          title: "Học viên mới đăng ký",
+          message: `Học viên ${currentUser?.fullName || currentUser?.username || "Thành viên mới"} đã đăng ký bạn làm huấn luyện viên cho gói tập ${state.selectedPackage.name || "PT"}.`,
+        });
+      }
+
       const { data: createdSessions } = await createWorkoutSessionsForSchedule({
         memberId: state.memberId,
         memberEmail: currentUser?.email || "",

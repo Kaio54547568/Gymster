@@ -353,3 +353,24 @@
   color: var(--text-secondary) !important;
 }
 
+/* Responsive container spacing overrides for Gymster dashboards on mobile/tablet */
+@media (max-width: 768px) {
+  .gymster-shell main > div {
+    padding: 1rem !important; /* 16px */
+  }
+  .gymster-shell main [class*="p-10"],
+  .gymster-shell main [class*="p-8"] {
+    padding: 1rem !important;
+  }
+  .gymster-shell main [class*="p-6"] {
+    padding: 0.75rem !important;
+  }
+  .gymster-shell main [class*="space-y-10"] > :not([hidden]) ~ :not([hidden]),
+  .gymster-shell main [class*="space-y-8"] > :not([hidden]) ~ :not([hidden]) {
+    margin-top: 1.5rem !important; /* space-y-6 equivalent */
+  }
+  .gymster-shell main h1[class*="text-7xl"],
+  .gymster-shell main h1[class*="text-6xl"] {
+    font-size: 2.5rem !important; /* Scale down extremely large headings on mobile */
+  }
+}

@@ -673,6 +673,30 @@ export function denyRenewalRequest(requestId, denyReason = "Denied by staff.") {
 }
 
 export function createManualRenewalRequest(request) {
-  console.error("[Gymster h\u1ec7 th\u1ed1ng] Staff-created package requests must use createPackageChangeRequest.", request);
+  console.error("[Gymster hệ thống] Staff-created package requests must use createPackageChangeRequest.", request);
   return null;
+}
+
+export async function assignTrainerToMember(memberId, trainerId, notes = "Assigned during package selection") {
+  if (!supabase || !memberId || !trainerId) {
+    return { data: null, error: new Error("Missing database connection or parameters.") };
+  }
+
+  const { data, error } = await supabase
+    .from("trainer_assignments")
+    .insert({
+      trainer_id: trainerId,
+      member_id: memberId,
+      status: "active",
+      notes,
+    })
+    .select()
+    .single();
+
+  if (error) {
+    console.error("[Gymster hệ thống] Failed to create trainer assignment:", error);
+    return { data: null, error };
+  }
+
+  return { data, error: null };
 }

@@ -84,7 +84,7 @@ export default function MemberDashboard() {
         {dashboardMessage && <p className="mt-2 text-sm font-semibold text-[#EF233C]">{dashboardMessage}</p>}
       </div>
 
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className="grid gap-4 grid-cols-2 md:grid-cols-4">
         {[
           ['Monthly Workouts', monthlyWorkouts, CalendarDays],
           ['Completed Sessions', completedSessions, Dumbbell],

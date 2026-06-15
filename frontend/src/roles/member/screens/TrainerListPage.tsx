@@ -8,6 +8,7 @@ import { useMemberTrainingRequests } from '../hooks/useMemberTrainingRequests';
 
 type TrainerProfile = {
   id: string;
+  userId?: string;
   name: string;
   specialty: string;
   rating: number;
@@ -219,10 +220,6 @@ export default function TrainerListPage() {
               <div className="text-xs font-black uppercase tracking-[0.16em] text-white/40">PT package</div>
               <div className="mt-2 text-xl font-black text-white">{currentPackage?.packageName || 'Current PT package'}</div>
               <div className="mt-4 grid gap-3 text-sm text-white/65">
-                <div className="rounded-xl bg-[#222] p-3">
-                  <div className="text-white/40">Training schedule</div>
-                  <div className="mt-1 font-bold text-white">{formatSlots(currentTrainer.availableSlots)}</div>
-                </div>
                 <div className="rounded-xl bg-[#222] p-3">
                   <div className="text-white/40">Request status</div>
                   <div className="mt-1 font-bold text-white">

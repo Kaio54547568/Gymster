@@ -155,19 +155,24 @@ export async function getMemberFeedbackPortalData() {
       sessionResult,
       assignmentResult,
       roomResult,
+      packageResult,
     ] = await Promise.all([
       supabase.from("service_feedback").select("*").eq("member_id", member.member_id).order("created_at", { ascending: false }),
       supabase.from("complaints").select("*").eq("member_id", member.member_id).order("created_at", { ascending: false }),
       supabase.from("workout_sessions").select("*").eq("member_id", member.member_id).order("session_date", { ascending: false }),
       supabase.from("trainer_assignments").select("trainer_id,status").eq("member_id", member.member_id),
       supabase.from("rooms").select("room_id,room_name,room_type,status").eq("status", "active").order("room_name", { ascending: true }),
+      supabase.from("member_packages").select("trainer_id").eq("member_id", member.member_id).eq("status", "active").limit(1).maybeSingle(),
     ]);
 
     [feedbackResult, complaintResult, sessionResult, assignmentResult, roomResult].forEach((result) => {
       if (result.error) throw result.error;
     });
 
-    const trainerIds = [...new Set((assignmentResult.data || []).map((row) => row.trainer_id).filter(Boolean))];
+    const trainerIds = [...new Set([
+      ...(assignmentResult.data || []).map((row) => row.trainer_id),
+      packageResult.data?.trainer_id,
+    ].filter(Boolean))];
     let trainers = [];
     if (trainerIds.length) {
       const { data: trainerRows, error: trainerError } = await supabase

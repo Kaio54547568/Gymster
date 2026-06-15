@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from "react";
 import { Link, useNavigate } from "react-router";
+import { Menu, X } from "lucide-react";
 import { fetchLandingPageData } from "../../services/landingApi";
 import { useRoleTranslationEffect } from "../../roles/shared/LanguageContext";
 import ThemeToggle from "../../components/theme/ThemeToggle";
@@ -50,23 +51,64 @@ function SectionTitle({ kicker, title, accent }) {
 }
 
 function Navbar() {
+  const [menuOpen, setMenuOpen] = useState(false);
+
   return (
     <header className="landing-nav-wrap">
       <div className="landing-nav">
         <Brand />
-        <nav>
+        <nav className="desktop-nav">
           {navItems.map(([label, id]) => (
             <button key={id} type="button" onClick={() => scrollToSection(id)}>
               {label}
             </button>
           ))}
         </nav>
-        <div className="landing-nav-actions">
+        <div className="landing-nav-actions desktop-actions">
           <LanguageToggle />
           <ThemeToggle />
           <Link className="outline-btn small" to="/login">Đăng nhập</Link>
           <Link className="red-btn small" to="/register">Đăng ký ngay</Link>
         </div>
+        <button
+          type="button"
+          className="mobile-menu-toggle-btn"
+          onClick={() => setMenuOpen(!menuOpen)}
+          aria-label="Toggle menu"
+        >
+          {menuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+        </button>
+      </div>
+
+      {/* Mobile Drawer Menu */}
+      <div className={`landing-mobile-drawer ${menuOpen ? "open" : ""}`}>
+        <nav className="mobile-nav-links">
+          {navItems.map(([label, id]) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => {
+                scrollToSection(id);
+                setMenuOpen(false);
+              }}
+            >
+              {label}
+            </button>
+          ))}
+          <hr className="mobile-divider" />
+          <div className="mobile-drawer-toggles">
+            <LanguageToggle />
+            <ThemeToggle />
+          </div>
+          <div className="mobile-drawer-actions">
+            <Link className="outline-btn full" to="/login" onClick={() => setMenuOpen(false)}>
+              Đăng nhập
+            </Link>
+            <Link className="red-btn full" to="/register" onClick={() => setMenuOpen(false)}>
+              Đăng ký ngay
+            </Link>
+          </div>
+        </nav>
       </div>
     </header>
   );

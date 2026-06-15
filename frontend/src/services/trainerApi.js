@@ -61,6 +61,7 @@ function mapTrainerRow(row) {
 
   return {
     id: row.trainer_id,
+    userId: row.user_id,
     name: getRelatedName(row),
     specialty: row.specialty || "Personal Training",
     rating: Number(row.rating || 0),
@@ -78,6 +79,7 @@ async function fetchDirectTrainerRows() {
     .from("trainers")
     .select(`
       trainer_id,
+      user_id,
       full_name,
       specialty,
       rating,
@@ -94,6 +96,7 @@ async function fetchRelatedTrainerRows() {
     .from("trainers")
     .select(`
       trainer_id,
+      user_id,
       trainer_code,
       specialty,
       rating,
@@ -124,7 +127,7 @@ export async function fetchTrainersFromSupabase() {
   }
 
   if (error) {
-    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to load trainers:", error);
+    console.error("[Gymster hệ thống] Failed to load trainers:", error);
     return { data: [], error };
   }
 

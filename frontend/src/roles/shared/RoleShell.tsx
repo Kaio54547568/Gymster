@@ -1,4 +1,4 @@
-import { ReactNode, useRef, useState } from 'react';
+import { ReactNode, useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
 import {
   Bell,
@@ -9,6 +9,7 @@ import {
   Clock,
   Info,
   LogOut,
+  Menu,
   Search,
   ShieldAlert,
   User,
@@ -74,8 +75,14 @@ export default function RoleShell({
   const shellThemeClass = shellDarkMode ? 'gymster-dark' : 'gymster-light';
   const location = useLocation();
   const navigate = useNavigate();
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [notificationOpen, setNotificationOpen] = useState(false);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.innerWidth >= 1024) {
+      setSidebarOpen(true);
+    }
+  }, []);
   const [notificationFilter, setNotificationFilter] = useState<'all' | 'unread'>('all');
   const [selectedNotification, setSelectedNotification] = useState<RoleNotification | null>(null);
   const {
@@ -175,8 +182,18 @@ export default function RoleShell({
       <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1534438327276-14e5300c3a48?w=1920&h=1080&fit=crop')] bg-cover bg-center opacity-[0.03] pointer-events-none" />
       <div className="absolute inset-0 bg-gradient-to-br from-[#EF233C]/5 via-transparent to-[#990000]/5 pointer-events-none" />
 
+      {/* Sidebar Backdrop Overlay on Mobile */}
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 bg-black/60 backdrop-blur-xs z-[95] lg:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
       <aside
-        className={`${sidebarOpen ? 'w-80' : 'w-24'} glass-strong border-r border-white/5 transition-all duration-500 flex flex-col relative z-10 shadow-float`}
+        className={`fixed lg:relative top-0 bottom-0 left-0 z-[100] lg:z-10 h-full lg:h-auto ${
+          sidebarOpen ? 'w-80 translate-x-0' : 'w-24 -translate-x-full lg:translate-x-0'
+        } glass-strong border-r border-white/5 transition-all duration-500 flex flex-col shadow-float`}
       >
         <div className={`h-28 flex items-center border-b border-white/5 ${sidebarOpen ? 'px-6' : 'px-4'}`}>
           <div className="flex items-center gap-3 min-w-0 w-full">
@@ -207,7 +224,7 @@ export default function RoleShell({
             className={`bg-white/5 hover:bg-[#EF233C]/15 border border-white/10 hover:border-[#EF233C]/40 flex items-center justify-center text-white/70 hover:text-white transition-all duration-300 shrink-0 ${
               sidebarOpen
                 ? 'w-10 h-10 rounded-2xl ml-auto'
-                : 'w-8 h-8 rounded-xl bg-[#EF233C]/10 border-[#EF233C]/30 text-white'
+                : 'w-8 h-8 rounded-xl bg-[#EF233C]/10 border-[#EF233C]/30 text-white lg:flex hidden'
             }`}
             aria-label={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
           >
@@ -227,11 +244,26 @@ export default function RoleShell({
             }`;
 
             return item.path ? (
-              <Link key={item.id} to={item.path} className={className}>
+              <Link
+                key={item.id}
+                to={item.path}
+                className={className}
+                onClick={() => {
+                  if (window.innerWidth < 1024) setSidebarOpen(false);
+                }}
+              >
                 {renderMenuContent(item, isActive)}
               </Link>
             ) : (
-              <button key={item.id} type="button" onClick={item.onClick} className={className}>
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => {
+                  item.onClick?.();
+                  if (window.innerWidth < 1024) setSidebarOpen(false);
+                }}
+                className={className}
+              >
                 {renderMenuContent(item, isActive)}
               </button>
             );
@@ -241,7 +273,10 @@ export default function RoleShell({
         <div className="p-4 border-t border-white/5">
           <button
             type="button"
-            onClick={logout}
+            onClick={() => {
+              logout();
+              setSidebarOpen(false);
+            }}
             className="flex items-center gap-4 px-5 py-4 rounded-2xl text-[#EF233C] hover:bg-[#EF233C]/10 transition-all duration-300 w-full group"
           >
             <LogOut className="w-6 h-6 flex-shrink-0 group-hover:scale-110 transition-transform" />
@@ -251,18 +286,27 @@ export default function RoleShell({
       </aside>
 
       <div className="flex-1 flex flex-col overflow-hidden">
-        <header className="h-24 glass border-b border-white/5 px-8 flex items-center justify-between relative z-[80] shadow-premium">
+        <header className="h-24 glass border-b border-white/5 px-4 md:px-8 flex items-center justify-between relative z-[80] shadow-premium">
+          <button
+            type="button"
+            className="mr-3 p-3 glass rounded-2xl border border-white/5 hover:border-[#EF233C]/30 text-white lg:hidden flex items-center justify-center shrink-0"
+            onClick={() => setSidebarOpen(prev => !prev)}
+            aria-label="Toggle navigation menu"
+          >
+            <Menu className="w-6 h-6" />
+          </button>
+
           <div className="mr-5 hidden items-center gap-3 rounded-2xl border border-white/5 bg-white/[0.03] px-3 py-2 xl:flex">
             <img src={BRAND_ICON_SRC} alt="Gymster" className="h-10 w-10 rounded-xl object-cover shadow-glow-red" />
             <span className="text-sm font-black uppercase tracking-[0.18em] text-white">Gymster</span>
           </div>
-          <div className="flex-1 max-w-2xl">
+          <div className="flex-1 max-w-xs sm:max-w-md lg:max-w-2xl mr-2 sm:mr-0">
             <div className="relative group">
-              <Search className="absolute left-5 top-1/2 -translate-y-1/2 w-6 h-6 text-white/40 group-hover:text-[#EF233C] transition-colors duration-300" />
+              <Search className="absolute left-3 md:left-5 top-1/2 -translate-y-1/2 w-5 h-5 md:w-6 md:h-6 text-white/40 group-hover:text-[#EF233C] transition-colors duration-300" />
               <input
                 type="text"
                 placeholder={searchPlaceholder}
-                className="w-full glass border border-white/10 rounded-2xl pl-14 pr-5 py-4 text-base text-white placeholder-white/40 focus:outline-none focus:border-[#EF233C]/50 focus:shadow-glow-red transition-all duration-300"
+                className="w-full glass border border-white/10 rounded-2xl pl-10 md:pl-14 pr-4 md:pr-5 py-2 md:py-4 text-sm md:text-base text-white placeholder-white/40 focus:outline-none focus:border-[#EF233C]/50 focus:shadow-glow-red transition-all duration-300"
               />
             </div>
           </div>
@@ -292,7 +336,7 @@ export default function RoleShell({
               </button>
 
               {notificationOpen && (
-                <div className="absolute right-0 top-16 z-[120] w-[420px] max-h-[680px] overflow-hidden rounded-3xl border border-white/10 bg-[#151515] shadow-[0_24px_80px_rgba(0,0,0,0.65)]">
+                <div className="absolute right-[-40px] sm:right-0 top-16 z-[120] w-[calc(100vw-32px)] sm:w-[420px] max-h-[80vh] sm:max-h-[680px] overflow-hidden rounded-3xl border border-white/10 bg-[#151515] shadow-[0_24px_80px_rgba(0,0,0,0.65)]">
                   <div className="flex items-center justify-between px-5 pt-5 pb-3">
                     <h2 className="text-2xl font-black text-white">Notifications</h2>
                     <button type="button" className="text-sm font-semibold text-[#EF233C] hover:text-white" onClick={markAllNotificationsRead}>

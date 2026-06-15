@@ -531,9 +531,103 @@
   gap: 24px;
 }
 
+/* Mobile menu button style */
+.mobile-menu-toggle-btn {
+  display: none;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  padding: 8px;
+  cursor: pointer;
+  z-index: 30;
+  border-radius: 8px;
+  transition: color 0.2s, background-color 0.2s;
+}
+
+.mobile-menu-toggle-btn:hover {
+  color: var(--primary);
+  background-color: var(--border);
+}
+
+/* Mobile drawer style */
+.landing-mobile-drawer {
+  position: fixed;
+  top: 74px; /* height of header */
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: color-mix(in srgb, var(--bg-secondary) 95%, transparent);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  z-index: 19;
+  display: flex;
+  flex-direction: column;
+  padding: 24px 20px;
+  border-top: 1px solid var(--border);
+  transform: translateY(-100%);
+  opacity: 0;
+  pointer-events: none;
+  transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.3s ease;
+}
+
+.landing-mobile-drawer.open {
+  transform: translateY(0);
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.mobile-nav-links {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+}
+
+.mobile-nav-links button {
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-weight: 750;
+  font-size: 17px;
+  text-align: left;
+  padding: 12px 14px;
+  border-radius: 10px;
+  transition: background-color 0.2s, color 0.2s;
+}
+
+.mobile-nav-links button:hover {
+  background: color-mix(in srgb, var(--primary) 10%, transparent);
+  color: var(--primary);
+}
+
+.mobile-divider {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 8px 0;
+}
+
+.mobile-drawer-toggles {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 10px;
+}
+
+.mobile-drawer-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 8px;
+}
+
 @media (max-width: 980px) {
-  .landing-nav nav {
+  .landing-nav .desktop-nav,
+  .landing-nav .desktop-actions {
     display: none;
+  }
+
+  .mobile-menu-toggle-btn {
+    display: block;
   }
 
   .hero-grid,
