@@ -796,21 +796,20 @@ export async function getWorkoutSessionsForMember(currentUser) {
   }
 
   const memberId = await resolveCurrentMemberId(currentUser);
-  const localRows = mapAndSortLocalWorkoutSessions(memberId);
   if (!memberId) {
-    return { data: localRows, error: null };
+    return { data: [], error: null };
   }
 
   const { data, error } = await selectWorkoutSessions("member_id", memberId);
 
   if (error) {
-    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to load member workout sessions:", error);
-    return { data: localRows, error };
+    console.error("[Gymster hệ thống] Failed to load member workout sessions:", error);
+    return { data: [], error };
   }
 
   const databaseRows = await enrichWorkoutSessions(data || []);
   return {
-    data: mergeWorkoutSessionRows(localRows, databaseRows).filter((row) => !isCancelledWorkoutStatus(row.status) && row.isPtSession),
+    data: databaseRows.filter((row) => !isCancelledWorkoutStatus(row.status) && row.isPtSession),
     error: null,
   };
 }

@@ -314,7 +314,7 @@ export async function createBooking(user, data) {
   const memberId = await resolveMemberId(client, context);
   if (!memberId) throw new Error("Current member could not be resolved.");
 
-  const endTime = data.endTime || addHours(data.time, 1);
+  const endTime = data.endTime || addHours(data.time, 2);
   assertWithinGymHours(data.time, endTime);
   const balance = await getMakeupBalance(user);
   if (balance.remainingMakeupCount <= 0) {

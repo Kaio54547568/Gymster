@@ -606,8 +606,8 @@ select
   end,
   r.room_name,
   current_date + ((gs.session_no - 8) * interval '3 days'),
-  case when gs.session_no % 2 = 0 then time '18:00' else time '07:00' end,
-  case when gs.session_no % 2 = 0 then time '19:00' else time '08:00' end,
+  case when gs.session_no % 2 = 0 then time '18:00' else time '08:00' end,
+  case when gs.session_no % 2 = 0 then time '20:00' else time '10:00' end,
   case
     when gs.session_no <= least(coalesce(mp.sessions_used, 0), 8) then 'completed'
     when gs.session_no = 9 and mp.status = 'paused' then 'rescheduled'

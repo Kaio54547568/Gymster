@@ -122,7 +122,11 @@ function LoginPage() {
                   />
                   <span>Ghi nhớ đăng nhập</span>
                 </label>
-                <button className="text-link" type="button">
+                <button
+                  className="text-link"
+                  type="button"
+                  onClick={() => navigate("/forgot-password")}
+                >
                   Quên mật khẩu?
                 </button>
               </div>

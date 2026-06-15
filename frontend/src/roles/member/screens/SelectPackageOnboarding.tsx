@@ -479,29 +479,40 @@ export default function SelectPackageOnboarding({ onMemberActivated }: { onMembe
         <Section title="Choose PT and Weekly Schedule">
           <div className="grid gap-5 xl:grid-cols-[0.85fr_1.15fr]">
             <div className="space-y-3">
-              {trainers.map((trainer) => (
-                <button
-                  key={trainer.id}
-                  type="button"
-                  onClick={() => chooseTrainer(trainer)}
-                  className={`w-full rounded-2xl border p-4 text-left transition ${
-                    selectedTrainer?.id === trainer.id ? 'border-[#EF233C] bg-[#EF233C]/10' : 'border-white/8 bg-[#222] hover:border-[#EF233C]/40'
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <div className="text-lg font-black text-white">{trainer.name}</div>
-                      <div className="mt-1 text-sm font-semibold text-white/45">{trainer.specialty}</div>
+              {trainers.map((trainer) => {
+                const isFull = trainer.maxActiveMembers > 0 && trainer.currentActiveMembers >= trainer.maxActiveMembers;
+                return (
+                  <button
+                    key={trainer.id}
+                    type="button"
+                    disabled={isFull}
+                    onClick={() => chooseTrainer(trainer)}
+                    className={`w-full rounded-2xl border p-4 text-left transition ${
+                      isFull
+                        ? 'opacity-40 cursor-not-allowed border-white/5 bg-white/[0.02]'
+                        : selectedTrainer?.id === trainer.id
+                          ? 'border-[#EF233C] bg-[#EF233C]/10'
+                          : 'border-white/8 bg-[#222] hover:border-[#EF233C]/40'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="text-lg font-black text-white">
+                          {trainer.name}
+                          {isFull && <span className="ml-2 text-xs font-black text-[#EF233C] uppercase tracking-wider">(Full)</span>}
+                        </div>
+                        <div className="mt-1 text-sm font-semibold text-white/45">{trainer.specialty}</div>
+                      </div>
+                      <span className="flex items-center gap-1 rounded-full bg-[#EF233C]/15 px-3 py-1 text-xs font-black text-[#EF233C]">
+                        <Star className="h-3.5 w-3.5 fill-current" /> {trainer.rating || 'New'}
+                      </span>
                     </div>
-                    <span className="flex items-center gap-1 rounded-full bg-[#EF233C]/15 px-3 py-1 text-xs font-black text-[#EF233C]">
-                      <Star className="h-3.5 w-3.5 fill-current" /> {trainer.rating || 'New'}
-                    </span>
-                  </div>
-                  <div className="mt-3 text-xs font-bold text-white/40">
-                    Active members {trainer.currentActiveMembers}/{trainer.maxActiveMembers || '-'}
-                  </div>
-                </button>
-              ))}
+                    <div className="mt-3 text-xs font-bold text-white/40">
+                      Active members {trainer.currentActiveMembers}/{trainer.maxActiveMembers || '-'}
+                    </div>
+                  </button>
+                );
+              })}
               {!trainers.length && <div className="rounded-xl border border-white/8 bg-[#222] p-5 text-sm font-bold text-white/45">No active trainers found.</div>}
             </div>
 

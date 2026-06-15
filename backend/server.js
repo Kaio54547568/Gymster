@@ -9,6 +9,9 @@ import {
   loginWithPassword,
   requestRegistrationCode,
   verifyRegistrationCode,
+  requestPasswordResetCode,
+  verifyPasswordResetCode,
+  resetPasswordWithCode,
 } from "./services/authRegistrationService.js";
 import {
   createTrainingRequestServer,
@@ -239,6 +242,48 @@ const server = http.createServer(async (request, response) => {
     }
 
     const result = await verifyRegistrationCode(payload);
+    sendJson(response, result.ok ? 200 : 400, result);
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/auth/password-reset/request-code") {
+    let payload;
+    try {
+      payload = await readJsonBody(request);
+    } catch (error) {
+      sendJson(response, 400, { ok: false, message: error.message });
+      return;
+    }
+
+    const result = await requestPasswordResetCode(payload);
+    sendJson(response, result.ok ? 200 : 400, result);
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/auth/password-reset/verify-code") {
+    let payload;
+    try {
+      payload = await readJsonBody(request);
+    } catch (error) {
+      sendJson(response, 400, { ok: false, message: error.message });
+      return;
+    }
+
+    const result = await verifyPasswordResetCode(payload);
+    sendJson(response, result.ok ? 200 : 400, result);
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/auth/password-reset/reset") {
+    let payload;
+    try {
+      payload = await readJsonBody(request);
+    } catch (error) {
+      sendJson(response, 400, { ok: false, message: error.message });
+      return;
+    }
+
+    const result = await resetPasswordWithCode(payload);
     sendJson(response, result.ok ? 200 : 400, result);
     return;
   }

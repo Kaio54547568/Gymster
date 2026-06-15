@@ -152,7 +152,7 @@ function minutesFromTime(time) {
   return hour * 60 + minute;
 }
 
-function isWithinGymHours(startTime, endTime = addHours(startTime, 1)) {
+function isWithinGymHours(startTime, endTime = addHours(startTime, 2)) {
   const start = minutesFromTime(startTime);
   const end = minutesFromTime(endTime);
   const open = minutesFromTime(GYM_OPEN_TIME);

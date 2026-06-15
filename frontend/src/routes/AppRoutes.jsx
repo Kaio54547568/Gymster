@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import LandingPage from "../pages/Landing/LandingPage";
 import LoginPage from "../pages/Auth/LoginPage";
 import RegisterPage from "../pages/Auth/RegisterPage";
+import ForgotPasswordPage from "../pages/Auth/ForgotPasswordPage";
 import AuthCallbackPage from "../pages/Auth/AuthCallbackPage";
 import SocialProfilePage from "../pages/Auth/SocialProfilePage";
 import AdminApp from "../roles/admin/App";
@@ -137,6 +138,14 @@ function AppRoutes() {
         element={
           <PublicRoute currentUser={currentUser}>
             <RegisterPage />
+          </PublicRoute>
+        }
+      />
+      <Route
+        path="/forgot-password"
+        element={
+          <PublicRoute currentUser={currentUser}>
+            <ForgotPasswordPage />
           </PublicRoute>
         }
       />

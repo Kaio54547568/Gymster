@@ -36,6 +36,18 @@ export function verifyMemberRegistrationCode(data) {
   return postAuthJson("/api/auth/register/verify-code", data);
 }
 
+export function requestPasswordResetCode(email) {
+  return postAuthJson("/api/auth/password-reset/request-code", { email });
+}
+
+export function verifyPasswordResetCode(email, code) {
+  return postAuthJson("/api/auth/password-reset/verify-code", { email, code });
+}
+
+export function resetPasswordWithCode(email, code, newPassword) {
+  return postAuthJson("/api/auth/password-reset/reset", { email, code, newPassword });
+}
+
 function mapCreatedAccount(userRow, memberRow) {
   const fullName = [userRow.first_name, userRow.last_name].filter(Boolean).join(" ").trim();
 

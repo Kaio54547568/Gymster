@@ -700,3 +700,241 @@ export async function loginWithPassword(payload) {
     return { ok: false, message: "Unable to verify account credentials." };
   }
 }
+
+async function getLatestPendingPasswordReset(client, email) {
+  const { data, error } = await client
+    .from("password_reset_verifications")
+    .select("*")
+    .eq("email", email)
+    .is("verified_at", null)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data || null;
+}
+
+async function sendPasswordResetEmail(email, code) {
+  const transporter = getMailTransporter();
+  if (!transporter) {
+    console.info(`[Gymster auth] Password reset verification code for ${email}: ${code}`);
+    return { delivered: false, devCode: code };
+  }
+
+  try {
+    const info = await transporter.sendMail({
+      from: `"Gymster Notifications" <${process.env.SMTP_USER}>`,
+      to: email,
+      subject: "Gymster Password Reset Verification Code",
+      text: `Your Gymster password reset verification code is ${code}. This code expires in ${CODE_TTL_MINUTES} minutes.`,
+      html: `
+        <div style="font-family: sans-serif; padding: 20px; max-width: 600px; border: 1px solid #eee;">
+          <h2 style="color: #EF233C;">Gymster Password Reset</h2>
+          <p>We received a request to reset your password. Use the following code to proceed:</p>
+          <p style="font-size: 28px; font-weight: 700; letter-spacing: 6px; color: #EF233C; margin: 20px 0;">${code}</p>
+          <p>This code expires in ${CODE_TTL_MINUTES} minutes. If you did not make this request, you can ignore this email.</p>
+        </div>
+      `,
+    });
+    return { delivered: true, messageId: info.messageId };
+  } catch (error) {
+    console.error("[Gymster auth] SMTP send failed:", error);
+    return { delivered: false, error: error.message };
+  }
+}
+
+export async function requestPasswordResetCode(payload) {
+  const client = getSupabaseClient();
+  if (!client) {
+    return {
+      ok: false,
+      message: "Backend Supabase service role is not configured. Please set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in backend/.env.",
+    };
+  }
+
+  const email = normalizeEmail(payload?.email);
+  if (!isValidEmail(email)) {
+    return { ok: false, message: "Vui lòng nhập địa chỉ email hợp lệ." };
+  }
+
+  try {
+    // Check if user exists
+    const { data: user, error: userError } = await client
+      .from("users")
+      .select("user_id")
+      .eq("email", email)
+      .maybeSingle();
+
+    if (userError) throw userError;
+    if (!user) {
+      return { ok: false, message: "Email không tồn tại trong hệ thống." };
+    }
+
+    const latestPending = await getLatestPendingPasswordReset(client, email);
+    if (latestPending?.created_at) {
+      const createdAt = new Date(latestPending.created_at).getTime();
+      const secondsSinceLastSend = Math.floor((Date.now() - createdAt) / 1000);
+      if (secondsSinceLastSend < RESEND_COOLDOWN_SECONDS) {
+        return {
+          ok: false,
+          message: `Vui lòng đợi ${RESEND_COOLDOWN_SECONDS - secondsSinceLastSend} giây trước khi yêu cầu mã mới.`,
+        };
+      }
+    }
+
+    const code = createVerificationCode();
+    const expiresAt = new Date(Date.now() + CODE_TTL_MINUTES * 60 * 1000).toISOString();
+    const delivery = await sendPasswordResetEmail(email, code);
+
+    // Cancel any previous pending resets
+    await client
+      .from("password_reset_verifications")
+      .update({ verified_at: new Date().toISOString() })
+      .eq("email", email)
+      .is("verified_at", null);
+
+    const { error: insertError } = await client.from("password_reset_verifications").insert({
+      email,
+      code_hash: hashCode(email, code),
+      expires_at: expiresAt,
+      resend_count: latestPending ? Number(latestPending.resend_count || 0) + 1 : 0,
+    });
+
+    if (insertError) throw insertError;
+
+    return {
+      ok: true,
+      email,
+      expiresAt,
+      mailDelivered: delivery.delivered,
+      devCode: delivery.devCode,
+      message: delivery.delivered
+        ? "Mã xác thực đã được gửi tới email của bạn."
+        : "Đã tạo mã xác thực thành công (Hãy kiểm tra console log của server).",
+    };
+  } catch (error) {
+    console.error("[Gymster auth] Failed to request password reset code:", error);
+    return {
+      ok: false,
+      message: "Không thể yêu cầu mã xác thực. Vui lòng thử lại sau.",
+    };
+  }
+}
+
+export async function verifyPasswordResetCode(payload) {
+  const client = getSupabaseClient();
+  if (!client) {
+    return {
+      ok: false,
+      message: "Backend Supabase service role is not configured. Please set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in backend/.env.",
+    };
+  }
+
+  const email = normalizeEmail(payload?.email);
+  const code = String(payload?.code || "").trim();
+
+  if (!isValidEmail(email) || !/^\d{6}$/.test(code)) {
+    return { ok: false, message: "Vui lòng nhập mã xác thực gồm 6 chữ số." };
+  }
+
+  try {
+    const pending = await getLatestPendingPasswordReset(client, email);
+    if (!pending) {
+      return { ok: false, message: "Mã xác thực không tìm thấy. Vui lòng yêu cầu mã mới." };
+    }
+
+    if (new Date(pending.expires_at).getTime() < Date.now()) {
+      return { ok: false, message: "Mã xác thực đã hết hạn. Vui lòng yêu cầu mã mới." };
+    }
+
+    if (Number(pending.attempt_count || 0) >= MAX_VERIFY_ATTEMPTS) {
+      return { ok: false, message: "Nhập sai quá nhiều lần. Vui lòng yêu cầu mã mới." };
+    }
+
+    if (pending.code_hash !== hashCode(email, code)) {
+      await client
+        .from("password_reset_verifications")
+        .update({ attempt_count: Number(pending.attempt_count || 0) + 1 })
+        .eq("password_reset_verification_id", pending.password_reset_verification_id);
+
+      return { ok: false, message: "Mã xác thực không chính xác." };
+    }
+
+    // Mark as verified
+    const { error: updateError } = await client
+      .from("password_reset_verifications")
+      .update({ verified_at: new Date().toISOString() })
+      .eq("password_reset_verification_id", pending.password_reset_verification_id);
+
+    if (updateError) throw updateError;
+
+    return { ok: true, message: "Mã xác thực chính xác." };
+  } catch (error) {
+    console.error("[Gymster auth] Failed to verify password reset code:", error);
+    return { ok: false, message: "Không thể xác thực mã code lúc này." };
+  }
+}
+
+export async function resetPasswordWithCode(payload) {
+  const client = getSupabaseClient();
+  if (!client) {
+    return {
+      ok: false,
+      message: "Backend Supabase service role is not configured. Please set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in backend/.env.",
+    };
+  }
+
+  const email = normalizeEmail(payload?.email);
+  const code = String(payload?.code || "").trim();
+  const newPassword = String(payload?.newPassword || "");
+
+  if (!isValidEmail(email) || !/^\d{6}$/.test(code)) {
+    return { ok: false, message: "Yêu cầu mã xác thực hợp lệ." };
+  }
+
+  if (newPassword.length < 6) {
+    return { ok: false, message: "Mật khẩu mới phải từ 6 ký tự trở lên." };
+  }
+
+  try {
+    // Find verified reset verification row within last 15 minutes
+    const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+    const { data: verifiedReset, error: findError } = await client
+      .from("password_reset_verifications")
+      .select("*")
+      .eq("email", email)
+      .eq("code_hash", hashCode(email, code))
+      .not("verified_at", "is", null)
+      .gte("verified_at", fifteenMinutesAgo)
+      .maybeSingle();
+
+    if (findError) throw findError;
+    if (!verifiedReset) {
+      return { ok: false, message: "Yêu cầu đặt lại mật khẩu đã hết hạn hoặc không hợp lệ. Vui lòng thực hiện lại từ đầu." };
+    }
+
+    // Hash new password
+    const passwordHash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
+
+    // Update user's password
+    const { error: userUpdateError } = await client
+      .from("users")
+      .update({ password_hash: passwordHash })
+      .eq("email", email);
+
+    if (userUpdateError) throw userUpdateError;
+
+    // Delete verification record so it cannot be reused
+    await client
+      .from("password_reset_verifications")
+      .delete()
+      .eq("password_reset_verification_id", verifiedReset.password_reset_verification_id);
+
+    return { ok: true, message: "Cập nhật mật khẩu thành công. Vui lòng đăng nhập lại." };
+  } catch (error) {
+    console.error("[Gymster auth] Failed to reset password:", error);
+    return { ok: false, message: "Không thể cập nhật mật khẩu mới lúc này." };
+  }
+}
+
