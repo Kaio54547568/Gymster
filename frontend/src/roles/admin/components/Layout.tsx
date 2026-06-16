@@ -20,8 +20,6 @@ const menuItems: RoleShellItem[] = [
   { id: 'revenue', path: '/admin/revenue', icon: DollarSign, label: 'Revenue Analytics' },
   { id: 'membership', path: '/admin/membership', icon: Users, label: 'Membership Analytics' },
   { id: 'staff', path: '/admin/staff', icon: UserCheck, label: 'Staff & Trainer Management' },
-  { id: 'scheduling', path: '/admin/scheduling', icon: Calendar, label: 'Employee Scheduling' },
-  { id: 'performance', path: '/admin/performance', icon: Star, label: 'Performance Evaluation' },
   { id: 'payroll', path: '/admin/payroll', icon: Wallet, label: 'Payroll / Salary Slip' },
   { id: 'equipment', path: '/admin/equipment', icon: Dumbbell, label: 'Equipment Management' },
   { id: 'maintenance-tracking', path: '/admin/maintenance-tracking', icon: ClipboardList, label: 'Maintenance Tracking' },

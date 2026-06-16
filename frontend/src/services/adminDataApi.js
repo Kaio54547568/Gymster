@@ -292,87 +292,6 @@ export async function fetchAdminStaffData() {
   }
 }
 
-export async function fetchAdminScheduleData() {
-  const configError = requireSupabase("employee scheduling");
-  if (configError) return { data: null, error: configError };
-
-  try {
-    const [scheduleResult, trainerResult, availabilityResult] = await Promise.all([
-      supabase
-        .from("employee_schedules")
-        .select("*")
-        .order("shift_date", { ascending: true })
-        .order("start_time", { ascending: true }),
-      supabase.from("trainers").select("trainer_id,user_id,employee_id,trainer_code,full_name,specialty,status").order("created_at", { ascending: false }),
-      supabase.from("trainer_weekly_availability").select("trainer_id,day_of_week,start_time,end_time,is_available"),
-    ]);
-    if (scheduleResult.error) throw scheduleResult.error;
-    if (trainerResult.error) throw trainerResult.error;
-
-    const schedules = scheduleResult.data || [];
-    const trainerRows = trainerResult.data || [];
-    const availabilityRows = availabilityResult.error ? [] : availabilityResult.data || [];
-
-    const employeesById = await fetchEmployeesByIds((schedules || []).map((row) => row.employee_id));
-    const roomsById = await fetchRoomsByIds((schedules || []).map((row) => row.room_id));
-    const usersById = await fetchUsersByIds(trainerRows.map((trainer) => trainer.user_id));
-    const trainerEmployeesById = await fetchEmployeesByIds(trainerRows.map((trainer) => trainer.employee_id));
-    const shiftsByKey = {};
-    (schedules || []).forEach((row) => {
-      const key = `${row.start_time}-${row.end_time}`;
-      shiftsByKey[key] = {
-        maCa: key,
-        startTime: String(row.start_time || "").slice(0, 5),
-        endTime: String(row.end_time || "").slice(0, 5),
-        name: row.shift_type || "regular",
-      };
-    });
-
-    const days = {};
-    (schedules || []).forEach((row) => {
-      const date = new Date(row.shift_date);
-      const dayKey = formatDateKey(row.shift_date);
-      const shiftKey = `${row.start_time}-${row.end_time}`;
-      if (!days[dayKey]) {
-        days[dayKey] = {
-          day: Number.isNaN(date.getTime()) ? dayKey : date.toLocaleDateString("vi-VN", { weekday: "short" }),
-          date: formatDate(row.shift_date),
-          shifts: [],
-        };
-      }
-      days[dayKey].shifts.push({
-        shift: shiftKey,
-        employee: employeesById[row.employee_id]?.full_name || "Employee",
-        role: employeesById[row.employee_id]?.role || "staff",
-        room: roomsById[row.room_id]?.room_name || "Unassigned",
-      });
-    });
-
-    return {
-      data: {
-        shifts: Object.values(shiftsByKey),
-        schedule: Object.values(days),
-        trainers: trainerRows.map((trainer) => ({
-          id: trainer.trainer_id,
-          name: trainer.full_name || fullName(usersById[trainer.user_id], trainerEmployeesById[trainer.employee_id]?.full_name || trainer.trainer_code || "Trainer"),
-          specialty: trainer.specialty || "Personal training",
-          status: trainer.status || "active",
-          availability: availabilityRows
-            .filter((row) => row.trainer_id === trainer.trainer_id && row.is_available !== false)
-            .map((row) => ({
-              dayOfWeek: Number(row.day_of_week),
-              startTime: String(row.start_time || "").slice(0, 5),
-              endTime: String(row.end_time || "").slice(0, 5),
-            })),
-        })),
-      },
-      error: null,
-    };
-  } catch (error) {
-    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to load admin schedule:", error);
-    return { data: null, error };
-  }
-}
 
 export async function fetchPayrollData() {
   const configError = requireSupabase("payroll");
@@ -410,52 +329,6 @@ export async function fetchPayrollData() {
   }
 }
 
-export async function fetchPerformanceData() {
-  const configError = requireSupabase("performance reviews");
-  if (configError) return { data: null, error: configError };
-
-  try {
-    const { data: rows, error } = await supabase
-      .from("performance_reviews")
-      .select("*")
-      .order("reviewed_at", { ascending: false });
-    if (error) throw error;
-    const employeesById = await fetchEmployeesByIds((rows || []).map((row) => row.employee_id));
-    const performanceData = (rows || []).map((row) => {
-      const employee = employeesById[row.employee_id] || {};
-      const score = Number(row.score || row.rating * 20 || 0);
-      return {
-        maNV: employee.employee_code || row.employee_id,
-        hoTen: employee.full_name || "Employee",
-        reviewId: row.performance_review_id,
-        diemSo: score,
-        nhanXet: row.strengths || row.improvement_areas || row.goals || "",
-        date: formatDate(row.reviewed_at || row.created_at),
-        grade: score >= 90 ? "Excellent" : score >= 75 ? "Good" : "Needs work",
-        avatar: "",
-      };
-    });
-    const trendMap = {};
-    (rows || []).forEach((row) => {
-      const month = monthLabel(row.reviewed_at || row.created_at);
-      if (!trendMap[month]) trendMap[month] = [];
-      trendMap[month].push(Number(row.score || row.rating * 20 || 0));
-    });
-    return {
-      data: {
-        performanceData,
-        performanceTrend: Object.entries(trendMap).map(([month, values]) => ({
-          month,
-          score: Math.round(values.reduce((sum, value) => sum + value, 0) / values.length),
-        })),
-      },
-      error: null,
-    };
-  } catch (error) {
-    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to load performance data:", error);
-    return { data: null, error };
-  }
-}
 
 export async function fetchEquipmentManagementData() {
   const configError = requireSupabase("equipment management");
@@ -537,36 +410,6 @@ export async function fetchFeedbackSatisfactionData() {
   }
 }
 
-export async function fetchReportCards() {
-  const configError = requireSupabase("reports");
-  if (configError) return { data: [], error: configError };
-
-  try {
-    const [payments, members, reviews, equipment, feedback] = await Promise.all([
-      supabase.from("payments").select("payment_id", { count: "exact", head: true }),
-      supabase.from("members").select("member_id", { count: "exact", head: true }),
-      supabase.from("performance_reviews").select("performance_review_id", { count: "exact", head: true }),
-      supabase.from("equipment").select("equipment_id", { count: "exact", head: true }),
-      supabase.from("service_feedback").select("feedback_id", { count: "exact", head: true }),
-    ]);
-    [payments, members, reviews, equipment, feedback].forEach((result) => {
-      if (result.error) throw result.error;
-    });
-    return {
-      data: [
-        { id: 1, title: "Financial Report", desc: `${payments.count || 0} payment records`, key: "finance", count: payments.count || 0 },
-        { id: 2, title: "Member Report", desc: `${members.count || 0} member records`, key: "members", count: members.count || 0 },
-        { id: 3, title: "Staff Performance", desc: `${reviews.count || 0} performance reviews`, key: "performance", count: reviews.count || 0 },
-        { id: 4, title: "Equipment Report", desc: `${equipment.count || 0} equipment records`, key: "equipment", count: equipment.count || 0 },
-        { id: 5, title: "Feedback Report", desc: `${feedback.count || 0} feedback records`, key: "feedback", count: feedback.count || 0 },
-      ],
-      error: null,
-    };
-  } catch (error) {
-    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to load report cards:", error);
-    return { data: [], error };
-  }
-}
 
 export async function fetchRevenueBreakdowns() {
   const configError = requireSupabase("revenue breakdowns");
