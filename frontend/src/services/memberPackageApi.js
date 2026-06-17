@@ -1,5 +1,6 @@
 import { supabase } from "./supabaseClient";
 import { getAllowedLeaveDaysForPackage } from "./packageEntitlement";
+import { getCurrentUser } from "./authService";
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const LOCAL_PACKAGE_CHANGE_REQUESTS_KEY = "gymster_local_package_change_requests";
@@ -536,7 +537,32 @@ async function loadPackageChangeLookups(rows) {
 }
 
 export async function createPackageChangeRequest(request) {
+  const currentUser = getCurrentUser();
+  const isMember = currentUser && String(currentUser.role || "").toLowerCase() === "member";
+
   if (!supabase) {
+    if (isMember) {
+      // 1. Check pending request in localStorage
+      if (typeof window !== "undefined" && window.localStorage) {
+        const storedRows = JSON.parse(window.localStorage.getItem(LOCAL_PACKAGE_CHANGE_REQUESTS_KEY) || "[]");
+        const hasPending = storedRows.some(row => row.memberId === request.memberId && row.status === "pending");
+        if (hasPending) {
+          return { data: null, error: new Error("Bạn đã có một yêu cầu đổi/gia hạn gói đang chờ xử lý.") };
+        }
+      }
+
+      // 2. Check days remaining on mock fallbackActivePackage
+      const endDate = fallbackActivePackage.endDate;
+      const diff = new Date(endDate).getTime() - Date.now();
+      const daysRemaining = Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)));
+      if (daysRemaining > 5) {
+        return {
+          data: null,
+          error: new Error(`Gói hiện tại của bạn còn nhiều hơn 5 ngày (${daysRemaining} ngày). Bạn chỉ được gửi yêu cầu gia hạn hoặc đổi gói khi gói hiện tại còn tối đa 5 ngày.`)
+        };
+      }
+    }
+
     const row = {
       requestId: `LOCAL-${Date.now()}`,
       memberId: request.memberId || request.memberEmail || "local-member",
@@ -569,8 +595,61 @@ export async function createPackageChangeRequest(request) {
 
   if (!memberId) {
     const error = new Error("Unable to resolve member id.");
-    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to create package change request:", error);
+    console.error("[Gymster hệ thống] Failed to create package change request:", error);
     return { data: null, error };
+  }
+
+  // Pre-emptive check on Supabase database to return nice error messages
+  if (isMember) {
+    // Check pending request
+    const { data: pendingRequests, error: pendingError } = await supabase
+      .from("package_change_requests")
+      .select("package_change_request_id")
+      .eq("member_id", memberId)
+      .eq("status", "pending")
+      .limit(1);
+
+    if (!pendingError && pendingRequests && pendingRequests.length > 0) {
+      return { data: null, error: new Error("Bạn đã có một yêu cầu đổi/gia hạn gói đang chờ xử lý.") };
+    }
+
+    // Check queued future packages
+    const { data: queuedPackages, error: queuedError } = await supabase
+      .from("member_packages")
+      .select("member_package_id, status, start_date")
+      .eq("member_id", memberId)
+      .or("status.eq.pending_payment,status.eq.active");
+
+    if (!queuedError && queuedPackages) {
+      const hasQueued = queuedPackages.some(pkg => 
+        pkg.status === "pending_payment" || 
+        (pkg.status === "active" && pkg.start_date && new Date(pkg.start_date) > new Date())
+      );
+      if (hasQueued) {
+        return { data: null, error: new Error("Bạn đã có một gói tập đang chờ thanh toán hoặc gói tập tương lai đã được lên lịch.") };
+      }
+    }
+
+    // Check active package days remaining
+    const { data: activePackages, error: activeError } = await supabase
+      .from("member_packages")
+      .select("end_date")
+      .eq("member_id", memberId)
+      .eq("status", "active");
+
+    if (!activeError && activePackages && activePackages.length > 0) {
+      const activePkg = activePackages.find(pkg => !pkg.start_date || new Date(pkg.start_date) <= new Date());
+      if (activePkg && activePkg.end_date) {
+        const diff = new Date(activePkg.end_date).getTime() - Date.now();
+        const daysRemaining = Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)));
+        if (daysRemaining > 5) {
+          return {
+            data: null,
+            error: new Error(`Gói hiện tại của bạn còn nhiều hơn 5 ngày (${daysRemaining} ngày). Bạn chỉ được gửi yêu cầu gia hạn hoặc đổi gói khi gói hiện tại còn tối đa 5 ngày.`)
+          };
+        }
+      }
+    }
   }
 
   const payload = {
@@ -590,7 +669,7 @@ export async function createPackageChangeRequest(request) {
     .single();
 
   if (error) {
-    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to create package change request:", error);
+    console.error("[Gymster hệ thống] Failed to create package change request:", error);
     return { data: null, error };
   }
 

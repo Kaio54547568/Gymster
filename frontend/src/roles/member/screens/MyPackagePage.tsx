@@ -23,6 +23,7 @@ export default function MyPackagePage() {
     submitRenewalRequest,
     transactionRows,
     usagePercent,
+    hasMoreThan5DaysLeft,
   } = useMyPackagePage();
 
   return (
@@ -147,6 +148,8 @@ export default function MyPackagePage() {
             selectedPaymentMethod={selectedPaymentMethod}
             setSelectedPaymentMethod={setSelectedPaymentMethod}
             submitRenewalRequest={submitRenewalRequest}
+            hasMoreThan5DaysLeft={hasMoreThan5DaysLeft}
+            daysRemaining={displayCurrentPackage.daysRemaining}
           />
         </Section>
       </div>

@@ -27,10 +27,20 @@ export function useMyPackagePage() {
   const [loadMessage, setLoadMessage] = useState('');
   const [requestMessage, setRequestMessage] = useState('');
   const currentPackageIndex = availablePackages.findIndex((item) => item.title === displayCurrentPackage.title);
+  const daysRemainingVal = typeof displayCurrentPackage.daysRemaining === 'number'
+    ? displayCurrentPackage.daysRemaining
+    : parseInt(String(displayCurrentPackage.daysRemaining || ''), 10);
+
+  const hasMoreThan5DaysLeft = displayCurrentPackage.hasPackage &&
+    String(displayCurrentPackage.status || '').toLowerCase() === 'active' &&
+    !Number.isNaN(daysRemainingVal) &&
+    daysRemainingVal > 5;
+
   const usagePercent = displayCurrentPackage.hasPackage && displayCurrentPackage.totalSessions > 0
     ? Math.min(100, Math.round((displayCurrentPackage.usedSessions / displayCurrentPackage.totalSessions) * 100))
     : 0;
-  const canSubmitRequest = Boolean(selectedPackage && selectedPaymentMethod);
+
+  const canSubmitRequest = Boolean(selectedPackage && selectedPaymentMethod) && !hasMoreThan5DaysLeft;
   const filteredPackages = availablePackages.filter((item) => {
     const search = packageSearch.trim().toLowerCase();
     return !search || item.title.toLowerCase().includes(search) || item.description.toLowerCase().includes(search);
@@ -96,6 +106,10 @@ export function useMyPackagePage() {
 
   const submitRenewalRequest = async () => {
     if (!selectedPackage || !selectedPaymentMethod) return;
+    if (hasMoreThan5DaysLeft) {
+      setRequestMessage(`Gói hiện tại của bạn còn nhiều hơn 5 ngày (${displayCurrentPackage.daysRemaining} ngày). Bạn chỉ được gửi yêu cầu gia hạn hoặc đổi gói khi gói hiện tại còn tối đa 5 ngày.`);
+      return;
+    }
     const currentUser = getCurrentUser();
     const requestPayload = {
       memberId: resolvedMemberId || currentUser?.memberId || currentUser?.member_id || '',
@@ -116,7 +130,7 @@ export function useMyPackagePage() {
       return;
     }
 
-    setRequestMessage('Request could not be saved.');
+    setRequestMessage(error?.message || 'Request could not be saved.');
   };
 
   return {
@@ -136,5 +150,6 @@ export function useMyPackagePage() {
     submitRenewalRequest,
     transactionRows,
     usagePercent,
+    hasMoreThan5DaysLeft,
   };
 }

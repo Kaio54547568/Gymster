@@ -9,6 +9,8 @@ type PackageRequestSummaryProps = {
   selectedPaymentMethod: string;
   setSelectedPaymentMethod: (method: string) => void;
   submitRenewalRequest: () => void;
+  hasMoreThan5DaysLeft?: boolean;
+  daysRemaining?: number | string;
 };
 
 export default function PackageRequestSummary({
@@ -18,6 +20,8 @@ export default function PackageRequestSummary({
   selectedPaymentMethod,
   setSelectedPaymentMethod,
   submitRenewalRequest,
+  hasMoreThan5DaysLeft = false,
+  daysRemaining = 0,
 }: PackageRequestSummaryProps) {
   return (
     <div className="space-y-3">
@@ -45,6 +49,12 @@ export default function PackageRequestSummary({
           <div className="flex justify-between gap-3"><span>Request status</span><span className="font-bold text-amber-300">Pending staff approval</span></div>
         </div>
       </div>
+
+      {hasMoreThan5DaysLeft && (
+        <div className="rounded-xl border border-[#EF233C]/20 bg-[#EF233C]/10 p-3 text-sm font-bold text-[#EF233C]">
+          Gói hiện tại của bạn còn {daysRemaining} ngày. Bạn chỉ được gửi yêu cầu gia hạn / đổi gói khi gói hiện tại còn tối đa 5 ngày.
+        </div>
+      )}
 
       <button
         className="w-full rounded-xl bg-[#EF233C] px-4 py-3 text-sm font-bold text-white disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-white/35"
