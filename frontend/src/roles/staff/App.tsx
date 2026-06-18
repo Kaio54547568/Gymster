@@ -6,6 +6,7 @@ import { MemberList } from './components/MemberList';
 import { MemberDetail } from './components/MemberDetail';
 import { DailyCheckIn } from './components/DailyCheckIn';
 import { RenewPackageUI } from './components/RenewPackageUI';
+import { PaymentRequests } from './components/PaymentRequests';
 import { ReceiptDetail } from './components/ReceiptDetail';
 import { ViewHistoryUI } from './components/ViewHistoryUI';
 import { FeedbackManagement } from './components/FeedbackManagement';
@@ -28,6 +29,7 @@ export default function App() {
           <Route path="check-in" element={<DailyCheckIn />} />
           <Route path="renew-package" element={<RenewPackageUI />} />
           <Route path="renew-package/:memberId" element={<RenewPackageUI />} />
+          <Route path="payment-requests" element={<PaymentRequests />} />
           <Route path="receipt/:id" element={<ReceiptDetail />} />
           <Route path="history" element={<ViewHistoryUI />} />
           <Route path="feedback" element={<FeedbackManagement />} />

@@ -2,6 +2,32 @@ import { supabase } from "./supabaseClient";
 import { getCurrentUser } from "./authService";
 import { getSessionStatusLabel } from "./sessionModel";
 
+const LOCAL_PAYMENT_REQUESTS_KEY = "gymster_local_payment_requests";
+
+const LOCAL_TRAINERS = {
+  "local-trainer-khoa": {
+    name: "Khoa Le",
+    specialty: "PT Strength & Conditioning",
+    phone: "0901000004",
+    email: "trainer@gymster.local",
+    avatar: "KL",
+  },
+  "local-trainer-lan": {
+    name: "Lan Anh",
+    specialty: "Yoga & Mobility",
+    phone: "0903000101",
+    email: "trainer.lan@gymster.local",
+    avatar: "LA",
+  },
+  "local-trainer-minh": {
+    name: "Minh Tuan",
+    specialty: "Weight Loss Coaching",
+    phone: "0903000102",
+    email: "trainer.minh@gymster.local",
+    avatar: "MT",
+  },
+};
+
 function fullName(row, fallback = "Member") {
   const name = [row?.first_name, row?.last_name].filter(Boolean).join(" ").trim();
   return row?.full_name || name || row?.username || fallback;
@@ -140,6 +166,16 @@ function displayDate(dateValue) {
   return formatDisplayDate(`${dateValue}T00:00:00`);
 }
 
+function readLocalPaymentRequests() {
+  if (typeof window === "undefined" || !window.localStorage) return [];
+  try {
+    const rows = JSON.parse(window.localStorage.getItem(LOCAL_PAYMENT_REQUESTS_KEY) || "[]");
+    return Array.isArray(rows) ? rows : [];
+  } catch {
+    return [];
+  }
+}
+
 function nextWeekday(dayIndex) {
   const today = new Date();
   const date = new Date(today.getFullYear(), today.getMonth(), today.getDate());
@@ -149,19 +185,38 @@ function nextWeekday(dayIndex) {
 }
 
 function buildLocalPtPortalData() {
+  const currentUser = getCurrentUser() || {};
+  const currentTrainerId = currentUser.trainerId || currentUser.trainer_id || "local-trainer-khoa";
+  const trainerProfile = LOCAL_TRAINERS[currentTrainerId] || {
+    name: currentUser.fullName || currentUser.full_name || "Trainer",
+    specialty: "Personal Training",
+    phone: currentUser.phone || currentUser.phone_number || "",
+    email: currentUser.email || "",
+    avatar: initials(currentUser.fullName || currentUser.full_name || "PT"),
+  };
   const memberId = "00000000-0000-4000-8000-000000000005";
   const monday = nextWeekday(1);
   const thursday = nextWeekday(4);
-
-  return {
-    trainer: {
-      name: "Khoa Le",
-      specialty: "PT Strength & Conditioning",
-      phone: "0901000004",
-      email: "trainer@gymster.local",
-      avatar: "KL",
-    },
-    members: [{
+  const approvedRequests = readLocalPaymentRequests().filter((request) => {
+    const status = String(request.status || "").toLowerCase();
+    const paymentStatus = String(request.paymentStatus || "").toLowerCase();
+    return request.trainerId === currentTrainerId && (status === "approved" || paymentStatus === "paid" || paymentStatus === "approved");
+  });
+  const requestMembers = approvedRequests.map((request) => ({
+    id: request.memberId || request.paymentId,
+    name: request.memberName || "Member",
+    phone: request.memberPhone || "",
+    email: request.memberEmail || "",
+    package: request.packageName || "Selected package",
+    avatar: initials(request.memberName || "Member"),
+    joinDate: formatDisplayDate(request.approvedAt || request.updatedAt || request.createdAt),
+    age: 0,
+    gender: "",
+    packageStatus: "Active",
+    packageRegisteredAt: formatDisplayDate(request.createdAt),
+  }));
+  const baseMembers = currentTrainerId === "local-trainer-khoa"
+    ? [{
       id: memberId,
       name: "Mai Do",
       phone: "0901000005",
@@ -171,8 +226,24 @@ function buildLocalPtPortalData() {
       joinDate: "01/06/2026",
       age: 28,
       gender: "female",
-    }],
-    assignments: [{
+    }]
+    : [];
+  const members = [...requestMembers, ...baseMembers];
+
+  return {
+    trainer: trainerProfile,
+    members,
+    assignments: [
+      ...requestMembers.map((member, index) => ({
+        assignmentId: `local-assignment-${member.id}`,
+        memberId: member.id,
+        assignmentDate: member.joinDate || formatDisplayDate(new Date().toISOString()),
+        status: "Active",
+        sessionsRemaining: Number(approvedRequests[index]?.remainingSessions || approvedRequests[index]?.sessionLimit || 0),
+        progress: 0,
+        totalSessions: Number(approvedRequests[index]?.remainingSessions || approvedRequests[index]?.sessionLimit || 0),
+      })),
+      ...(currentTrainerId === "local-trainer-khoa" ? [{
       assignmentId: "local-assignment-member00",
       memberId,
       assignmentDate: "01/06/2026",
@@ -180,7 +251,8 @@ function buildLocalPtPortalData() {
       sessionsRemaining: 21,
       progress: 25,
       totalSessions: 24,
-    }],
+    }] : []),
+    ],
     schedules: [],
     progressRecords: [],
     trainingGoals: [{

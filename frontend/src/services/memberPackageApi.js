@@ -5,6 +5,7 @@ import { notifyPtPortalDataChanged } from "./notificationApi";
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const LOCAL_PACKAGE_CHANGE_REQUESTS_KEY = "gymster_local_package_change_requests";
+const LOCAL_PAYMENT_REQUESTS_KEY = "gymster_local_payment_requests";
 
 const fallbackActivePackage = {
   memberPackageId: "local-member-package-member00",
@@ -29,6 +30,88 @@ const fallbackActivePackage = {
   createdAt: new Date().toISOString(),
   source: "local",
 };
+
+function isNoPackageDemoMember(user) {
+  const email = String(user?.email || "").trim().toLowerCase();
+  const username = String(user?.username || "").trim().toLowerCase();
+  return [
+    "newmember@gymster.local",
+    "freshmember@gymster.local",
+    "trialmember@gymster.local",
+  ].includes(email) || ["newmember", "freshmember", "trialmember"].includes(username);
+}
+
+function readLocalPaymentRequests() {
+  if (typeof window === "undefined" || !window.localStorage) return [];
+  try {
+    const rows = JSON.parse(window.localStorage.getItem(LOCAL_PAYMENT_REQUESTS_KEY) || "[]");
+    return Array.isArray(rows) ? rows : [];
+  } catch {
+    return [];
+  }
+}
+
+function getApprovedLocalPaymentRequestForUser(user) {
+  const userIds = [
+    user?.id,
+    user?.userId,
+    user?.user_id,
+    user?.memberId,
+    user?.member_id,
+  ].filter(Boolean).map((value) => String(value).toLowerCase());
+  const email = String(user?.email || "").trim().toLowerCase();
+
+  return readLocalPaymentRequests()
+    .filter((request) => {
+      const status = String(request.status || "").toLowerCase();
+      const paymentStatus = String(request.paymentStatus || "").toLowerCase();
+      const requestMemberId = String(request.memberId || "").toLowerCase();
+      const requestEmail = String(request.memberEmail || "").trim().toLowerCase();
+      const isApproved = status === "approved" || paymentStatus === "paid" || paymentStatus === "approved";
+      const isSameUser = (email && requestEmail === email) || (requestMemberId && userIds.includes(requestMemberId));
+      return isApproved && isSameUser;
+    })
+    .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())[0] || null;
+}
+
+function addMonths(date, months) {
+  const nextDate = new Date(date);
+  nextDate.setMonth(nextDate.getMonth() + Number(months || 1));
+  return nextDate;
+}
+
+function mapApprovedLocalPaymentToPackage(request, user) {
+  if (!request) return null;
+
+  const startDate = new Date(request.approvedAt || request.updatedAt || Date.now());
+  const durationMonths = Number(request.packageDurationMonths || request.durationMonths || 1);
+  const sessionTotal = request.remainingSessions ?? request.sessionLimit ?? request.sessionsTotal ?? null;
+
+  return {
+    memberPackageId: request.memberPackageId,
+    memberId: request.memberId || user?.memberId || user?.member_id || user?.id,
+    packageId: request.packageId,
+    trainerId: request.trainerId || null,
+    packageName: request.packageName || "Selected package",
+    packageType: request.packageType || (request.trainerId ? "pt" : "standard"),
+    packagePrice: Number(request.amount || 0),
+    packageDurationMonths: durationMonths,
+    durationMonths,
+    packageSessionLimit: sessionTotal,
+    maxLeaveDays: getAllowedLeaveDaysForPackage({ packageDurationMonths: durationMonths, durationMonths }),
+    hasPersonalTrainer: Boolean(request.trainerId),
+    trainerName: request.trainerName || "",
+    startDate: startDate.toISOString().slice(0, 10),
+    endDate: addMonths(startDate, durationMonths).toISOString().slice(0, 10),
+    usedSessions: 0,
+    remainingSessions: sessionTotal,
+    sessionsTotal: sessionTotal,
+    status: "active",
+    activatedAt: request.approvedAt || request.updatedAt || new Date().toISOString(),
+    createdAt: request.createdAt || new Date().toISOString(),
+    source: "local",
+  };
+}
 
 const packageColumns = `
   package_id,
@@ -398,6 +481,23 @@ export async function getCurrentMemberPackage(memberId) {
 
 export async function getMemberPackagesForUser(user) {
   if (!supabase) {
+    const approvedPackage = mapApprovedLocalPaymentToPackage(getApprovedLocalPaymentRequestForUser(user), user);
+    if (approvedPackage) {
+      return {
+        data: [approvedPackage],
+        memberId: approvedPackage.memberId,
+        error: null,
+      };
+    }
+
+    if (isNoPackageDemoMember(user)) {
+      return {
+        data: [],
+        memberId: user?.memberId || user?.member_id || user?.id || "00000000-0000-4000-8000-000000000099",
+        error: null,
+      };
+    }
+
     return {
       data: [fallbackActivePackage],
       memberId: user?.memberId || user?.member_id || user?.id || fallbackActivePackage.memberId,

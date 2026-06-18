@@ -1,21 +1,13 @@
-import { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router';
+﻿import { useEffect, useMemo, useState } from 'react';
 import { CreditCard, Dumbbell, Star, Users } from 'lucide-react';
-import { getCurrentUser, setCurrentUser } from '../../../services/authService';
-import { createMemberPackage, updateMemberPackageStatus, assignTrainerToMember } from '../../../services/memberPackageApi';
-import { createNotification } from '../../../services/notificationApi';
 import { fetchPackagesFromSupabase } from '../../../services/packageApi';
-import { createPayment } from '../../../services/paymentApi';
+import { createPackagePaymentRequest } from '../../../services/paymentRequestApi';
 import { fetchTrainersFromSupabase } from '../../../services/trainerApi';
 import { getTrainerWeeklyAvailability } from '../../../services/trainerAvailabilityApi';
-import { activateMemberAccount } from '../../../services/userApi';
-import { createWorkoutSessionsForSchedule } from '../../../services/workoutSessionApi';
 import Section from '../components/Section';
-import { addMonths, getPackageDurationMonths, toDateInputValue, withTimeout } from '../domain/packageHelpers';
+import { withTimeout } from '../domain/packageHelpers';
 
 export default function SelectPackageOnboarding({ onMemberActivated }: { onMemberActivated?: (user: any) => void }) {
-  const navigate = useNavigate();
-  const currentUser = getCurrentUser();
   const [packages, setPackages] = useState<any[]>([]);
   const [trainers, setTrainers] = useState<any[]>([]);
   const [availability, setAvailability] = useState<any[]>([]);
@@ -29,6 +21,7 @@ export default function SelectPackageOnboarding({ onMemberActivated }: { onMembe
   const [isLoadingAvailability, setIsLoadingAvailability] = useState(false);
   const [message, setMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [requestSubmitted, setRequestSubmitted] = useState(false);
 
   const sessionsPerWeek = selectedPackage?.sessionsPerWeek || 1;
   const isScheduleValid = useMemo(() => {
@@ -66,7 +59,7 @@ export default function SelectPackageOnboarding({ onMemberActivated }: { onMembe
       if (!isMounted) return;
 
       setPackages(packageResult.error ? [] : packageResult.data.filter((item: any) => item.isActive !== false));
-      setTrainers(trainerResult.error ? [] : trainerResult.data.filter((item: any) => item.status === 'active'));
+      setTrainers(trainerResult.error ? [] : trainerResult.data.filter((item: any) => String(item.status || '').toLowerCase() === 'active'));
       setMessage(packageResult.error || trainerResult.error ? 'Some package or trainer data could not be loaded.' : '');
       setIsLoading(false);
     }
@@ -110,6 +103,7 @@ export default function SelectPackageOnboarding({ onMemberActivated }: { onMembe
     setSelectedSlot(null);
     setSelectedSlots([]);
     setStep(pkg.hasPersonalTrainer ? 'trainer' : 'payment');
+    setRequestSubmitted(false);
     setMessage('');
   };
 
@@ -117,6 +111,7 @@ export default function SelectPackageOnboarding({ onMemberActivated }: { onMembe
     setSelectedTrainer(trainer);
     setSelectedSlot(null);
     setSelectedSlots([]);
+    setStep('trainer');
     setMessage('');
   };
 
@@ -169,11 +164,11 @@ export default function SelectPackageOnboarding({ onMemberActivated }: { onMembe
           setMessage('');
         } else {
           setSelectedSlot(null);
-          setMessage('Vui lòng chọn 2 buổi tập khác ngày nhau và không liền kề.');
+          setMessage('Vui lÃ²ng chá»n 2 buá»•i táº­p khÃ¡c ngÃ y nhau vÃ  khÃ´ng liá»n ká».');
         }
       } else {
         setSelectedSlot(null);
-        setMessage('Vui lòng chọn đủ 2 buổi tập.');
+        setMessage('Vui lÃ²ng chá»n Ä‘á»§ 2 buá»•i táº­p.');
       }
     } else {
       setSelectedSlots([newSlot]);
@@ -183,286 +178,69 @@ export default function SelectPackageOnboarding({ onMemberActivated }: { onMembe
     }
   };
 
-  const completePayment = async () => {
+  const submitPaymentRequest = async () => {
     if (!selectedPackage) return;
     if (selectedPackage.hasPersonalTrainer && (!selectedTrainer || !selectedSlot)) {
       setMessage('Please choose a trainer and a weekly training slot.');
       return;
     }
 
-	    setIsSubmitting(true);
-	    setMessage('');
+    setIsSubmitting(true);
+    setMessage('');
+    const sessionLimit = selectedPackage.sessionLimitValue ?? (selectedPackage.hasPersonalTrainer ? 4 : null);
 
-	    const sessionLimit = selectedPackage.sessionLimitValue ?? (selectedPackage.hasPersonalTrainer ? 4 : null);
+    try {
+      const { error } = await withTimeout(createPackagePaymentRequest({
+        packageId: selectedPackage.id,
+        packageName: selectedPackage.name,
+        packageType: selectedPackage.packageType || selectedPackage.type,
+        packageDurationMonths: selectedPackage.durationMonths || selectedPackage.packageDurationMonths,
+        sessionLimit: selectedPackage.sessionLimitValue ?? selectedPackage.sessionLimit,
+        trainerId: selectedTrainer?.id || null,
+        trainerName: selectedTrainer?.name || '',
+        amount: selectedPackage.price,
+        paymentMethod,
+        remainingSessions: sessionLimit,
+        selectedSlot,
+        selectedSlots,
+        selectedSchedule: selectedSlot?.label || '',
+      }), 10000, 'Payment request timed out.');
 
-	    try {
-	      const activationResult = await withTimeout(activateMemberAccount(currentUser), 10000, 'Account activation timed out.');
-	      if (!activationResult.ok) {
-	        setMessage(activationResult.message || 'Account could not be activated.');
-	        setIsSubmitting(false);
-	        return;
-	      }
-
-	      const activatedUser = activationResult.user || {
-	        ...currentUser,
-	        role: currentUser?.role || 'member',
-	        accountStatus: 'Active',
-	        account_status: 'active',
-	      };
-	      const activeMemberId = activatedUser?.memberId || activatedUser?.member_id;
-
-	      const createdPackage = await withTimeout(createMemberPackage({
-	        memberId: activeMemberId,
-	        memberEmail: activatedUser?.email || '',
-	        packageId: selectedPackage.id,
-	        trainerId: selectedTrainer?.id || null,
-	        status: 'pending_payment',
-	        remainingSessions: sessionLimit,
-	      }), 10000, 'Package registration timed out.');
-
-	      if (createdPackage.error || !createdPackage.data?.memberPackageId) {
-	        setMessage('Demo payment failed because the package could not be registered.');
-	        setIsSubmitting(false);
-	        return;
-	      }
-
-	      const transactionCode = `GYMSTER-DEMO-${Date.now()}`;
-	      const paymentDate = new Date().toISOString();
-	      const paymentResult = await withTimeout(createPayment({
-	        memberId: activatedUser?.memberId || activatedUser?.member_id,
-	        memberEmail: activatedUser?.email || '',
-	        packageId: selectedPackage.id,
-	        memberPackageId: createdPackage.data.memberPackageId,
-	        amount: selectedPackage.price,
-	        paymentMethod,
-	        paymentDate,
-	        transactionCode,
-	        transferContent: `GYMSTER DEMO ${selectedPackage.code || selectedPackage.id}`,
-	      }), 10000, 'Payment save timed out.');
-
-	      if (paymentResult.error) {
-	        setMessage('Demo payment could not be saved.');
-	        setIsSubmitting(false);
-	        return;
-	      }
-
-	      const startDate = toDateInputValue(new Date(paymentDate));
-	      const endDate = toDateInputValue(addMonths(new Date(paymentDate), getPackageDurationMonths(selectedPackage)));
-	      const packageUpdate = await withTimeout(updateMemberPackageStatus(createdPackage.data.memberPackageId, 'active', {
-	        start_date: startDate,
-	        end_date: endDate,
-	        remaining_sessions: sessionLimit,
-	        used_sessions: 0,
-	        activated_at: paymentDate,
-	      }), 10000, 'Package activation timed out.');
-
-	      if (packageUpdate.error) {
-	        setMessage('Demo payment was saved, but the package could not be activated.');
-	        setIsSubmitting(false);
-	        return;
-	      }
-
-	      if (selectedPackage.hasPersonalTrainer && selectedTrainer && selectedSlot) {
-	        const memberDisplayName = activatedUser?.fullName
-	          || activatedUser?.full_name
-	          || currentUser?.fullName
-	          || currentUser?.full_name
-	          || currentUser?.username
-	          || 'Th\u00e0nh vi\u00ean m\u1edbi';
-	        // Assign member to trainer
-	        await withTimeout(assignTrainerToMember(activeMemberId, selectedTrainer.id, 'Assigned during package selection onboarding'), 5000, 'Trainer assignment timed out.');
-
-	        // Notify the trainer
-	        if (selectedTrainer.userId) {
-	          await createNotification({
-	            userId: selectedTrainer.userId,
-	            notificationType: 'system',
-	            title: 'H\u1ed9i vi\u00ean m\u1edbi \u0111\u0103ng k\u00fd',
-	            message: `B\u1ea1n c\u00f3 h\u1ed9i vi\u00ean m\u1edbi \u0111\u0103ng k\u00fd g\u00f3i t\u1eadp: ${memberDisplayName}`,
-	            actionType: 'new_pt_member',
-	            actionPayload: {
-	              memberId: activeMemberId,
-	              packageId: selectedPackage.id,
-	              packageName: selectedPackage.name,
-	              trainerId: selectedTrainer.id,
-	            },
-	          });
-	        }
-
-	        await withTimeout(createWorkoutSessionsForSchedule({
-	          memberId: activatedUser?.memberId || activatedUser?.member_id,
-	          memberEmail: activatedUser?.email || '',
-	          trainerId: selectedTrainer.id,
-	          packageId: selectedPackage.id,
-	          memberPackageId: createdPackage.data.memberPackageId,
-	          selectedSchedule: selectedSlot.label,
-	          startDate,
-	          endDate,
-	        }), 8000, 'Workout session creation timed out.');
-
-	        await createNotification({
-	          notificationType: 'system',
-	          title: 'Your trainer information',
-	          message: [
-	            `PT: ${selectedTrainer.name}`,
-	            selectedTrainer.specialty ? `Specialty: ${selectedTrainer.specialty}` : '',
-	            selectedTrainer.rating ? `Rating: ${selectedTrainer.rating}/5` : '',
-	            selectedSlot.label ? `Schedule: ${selectedSlot.label}` : '',
-	          ].filter(Boolean).join(' | '),
-	        });
-	      }
-
-	      const activeUser = {
-	        ...activatedUser,
-	        role: activatedUser?.role || 'member',
-	        accountStatus: 'Active',
-	        account_status: 'active',
-	        memberPackageId: createdPackage.data.memberPackageId,
-	        currentPackage: packageUpdate.data,
-	      };
-	      setCurrentUser(activeUser);
-	      onMemberActivated?.(activeUser);
-	      setIsSubmitting(false);
-	      navigate('/member', { replace: true });
-	    } catch (error) {
-	      console.error('[Gymster system] Demo payment failed:', error);
-	      setMessage(error instanceof Error ? error.message : 'Demo payment could not be completed.');
-	      setIsSubmitting(false);
-	    }
-	    return;
-
-	    const activeUser = {
-      ...currentUser,
-      role: currentUser?.role || 'member',
-      accountStatus: 'Active',
-      account_status: 'active',
-    };
-    const flowData = {
-      currentUser,
-      selectedPackage,
-      selectedTrainer,
-      selectedSlot,
-      paymentMethod,
-      sessionLimit: selectedPackage.sessionLimitValue ?? (selectedPackage.hasPersonalTrainer ? 4 : null),
-    };
-
-    setCurrentUser(activeUser);
-    onMemberActivated?.(activeUser);
-    setIsSubmitting(false);
-    navigate('/member', { replace: true });
-
-    void (async () => {
-      try {
-        await withTimeout(activateMemberAccount(flowData.currentUser), 10000, 'Account activation timed out.');
-        const activeMemberId = flowData.currentUser?.memberId || flowData.currentUser?.member_id;
-
-        const createdPackage = await withTimeout(createMemberPackage({
-          memberId: activeMemberId,
-          memberEmail: flowData.currentUser?.email || '',
-          packageId: flowData.selectedPackage.id,
-          trainerId: flowData.selectedTrainer?.id || null,
-          status: 'pending_payment',
-          remainingSessions: flowData.sessionLimit,
-        }), 10000, 'Package registration timed out.');
-
-        if (createdPackage.error || !createdPackage.data?.memberPackageId) {
-          console.error('[Gymster hệ thống] Demo package registration could not be saved:', createdPackage.error);
-          return;
-        }
-
-        const transactionCode = `GYMSTER-DEMO-${Date.now()}`;
-        const paymentDate = new Date().toISOString();
-        const paymentResult = await withTimeout(createPayment({
-          memberId: flowData.currentUser?.memberId || flowData.currentUser?.member_id,
-          memberEmail: flowData.currentUser?.email || '',
-          packageId: flowData.selectedPackage.id,
-          memberPackageId: createdPackage.data.memberPackageId,
-          amount: flowData.selectedPackage.price,
-          paymentMethod: flowData.paymentMethod,
-          paymentDate,
-          transactionCode,
-          transferContent: `GYMSTER DEMO ${flowData.selectedPackage.code || flowData.selectedPackage.id}`,
-        }), 10000, 'Payment save timed out.');
-
-        if (paymentResult.error) {
-          console.error('[Gymster hệ thống] Demo payment could not be saved:', paymentResult.error);
-          return;
-        }
-
-        const startDate = toDateInputValue(new Date(paymentDate));
-        const endDate = toDateInputValue(addMonths(new Date(paymentDate), getPackageDurationMonths(flowData.selectedPackage)));
-        const packageUpdate = await withTimeout(updateMemberPackageStatus(createdPackage.data.memberPackageId, 'active', {
-          start_date: startDate,
-          end_date: endDate,
-          remaining_sessions: flowData.sessionLimit,
-          used_sessions: 0,
-          activated_at: paymentDate,
-        }), 10000, 'Package activation timed out.');
-
-        if (packageUpdate.error) {
-          console.error('[Gymster hệ thống] Demo member package could not be activated:', packageUpdate.error);
-          return;
-        }
-
-        if (flowData.selectedPackage.hasPersonalTrainer && flowData.selectedTrainer && flowData.selectedSlot) {
-          const memberDisplayName = flowData.currentUser?.fullName
-            || flowData.currentUser?.full_name
-            || flowData.currentUser?.username
-            || 'Th\u00e0nh vi\u00ean m\u1edbi';
-          // Assign member to trainer
-          await withTimeout(assignTrainerToMember(activeMemberId, flowData.selectedTrainer.id, 'Assigned during package selection onboarding (Demo)'), 5000, 'Trainer assignment timed out.');
-
-          // Notify the trainer
-          if (flowData.selectedTrainer.userId) {
-            await createNotification({
-              userId: flowData.selectedTrainer.userId,
-              notificationType: 'system',
-              title: 'H\u1ed9i vi\u00ean m\u1edbi \u0111\u0103ng k\u00fd',
-              message: `B\u1ea1n c\u00f3 h\u1ed9i vi\u00ean m\u1edbi \u0111\u0103ng k\u00fd g\u00f3i t\u1eadp: ${memberDisplayName}`,
-              actionType: 'new_pt_member',
-              actionPayload: {
-                memberId: activeMemberId,
-                packageId: flowData.selectedPackage.id,
-                packageName: flowData.selectedPackage.name,
-                trainerId: flowData.selectedTrainer.id,
-              },
-            });
-          }
-
-          await withTimeout(createWorkoutSessionsForSchedule({
-            memberId: flowData.currentUser?.memberId || flowData.currentUser?.member_id,
-            memberEmail: flowData.currentUser?.email || '',
-            trainerId: flowData.selectedTrainer.id,
-            packageId: flowData.selectedPackage.id,
-            memberPackageId: createdPackage.data.memberPackageId,
-            selectedSchedule: flowData.selectedSlot.label,
-            startDate,
-            endDate,
-          }), 8000, 'Workout session creation timed out.');
-
-          await createNotification({
-            notificationType: 'system',
-            title: 'Your trainer information',
-            message: [
-              `PT: ${flowData.selectedTrainer.name}`,
-              flowData.selectedTrainer.specialty ? `Specialty: ${flowData.selectedTrainer.specialty}` : '',
-              flowData.selectedTrainer.rating ? `Rating: ${flowData.selectedTrainer.rating}/5` : '',
-              flowData.selectedSlot.label ? `Schedule: ${flowData.selectedSlot.label}` : '',
-            ].filter(Boolean).join(' | '),
-          });
-        }
-      } catch (error) {
-        console.error('[Gymster hệ thống] Demo payment background sync failed:', error);
+      if (error) {
+        setMessage(error.message || 'Yêu cầu thanh toán không thể gửi.');
+        return;
       }
-    })();
 
+      setRequestSubmitted(true);
+      setMessage('Vui lòng chờ xác nhận thanh toán.');
+    } catch (error) {
+      console.error('[Gymster system] Payment request failed:', error);
+      setMessage(error instanceof Error ? error.message : 'Yêu cầu thanh toán không thể gửi.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
+  const requiresTrainer = Boolean(selectedPackage?.hasPersonalTrainer);
+  const requiresSchedule = requiresTrainer;
+  const canShowPayment = Boolean(
+    selectedPackage &&
+    (!requiresTrainer || selectedTrainer),
+  );
   const canPay = Boolean(
     selectedPackage &&
     paymentMethod &&
-    (!selectedPackage.hasPersonalTrainer || (selectedTrainer && selectedSlot)),
+    (!requiresTrainer || (selectedTrainer && (!requiresSchedule || (selectedSlot && isScheduleValid)))),
   );
+  const paymentDisabledReason = !selectedPackage
+    ? 'Please choose a package first.'
+    : requiresTrainer && !selectedTrainer
+      ? 'Please choose a PT before payment.'
+      : requiresSchedule && (!selectedSlot || !isScheduleValid)
+        ? sessionsPerWeek === 2
+          ? 'Please choose 2 valid weekly training slots before payment.'
+          : 'Please choose a weekly training slot before payment.'
+        : '';
 
   return (
     <div className="space-y-6 p-6">
@@ -483,7 +261,7 @@ export default function SelectPackageOnboarding({ onMemberActivated }: { onMembe
         {[
           ['Package', step === 'package' || selectedPackage, selectedPackage?.name || 'Choose package'],
           ['Trainer & Schedule', !selectedPackage?.hasPersonalTrainer || step === 'trainer' || selectedTrainer, selectedPackage?.hasPersonalTrainer ? selectedTrainer?.name || 'Choose trainer' : 'Not required'],
-          ['Payment', step === 'payment', paymentMethod],
+          ['Payment', step === 'payment' || canPay, paymentMethod],
         ].map(([label, active, value]) => (
           <div key={label as string} className={`rounded-2xl border p-4 ${active ? 'border-[#EF233C] bg-[#EF233C]/10' : 'border-white/8 bg-[#181818]'}`}>
             <div className="text-xs font-black uppercase tracking-[0.2em] text-white/35">{label}</div>
@@ -581,6 +359,10 @@ export default function SelectPackageOnboarding({ onMemberActivated }: { onMembe
                 <div className="rounded-xl border border-white/8 bg-black/20 p-6 text-center text-sm font-bold text-white/45">Choose a PT to see available slots.</div>
               ) : isLoadingAvailability ? (
                 <div className="rounded-xl border border-white/8 bg-black/20 p-6 text-center text-sm font-bold text-white/45">Loading PT schedule...</div>
+              ) : !availability.length ? (
+                <div className="rounded-xl border border-amber-400/25 bg-amber-500/10 p-6 text-center text-sm font-bold text-amber-200">
+                  No weekly slots are available for this PT. Please choose another PT.
+                </div>
               ) : (
                 <div className="grid gap-3 lg:grid-cols-7">
                   {availability.map((day) => (
@@ -620,7 +402,7 @@ export default function SelectPackageOnboarding({ onMemberActivated }: { onMembe
         </Section>
       )}
 
-      {selectedPackage && (!selectedPackage.hasPersonalTrainer || selectedSlot) && (
+      {canShowPayment && (
         <Section title="Payment">
           <div className="grid gap-5 lg:grid-cols-[1fr_420px]">
             <div className="rounded-2xl border border-white/8 bg-[#222] p-5">
@@ -630,34 +412,33 @@ export default function SelectPackageOnboarding({ onMemberActivated }: { onMembe
                 <div className="flex justify-between gap-3"><span>Trainer</span><span className="font-black text-white">{selectedTrainer?.name || 'Not required'}</span></div>
                 <div className="flex justify-between gap-3"><span>Schedule</span><span className="font-black text-white">{selectedSlot?.label || 'Not required'}</span></div>
               </div>
+              {paymentDisabledReason && (
+                <div className="mt-4 rounded-xl border border-amber-400/25 bg-amber-500/10 p-3 text-xs font-bold text-amber-200">
+                  {paymentDisabledReason}
+                </div>
+              )}
             </div>
 
-            <div className="space-y-3">
+            <div className="space-y-3 lg:sticky lg:top-6">
               <button
                 type="button"
                 onClick={() => setPaymentMethod('Bank Transfer')}
                 className="flex w-full items-center gap-3 rounded-xl border border-[#EF233C] bg-[#EF233C]/10 px-4 py-3 text-left text-sm font-black text-white transition"
               >
                 <CreditCard className="h-4 w-4 text-[#EF233C]" />
-                Bank Transfer
+                Chờ staff xác nhận thanh toán
               </button>
               <div className="rounded-xl border border-white/8 bg-[#222] p-4 text-sm leading-6 text-white/55">
-                Bank transfer QR payment will be connected later. Use demo skip to activate this member package while testing.
+                Chờ staff xác nhận thanh toán. Sau khi staff duyệt, gói tập của bạn sẽ được kích hoạt.
               </div>
               <button
                 type="button"
-                disabled={!canPay || isSubmitting}
-                className="w-full rounded-xl border border-white/10 bg-white/5 px-5 py-4 text-sm font-black text-white/35 disabled:cursor-not-allowed"
-              >
-                Continue to Bank Transfer (Coming Soon)
-              </button>
-              <button
-                type="button"
-                disabled={!canPay || isSubmitting}
-                onClick={completePayment}
+                disabled={!canPay || isSubmitting || requestSubmitted}
+                onClick={submitPaymentRequest}
+                title={paymentDisabledReason}
                 className="w-full rounded-xl bg-[#EF233C] px-5 py-4 text-sm font-black text-white transition hover:bg-[#c91930] disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-white/35"
               >
-	                {isSubmitting ? 'Activating...' : 'Demo payment success'}
+	                {isSubmitting ? 'Sending request...' : requestSubmitted ? 'Vui lòng chờ xác nhận thanh toán' : 'Gửi yêu cầu xác nhận thanh toán'}
               </button>
             </div>
           </div>

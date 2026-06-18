@@ -7,6 +7,7 @@ import {
   MessageSquare,
   RefreshCw,
   Settings,
+  CreditCard,
   UserPlus,
   Users,
 } from 'lucide-react';
@@ -20,6 +21,7 @@ const menuItems: RoleShellItem[] = [
   { id: 'members', path: '/staff/members', icon: Users, label: 'Member List' },
   { id: 'check-in', path: '/staff/check-in', icon: CalendarCheck, label: 'Daily Check-in' },
   { id: 'renew-package', path: '/staff/renew-package', icon: RefreshCw, label: 'Renew Package' },
+  { id: 'payment-requests', path: '/staff/payment-requests', icon: CreditCard, label: 'Payment Requests' },
   { id: 'history', path: '/staff/history', icon: History, label: 'Usage History' },
   { id: 'feedback', path: '/staff/feedback', icon: MessageSquare, label: 'Feedback Management' },
   { id: 'equipment', path: '/staff/equipment', icon: Dumbbell, label: 'Equipment Status' },

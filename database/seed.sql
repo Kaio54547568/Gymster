@@ -113,7 +113,10 @@ insert into public.users (
   ('member21@gymster.local', 'member21', 'Member@123', 'Binh', 'Ngo', '0910000021', date '1987-09-04', 'male', 'member', 'Returning member renewing after a break.', 'vi', 'active'),
   ('member22@gymster.local', 'member22', 'Member@123', 'Nhu', 'Dinh', '0910000022', date '1999-10-16', 'female', 'member', 'Beginner PT member focused on confidence and form.', 'vi', 'active'),
   ('member23@gymster.local', 'member23', 'Member@123', 'Quan', 'Ta', '0910000023', date '1990-11-27', 'male', 'member', 'Member with pending upgrade request.', 'vi', 'active'),
-  ('member24@gymster.local', 'member24', 'Member@123', 'Mina', 'Lee', '0910000024', date '1996-12-02', 'female', 'member', 'Cancelled member kept for historical analytics.', 'en', 'cancelled');
+  ('member24@gymster.local', 'member24', 'Member@123', 'Mina', 'Lee', '0910000024', date '1996-12-02', 'female', 'member', 'Cancelled member kept for historical analytics.', 'en', 'cancelled'),
+  ('newmember@gymster.local', 'newmember', 'Member@123', 'New', 'Member', '0910000099', date '1999-09-09', 'other', 'member', 'New member account with no registered package for onboarding tests.', 'vi', 'pending_onboarding'),
+  ('freshmember@gymster.local', 'freshmember', 'Member@123', 'Fresh', 'Member', '0910000098', date '2000-01-15', 'other', 'member', 'Fresh member account with no registered package for clean onboarding tests.', 'vi', 'pending_onboarding'),
+  ('trialmember@gymster.local', 'trialmember', 'Member@123', 'Trial', 'Member', '0910000097', date '2001-02-10', 'other', 'member', 'Trial member account with no registered package for clean payment approval tests.', 'vi', 'pending_onboarding');
 
 insert into public.employees (
   user_id,
@@ -307,7 +310,10 @@ from (
     ('member21@gymster.local', 'MB-021', 'Hieu Ngo', '0981000021', 'Returning member.', current_date - 20, 'active'),
     ('member22@gymster.local', 'MB-022', 'Thu Dinh', '0981000022', 'Beginner PT member.', current_date - 18, 'active'),
     ('member23@gymster.local', 'MB-023', 'Bach Ta', '0981000023', 'Considering VIP upgrade.', current_date - 28, 'active'),
-    ('member24@gymster.local', 'MB-024', 'Mina Lee', '0981000024', 'Cancelled after relocation.', current_date - 300, 'cancelled')
+    ('member24@gymster.local', 'MB-024', 'Mina Lee', '0981000024', 'Cancelled after relocation.', current_date - 300, 'cancelled'),
+    ('newmember@gymster.local', 'MB-099', 'New Member Emergency', '0981000099', 'No package registered yet; use for member onboarding tests.', null, 'pending_onboarding'),
+    ('freshmember@gymster.local', 'MB-098', 'Fresh Member', '0981000098', 'No package registered yet; clean account for onboarding tests.', null, 'pending_onboarding'),
+    ('trialmember@gymster.local', 'MB-097', 'Trial Member', '0981000097', 'No package registered yet; clean account for payment approval tests.', null, 'pending_onboarding')
 ) as m(email, member_code, emergency_contact_name, emergency_contact_phone, health_notes, join_date, status)
 join public.users u on u.email = m.email;
 

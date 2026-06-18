@@ -40,6 +40,12 @@ import {
   getMemberReceiptPdf,
   listMemberReceipts,
 } from "./services/memberReceiptService.js";
+import {
+  approvePaymentRequest,
+  createPackagePaymentRequest,
+  listStaffPaymentRequests,
+  rejectPaymentRequest,
+} from "./services/paymentRequestService.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, ".env") });
@@ -251,6 +257,12 @@ const server = http.createServer(async (request, response) => {
     return;
   }
 
+  if (request.method === "GET" && ["/api/staff/payment-requests", "/staff/payment-requests"].includes(url.pathname)) {
+    const result = await listStaffPaymentRequests();
+    sendJson(response, result.ok ? 200 : result.status || 400, result);
+    return;
+  }
+
   if (request.method === "GET" && (url.pathname.startsWith("/api/member/receipts/") || url.pathname.startsWith("/member/receipts/"))) {
     const prefix = url.pathname.startsWith("/api/member/receipts/") ? "/api/member/receipts/" : "/member/receipts/";
     const suffix = decodeURIComponent(url.pathname.replace(prefix, ""));
@@ -302,6 +314,39 @@ const server = http.createServer(async (request, response) => {
     }
 
     const result = await saveProgressEvaluation(payload);
+    sendJson(response, result.ok ? 200 : result.status || 400, result);
+    return;
+  }
+
+  if (request.method === "POST" && ["/api/member/package-payment-request", "/member/package-payment-request"].includes(url.pathname)) {
+    let payload;
+    try {
+      payload = await readJsonBody(request);
+    } catch (error) {
+      sendJson(response, 400, { ok: false, message: error.message });
+      return;
+    }
+    const result = await createPackagePaymentRequest(payload);
+    sendJson(response, result.ok ? 200 : result.status || 400, result);
+    return;
+  }
+
+  if (request.method === "POST" && (url.pathname.startsWith("/api/staff/payment-requests/") || url.pathname.startsWith("/staff/payment-requests/"))) {
+    const prefix = url.pathname.startsWith("/api/staff/payment-requests/") ? "/api/staff/payment-requests/" : "/staff/payment-requests/";
+    const suffix = decodeURIComponent(url.pathname.replace(prefix, ""));
+    const [id, action] = suffix.split("/");
+    let payload = {};
+    try {
+      payload = await readJsonBody(request);
+    } catch (error) {
+      sendJson(response, 400, { ok: false, message: error.message });
+      return;
+    }
+    const result = action === "approve"
+      ? await approvePaymentRequest(id)
+      : action === "reject"
+        ? await rejectPaymentRequest(id, payload.reason || "")
+        : { ok: false, status: 404, message: "Unknown payment request action." };
     sendJson(response, result.ok ? 200 : result.status || 400, result);
     return;
   }

@@ -317,6 +317,8 @@ create table if not exists public.member_packages (
   end_date date,
   sessions_total integer check (sessions_total is null or sessions_total >= 0),
   sessions_used integer not null default 0 check (sessions_used >= 0),
+  selected_schedule text,
+  selected_slots jsonb not null default '[]'::jsonb,
   activated_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -425,6 +427,7 @@ create index if not exists idx_package_features_package_id on public.package_fea
 create index if not exists idx_member_packages_member_id on public.member_packages(member_id);
 create index if not exists idx_member_packages_package_id on public.member_packages(package_id);
 create index if not exists idx_member_packages_status on public.member_packages(status);
+create index if not exists idx_member_packages_selected_trainer on public.member_packages(trainer_id, status);
 create index if not exists idx_training_requests_member_id on public.training_requests(member_id);
 create index if not exists idx_training_requests_trainer_id on public.training_requests(trainer_id);
 create index if not exists idx_training_requests_status on public.training_requests(status);

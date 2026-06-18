@@ -138,7 +138,7 @@ let TRAINER = {
   experience: "",
   avatar: "PT",
 };
-const LOCAL_TRAINER_ID = "";
+const LOCAL_TRAINER_ID = "local-trainer-khoa";
 
 const SPECIALTY_OPTIONS = [
   "PT Strength & Conditioning",
@@ -767,7 +767,8 @@ function TrainingRequestsPanel({ showToast }: { showToast: (msg: string) => void
   const [declineReason, setDeclineReason] = useState("");
   const [isLoadingRequests, setIsLoadingRequests] = useState(true);
   const [requestLoadMessage, setRequestLoadMessage] = useState("");
-  const ptRequests = requests.filter((request: any) => request.source === "supabase" || request.trainerName === TRAINER.name || request.trainerId === LOCAL_TRAINER_ID);
+  const currentTrainerId = getCurrentUser()?.trainerId || getCurrentUser()?.trainer_id || LOCAL_TRAINER_ID;
+  const ptRequests = requests.filter((request: any) => request.source === "supabase" || request.trainerName === TRAINER.name || request.trainerId === currentTrainerId);
 
   const loadRequests = async () => {
     setIsLoadingRequests(true);
