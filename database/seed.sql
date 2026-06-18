@@ -388,7 +388,7 @@ select
   case when x.status in ('active', 'expired', 'paused') then now() + (x.start_offset * interval '1 day') else null end
 from (
   values
-    ('MB-000', 'PT-3M', 'PT-001', 'active', -42, 48, 24, 8),
+    ('MB-000', 'PT-3M', 'PT-001', 'active', -42, 3, 24, 8),
     ('MB-001', 'PT-3M', 'PT-003', 'active', -70, 20, 24, 15),
     ('MB-002', 'GYM-6M', null, 'active', -110, 70, null, 0),
     ('MB-003', 'PT-1M', 'PT-005', 'active', -15, 15, 8, 2),

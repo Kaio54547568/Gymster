@@ -1,6 +1,7 @@
 import { supabase } from "./supabaseClient";
 
 const EMPTY_RESULT = { data: null, error: null };
+const STAFF_MEMBER_LIMIT = 10;
 
 function requireSupabase(feature) {
   if (!supabase) {
@@ -92,6 +93,17 @@ async function fetchPackagesByIds(packageIds) {
     .in("package_id", ids);
   if (error) throw error;
   return Object.fromEntries((data || []).map((pkg) => [pkg.package_id, pkg]));
+}
+
+async function fetchTrainersByIds(trainerIds) {
+  const ids = [...new Set((trainerIds || []).filter(Boolean))];
+  if (!ids.length) return {};
+  const { data, error } = await supabase
+    .from("trainers")
+    .select("trainer_id,user_id,employee_id,trainer_code,full_name,specialty")
+    .in("trainer_id", ids);
+  if (error) throw error;
+  return Object.fromEntries((data || []).map((trainer) => [trainer.trainer_id, trainer]));
 }
 
 async function fetchRoomsByIds(roomIds) {
@@ -256,6 +268,38 @@ export async function fetchAdminStaffData() {
       ...(trainers || []).map((trainer) => trainer.user_id),
     ]);
     const employeesById = Object.fromEntries((employees || []).map((employee) => [employee.employee_id, employee]));
+    const trainerEmployeeIds = new Set((trainers || []).map((trainer) => trainer.employee_id).filter(Boolean));
+    const trainerRows = (trainers || []).map((trainer) => {
+      const user = usersById[trainer.user_id] || {};
+      const employee = employeesById[trainer.employee_id] || {};
+      return {
+        id: trainer.trainer_id,
+        name: trainer.full_name || fullName(user, employee.full_name || trainer.trainer_code || "Trainer"),
+        specialty: trainer.specialty || employee.department || "Personal training",
+        email: employee.email || user.email || "",
+        phone: employee.phone_number || user.phone_number || "",
+        avatar: trainer.avatar_url || user.avatar_url || "",
+        currentActiveMembers: Number(trainer.current_active_members || 0),
+        maxActiveMembers: Number(trainer.max_active_members || 0),
+        status: trainer.status || "active",
+      };
+    });
+    const trainerFallbackRows = (employees || [])
+      .filter((employee) => employee.role === "trainer" && !trainerEmployeeIds.has(employee.employee_id))
+      .map((employee) => {
+        const user = usersById[employee.user_id] || {};
+        return {
+          id: employee.employee_id,
+          name: fullName(employee, fullName(user, employee.employee_code || "Trainer")),
+          specialty: employee.department || "Personal training",
+          email: employee.email || user.email || "",
+          phone: employee.phone_number || user.phone_number || "",
+          avatar: user.avatar_url || "",
+          currentActiveMembers: 0,
+          maxActiveMembers: Number(employee.member_limit || STAFF_MEMBER_LIMIT),
+          status: employee.status || "active",
+        };
+      });
 
     return {
       data: (employees || []).map((employee) => {
@@ -263,33 +307,74 @@ export async function fetchAdminStaffData() {
         return {
           maNV: employee.employee_code || employee.employee_id,
           hoTen: fullName(employee, fullName(user, "Employee")),
-          chucVu: employee.role || "staff",
+          email: employee.email || user.email || "",
+          role: String(employee.role || user.role || "staff").toLowerCase(),
+          chucVu: employee.role === "trainer" ? "Trainer" : employee.role === "staff" ? "Staff" : employee.role || "Staff",
           luongCoBan: Number(employee.base_salary || 0).toLocaleString("vi-VN"),
           sdt: employee.phone_number || user.phone_number || "",
           chuyenMon: employee.department || employee.role || "",
           chungChi: employee.status || "",
+          currentActiveMembers: Number(employee.current_active_members || 0),
+          maxActiveMembers: employee.role === "staff" ? STAFF_MEMBER_LIMIT : Number(employee.member_limit || STAFF_MEMBER_LIMIT),
           performance: 0,
           avatar: user.avatar_url || "",
         };
       }),
-      trainers: (trainers || []).map((trainer) => {
-        const user = usersById[trainer.user_id] || {};
-        const employee = employeesById[trainer.employee_id] || {};
-        return {
-          id: trainer.trainer_id,
-          name: trainer.full_name || fullName(user, employee.full_name || trainer.trainer_code || "Trainer"),
-          specialty: trainer.specialty || "Personal training",
-          currentActiveMembers: Number(trainer.current_active_members || 0),
-          maxActiveMembers: Number(trainer.max_active_members || 0),
-          status: trainer.status || "active",
-        };
-      }),
+      trainers: [...trainerRows, ...trainerFallbackRows],
       error: null,
     };
   } catch (error) {
     console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to load admin staff data:", error);
     return { data: [], trainers: [], error };
   }
+}
+
+async function adminStaffJson(path, options = {}) {
+  try {
+    const response = await fetch(path, options);
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data.ok === false) {
+      return { data: null, error: new Error(data.message || data.error || "Backend API request failed.") };
+    }
+    return { data, error: null };
+  } catch (error) {
+    return { data: null, error };
+  }
+}
+
+export async function checkEmployeeCodeUnique(employeeCode) {
+  const code = String(employeeCode || "").trim();
+  if (!code) return { unique: true, error: null };
+
+  const { data, error } = await adminStaffJson(`/api/admin/staff/employee-code?code=${encodeURIComponent(code)}`);
+  return { unique: Boolean(data?.unique), employeeCode: data?.employeeCode || code, error };
+}
+
+export async function createAdminStaffRecord(form) {
+  const payload = {
+    employeeCode: form.maNV,
+    fullName: form.hoTen,
+    email: form.email,
+    phone: form.sdt,
+    gender: form.gioiTinh,
+    dateOfBirth: form.ngaySinh,
+    role: form.chucVu,
+    password: form.matKhau,
+  };
+
+  return adminStaffJson("/api/admin/staff", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function fetchAdminStaffDetail(id, role) {
+  const path = `/api/admin/staff/${encodeURIComponent(id)}?role=${encodeURIComponent(role || "")}`;
+  const { data, error } = await adminStaffJson(path);
+  return { data: data?.data || null, error };
 }
 
 
@@ -331,36 +416,72 @@ export async function fetchPayrollData() {
 
 
 export async function fetchEquipmentManagementData() {
-  const configError = requireSupabase("equipment management");
-  if (configError) return { data: [], error: configError };
+  const { data, error } = await equipmentJson("/api/equipments");
+  return { data: data?.data || [], error };
+}
 
+async function equipmentJson(path, options = {}) {
   try {
-    const { data: rows, error } = await supabase.from("equipment").select("*").order("equipment_code", { ascending: true });
-    if (error) throw error;
-    const roomsById = await fetchRoomsByIds((rows || []).map((row) => row.room_id));
-    return {
-      data: (rows || []).map((item) => ({
-        maThietBi: item.equipment_code || item.equipment_id,
-        tenThietBi: item.equipment_name,
-        soLuong: 1,
-        ngayNhap: formatDate(item.purchase_date),
-        baoHanh: item.next_maintenance_date ? `Next: ${formatDate(item.next_maintenance_date)}` : "",
-        xuatXu: item.brand || item.model || "",
-        trangThai: item.status === "broken" ? "Broken" : item.status === "under_maintenance" ? "Under Maintenance" : "Active",
-        maPhong: roomsById[item.room_id]?.room_code || "",
-        tenPhong: roomsById[item.room_id]?.room_name || "Unassigned",
-        image: "",
-      })),
-      error: null,
-    };
+    const response = await fetch(path, options);
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data.ok === false) {
+      return { data: null, error: new Error(data.message || data.error || "Equipment API request failed.") };
+    }
+    return { data, error: null };
   } catch (error) {
-    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to load equipment management data:", error);
-    return { data: [], error };
+    return { data: null, error };
   }
 }
 
-export async function fetchFeedbackSatisfactionData() {
-  const configError = requireSupabase("feedback satisfaction");
+export async function fetchEquipmentStats() {
+  const { data, error } = await equipmentJson("/api/equipments/stats");
+  return { data: data?.data || { total: 0, active: 0, inUse: 0, maintenance: 0 }, error };
+}
+
+export async function createEquipmentRecord(form) {
+  return equipmentJson("/api/equipments", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(form),
+  });
+}
+
+export async function updateEquipmentRecord(id, form) {
+  return equipmentJson(`/api/equipments/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(form),
+  });
+}
+
+export async function deleteEquipmentRecord(id) {
+  return equipmentJson(`/api/equipments/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+}
+
+function mapFeedbackReportStatus(status) {
+  if (["resolved", "closed"].includes(status)) return "Resolved";
+  if (["in_review", "in_progress"].includes(status)) return "Processing";
+  if (status === "rejected") return "Rejected";
+  return "Pending";
+}
+
+function relatedTrainerName(trainer, usersById, employeesById) {
+  if (!trainer) return "";
+  const user = usersById[trainer.user_id] || {};
+  const employee = employeesById[trainer.employee_id] || {};
+  return trainer.full_name || employee.full_name || fullName(user, trainer.trainer_code || "Trainer");
+}
+
+function relatedEmployeeName(employee, usersById) {
+  if (!employee) return "";
+  const user = usersById[employee.user_id] || {};
+  return employee.full_name || fullName(user, employee.employee_code || "Staff");
+}
+
+export async function fetchFeedbackReportData() {
+  const configError = requireSupabase("feedback report");
   if (configError) return { data: [], error: configError };
 
   try {
@@ -371,44 +492,65 @@ export async function fetchFeedbackSatisfactionData() {
     if (feedbackError) throw feedbackError;
     if (complaintError) throw complaintError;
 
+    const trainerIds = (feedbackRows || []).map((row) => row.trainer_id);
+    const employeeIds = [
+      ...(feedbackRows || []).map((row) => row.responded_by_employee_id),
+      ...(complaintRows || []).map((row) => row.assigned_employee_id),
+    ];
+
     const membersById = await fetchMembersByIds([
       ...(feedbackRows || []).map((row) => row.member_id),
       ...(complaintRows || []).map((row) => row.member_id),
     ]);
-    const usersById = await fetchUsersByIds(Object.values(membersById).map((member) => member.user_id));
+    const trainersById = await fetchTrainersByIds(trainerIds);
+    const employeesById = await fetchEmployeesByIds([
+      ...employeeIds,
+      ...Object.values(trainersById).map((trainer) => trainer.employee_id),
+    ]);
+    const usersById = await fetchUsersByIds([
+      ...Object.values(membersById).map((member) => member.user_id),
+      ...Object.values(trainersById).map((trainer) => trainer.user_id),
+      ...Object.values(employeesById).map((employee) => employee.user_id),
+    ]);
     const memberName = (memberId) => {
       const member = membersById[memberId] || {};
       return fullName(usersById[member.user_id], member.full_name || member.member_code || "Member");
     };
 
-    const feedbackData = [
+    const rows = [
       ...(feedbackRows || []).map((row) => ({
         id: row.feedback_id,
-        member: memberName(row.member_id),
-        feedback: row.comment || "",
-        category: row.target_type || "service",
-        status: row.status === "resolved" ? "Resolved" : row.status === "in_review" ? "Processing" : "Pending",
-        staff: "",
-        date: formatDate(row.created_at),
-        type: Number(row.rating || 0) >= 4 ? "positive" : Number(row.rating || 0) <= 2 ? "negative" : "neutral",
+        memberName: memberName(row.member_id),
+        relatedPerson: relatedTrainerName(trainersById[row.trainer_id], usersById, employeesById)
+          || relatedEmployeeName(employeesById[row.responded_by_employee_id], usersById)
+          || "Unassigned",
+        contentType: "Feedback",
+        content: row.comment || "",
+        rating: row.rating ?? null,
+        status: mapFeedbackReportStatus(row.status),
+        createdDate: formatDate(row.created_at),
+        rawCreatedAt: row.created_at,
       })),
       ...(complaintRows || []).map((row) => ({
         id: row.complaint_id,
-        member: memberName(row.member_id),
-        feedback: row.description || row.title || "",
-        category: row.complaint_type || "complaint",
-        status: row.status === "resolved" || row.status === "closed" ? "Resolved" : row.status === "in_progress" || row.status === "in_review" ? "Processing" : "Pending",
-        staff: "",
-        date: formatDate(row.created_at),
-        type: "negative",
+        memberName: memberName(row.member_id),
+        relatedPerson: relatedEmployeeName(employeesById[row.assigned_employee_id], usersById) || "Unassigned",
+        contentType: "Report",
+        content: [row.title, row.description].filter(Boolean).join(" - "),
+        rating: null,
+        status: mapFeedbackReportStatus(row.status),
+        createdDate: formatDate(row.created_at),
+        rawCreatedAt: row.created_at,
       })),
-    ];
-    return { data: feedbackData, error: null };
+    ].sort((a, b) => new Date(b.rawCreatedAt || 0).getTime() - new Date(a.rawCreatedAt || 0).getTime());
+    return { data: rows, error: null };
   } catch (error) {
-    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to load feedback satisfaction:", error);
+    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to load feedback report:", error);
     return { data: [], error };
   }
 }
+
+export const fetchFeedbackSatisfactionData = fetchFeedbackReportData;
 
 
 export async function fetchRevenueBreakdowns() {

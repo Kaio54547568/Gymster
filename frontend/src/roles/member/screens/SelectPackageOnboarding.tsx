@@ -209,9 +209,10 @@ export default function SelectPackageOnboarding({ onMemberActivated }: { onMembe
 	        accountStatus: 'Active',
 	        account_status: 'active',
 	      };
+	      const activeMemberId = activatedUser?.memberId || activatedUser?.member_id;
 
 	      const createdPackage = await withTimeout(createMemberPackage({
-	        memberId: activatedUser?.memberId || activatedUser?.member_id,
+	        memberId: activeMemberId,
 	        memberEmail: activatedUser?.email || '',
 	        packageId: selectedPackage.id,
 	        trainerId: selectedTrainer?.id || null,
@@ -262,16 +263,29 @@ export default function SelectPackageOnboarding({ onMemberActivated }: { onMembe
 	      }
 
 	      if (selectedPackage.hasPersonalTrainer && selectedTrainer && selectedSlot) {
+	        const memberDisplayName = activatedUser?.fullName
+	          || activatedUser?.full_name
+	          || currentUser?.fullName
+	          || currentUser?.full_name
+	          || currentUser?.username
+	          || 'Th\u00e0nh vi\u00ean m\u1edbi';
 	        // Assign member to trainer
-	        await withTimeout(assignTrainerToMember(activatedUser?.memberId || activatedUser?.member_id, selectedTrainer.id, 'Assigned during package selection onboarding'), 5000, 'Trainer assignment timed out.');
+	        await withTimeout(assignTrainerToMember(activeMemberId, selectedTrainer.id, 'Assigned during package selection onboarding'), 5000, 'Trainer assignment timed out.');
 
 	        // Notify the trainer
 	        if (selectedTrainer.userId) {
 	          await createNotification({
 	            userId: selectedTrainer.userId,
-	            notificationType: 'info',
-	            title: 'Học viên mới đăng ký',
-	            message: `Học viên ${currentUser?.fullName || currentUser?.username || 'Thành viên mới'} đã đăng ký bạn làm huấn luyện viên cho gói tập ${selectedPackage.name}.`,
+	            notificationType: 'system',
+	            title: 'H\u1ed9i vi\u00ean m\u1edbi \u0111\u0103ng k\u00fd',
+	            message: `B\u1ea1n c\u00f3 h\u1ed9i vi\u00ean m\u1edbi \u0111\u0103ng k\u00fd g\u00f3i t\u1eadp: ${memberDisplayName}`,
+	            actionType: 'new_pt_member',
+	            actionPayload: {
+	              memberId: activeMemberId,
+	              packageId: selectedPackage.id,
+	              packageName: selectedPackage.name,
+	              trainerId: selectedTrainer.id,
+	            },
 	          });
 	        }
 
@@ -340,9 +354,10 @@ export default function SelectPackageOnboarding({ onMemberActivated }: { onMembe
     void (async () => {
       try {
         await withTimeout(activateMemberAccount(flowData.currentUser), 10000, 'Account activation timed out.');
+        const activeMemberId = flowData.currentUser?.memberId || flowData.currentUser?.member_id;
 
         const createdPackage = await withTimeout(createMemberPackage({
-          memberId: flowData.currentUser?.memberId || flowData.currentUser?.member_id,
+          memberId: activeMemberId,
           memberEmail: flowData.currentUser?.email || '',
           packageId: flowData.selectedPackage.id,
           trainerId: flowData.selectedTrainer?.id || null,
@@ -390,16 +405,27 @@ export default function SelectPackageOnboarding({ onMemberActivated }: { onMembe
         }
 
         if (flowData.selectedPackage.hasPersonalTrainer && flowData.selectedTrainer && flowData.selectedSlot) {
+          const memberDisplayName = flowData.currentUser?.fullName
+            || flowData.currentUser?.full_name
+            || flowData.currentUser?.username
+            || 'Th\u00e0nh vi\u00ean m\u1edbi';
           // Assign member to trainer
-          await withTimeout(assignTrainerToMember(flowData.currentUser?.memberId || flowData.currentUser?.member_id, flowData.selectedTrainer.id, 'Assigned during package selection onboarding (Demo)'), 5000, 'Trainer assignment timed out.');
+          await withTimeout(assignTrainerToMember(activeMemberId, flowData.selectedTrainer.id, 'Assigned during package selection onboarding (Demo)'), 5000, 'Trainer assignment timed out.');
 
           // Notify the trainer
           if (flowData.selectedTrainer.userId) {
             await createNotification({
               userId: flowData.selectedTrainer.userId,
-              notificationType: 'info',
-              title: 'Học viên mới đăng ký',
-              message: `Học viên ${flowData.currentUser?.fullName || flowData.currentUser?.username || 'Thành viên mới'} đã đăng ký bạn làm huấn luyện viên cho gói tập ${flowData.selectedPackage.name}.`,
+              notificationType: 'system',
+              title: 'H\u1ed9i vi\u00ean m\u1edbi \u0111\u0103ng k\u00fd',
+              message: `B\u1ea1n c\u00f3 h\u1ed9i vi\u00ean m\u1edbi \u0111\u0103ng k\u00fd g\u00f3i t\u1eadp: ${memberDisplayName}`,
+              actionType: 'new_pt_member',
+              actionPayload: {
+                memberId: activeMemberId,
+                packageId: flowData.selectedPackage.id,
+                packageName: flowData.selectedPackage.name,
+                trainerId: flowData.selectedTrainer.id,
+              },
             });
           }
 

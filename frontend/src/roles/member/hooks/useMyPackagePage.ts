@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { getCurrentUser } from '../../../services/authService';
 import { getInvoicesForMember } from '../../../services/invoiceApi';
 import { createPackageChangeRequest, getCurrentMemberPackageForUser } from '../../../services/memberPackageApi';
+import { getMemberReceipts } from '../../../services/memberReceiptApi';
 import { fetchPackagesFromSupabase } from '../../../services/packageApi';
 import { getPaymentsForMember } from '../../../services/paymentApi';
 import { currentPackage, member } from '../domain/memberConstants';
@@ -13,6 +14,7 @@ import {
   mapInvoiceToDisplayTransaction,
   mapPackageToDisplayPackage,
   mapPaymentToDisplayTransaction,
+  mapReceiptToDisplayTransaction,
 } from '../domain/packageTransactionMappers';
 
 export function useMyPackagePage() {
@@ -52,39 +54,48 @@ export function useMyPackagePage() {
 
     async function loadMemberPackageData() {
       setIsLoadingMemberPackage(true);
-      const [packagesResult, currentPackageResult, paymentsResult, invoicesResult] = await Promise.all([
+      const [packagesResult, currentPackageResult, paymentsResult, invoicesResult, receiptsResult] = await Promise.allSettled([
         fetchPackagesFromSupabase(),
         getCurrentMemberPackageForUser(currentUser),
         getPaymentsForMember(currentUser),
         getInvoicesForMember(currentUser),
+        getMemberReceipts(),
       ]);
 
       if (!isMounted) return;
 
-      if (!packagesResult.error && packagesResult.data.length) {
-        setAvailablePackages(packagesResult.data.filter((pkg: any) => pkg.isActive !== false).map(mapPackageToDisplayPackage));
+      const packageData = packagesResult.status === 'fulfilled' ? packagesResult.value : { data: [], error: packagesResult.reason };
+      const currentPackageData = currentPackageResult.status === 'fulfilled' ? currentPackageResult.value : { data: null, memberId: null, error: currentPackageResult.reason };
+      const paymentsData = paymentsResult.status === 'fulfilled' ? paymentsResult.value : { data: [], error: paymentsResult.reason };
+      const invoicesData = invoicesResult.status === 'fulfilled' ? invoicesResult.value : { data: [], error: invoicesResult.reason };
+      const receiptsData = receiptsResult.status === 'fulfilled' ? { data: receiptsResult.value, error: null } : { data: [], error: receiptsResult.reason };
+
+      if (!packageData.error && packageData.data.length) {
+        setAvailablePackages(packageData.data.filter((pkg: any) => pkg.isActive !== false).map(mapPackageToDisplayPackage));
       } else {
         setAvailablePackages([]);
       }
 
-      if (!currentPackageResult.error && currentPackageResult.data) {
-        const item = currentPackageResult.data;
-        setResolvedMemberId(currentPackageResult.memberId || item.memberId || null);
+      if (!currentPackageData.error && currentPackageData.data) {
+        const item = currentPackageData.data;
+        setResolvedMemberId(currentPackageData.memberId || item.memberId || null);
         setDisplayCurrentPackage(mapCurrentPackageToDisplay(item));
       } else {
-        setResolvedMemberId(currentPackageResult.memberId || null);
+        setResolvedMemberId(currentPackageData.memberId || null);
       }
 
-      if (!invoicesResult.error && invoicesResult.data.length) {
-        setTransactionRows(invoicesResult.data.map(mapInvoiceToDisplayTransaction));
-      } else if (!paymentsResult.error && paymentsResult.data.length) {
-        setTransactionRows(paymentsResult.data.map(mapPaymentToDisplayTransaction));
+      if (!receiptsData.error && receiptsData.data.length) {
+        setTransactionRows(receiptsData.data.map(mapReceiptToDisplayTransaction));
+      } else if (!invoicesData.error && invoicesData.data.length) {
+        setTransactionRows(invoicesData.data.map(mapInvoiceToDisplayTransaction));
+      } else if (!paymentsData.error && paymentsData.data.length) {
+        setTransactionRows(paymentsData.data.map(mapPaymentToDisplayTransaction));
       } else {
         setTransactionRows([]);
       }
 
       setLoadMessage(
-        packagesResult.error || currentPackageResult.error || paymentsResult.error || invoicesResult.error
+        packageData.error || currentPackageData.error || paymentsData.error || invoicesData.error || receiptsData.error
           ? 'Some package data could not be loaded.'
           : ''
       );

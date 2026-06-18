@@ -807,6 +807,7 @@ export function OnboardingPaymentPage() {
 	    const demoEndDate = toDateInputValue(addMonths(new Date(paymentDate), getPackageDurationMonths(state.selectedPackage)));
 	    const demoRemainingSessions = state.selectedPackage.sessionLimitValue ?? state.memberPackage?.remainingSessions ?? null;
 	    let resolvedMemberPackageId = state.memberPackageId || state.memberPackage?.memberPackageId;
+    let activeMemberId = state.memberId || currentUser?.memberId || currentUser?.member_id;
 
 	    if (!resolvedMemberPackageId) {
 	      const createdPackage = await createMemberPackage({
@@ -825,10 +826,11 @@ export function OnboardingPaymentPage() {
 	      }
 
 	      resolvedMemberPackageId = createdPackage.data.memberPackageId;
+        activeMemberId = createdPackage.data.memberId || activeMemberId;
 	    }
 
 	    const { data, error } = await createPayment({
-	      memberId: state.memberId,
+	      memberId: activeMemberId,
 	      memberEmail: currentUser?.email || "",
 	      packageId: state.selectedPackage.id,
 	      memberPackageId: resolvedMemberPackageId,
@@ -882,18 +884,35 @@ export function OnboardingPaymentPage() {
 	    }
 
 	    let workoutSessions = [];
+    activeMemberId = activatedMemberPackage?.memberId
+      || activeMemberId
+      || activationResult.user?.memberId
+      || activationResult.user?.member_id;
+    const memberDisplayName = activationResult.user?.fullName
+      || activationResult.user?.full_name
+      || currentUser?.fullName
+      || currentUser?.full_name
+      || currentUser?.username
+      || "Th\u00e0nh vi\u00ean m\u1edbi";
 
     if (state.selectedPackage.hasPersonalTrainer && state.selectedTrainer && state.selectedSchedule) {
       // Create trainer assignment in trainer_assignments table
-      await assignTrainerToMember(state.memberId, state.selectedTrainer.id, "Assigned during onboarding registration");
+      await assignTrainerToMember(activeMemberId, state.selectedTrainer.id, "Assigned during onboarding registration");
 
       // Notify the trainer
       if (state.selectedTrainer.userId) {
         await createNotification({
           userId: state.selectedTrainer.userId,
-          notificationType: "info",
-          title: "Học viên mới đăng ký",
-          message: `Học viên ${currentUser?.fullName || currentUser?.username || "Thành viên mới"} đã đăng ký bạn làm huấn luyện viên cho gói tập ${state.selectedPackage.name || "PT"}.`,
+          notificationType: "system",
+          title: "H\u1ed9i vi\u00ean m\u1edbi \u0111\u0103ng k\u00fd",
+          message: `B\u1ea1n c\u00f3 h\u1ed9i vi\u00ean m\u1edbi \u0111\u0103ng k\u00fd g\u00f3i t\u1eadp: ${memberDisplayName}`,
+          actionType: "new_pt_member",
+          actionPayload: {
+            memberId: activeMemberId,
+            packageId: state.selectedPackage.id,
+            packageName: state.selectedPackage.name,
+            trainerId: state.selectedTrainer.id,
+          },
         });
       }
 

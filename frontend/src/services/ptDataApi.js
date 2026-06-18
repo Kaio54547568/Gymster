@@ -76,6 +76,46 @@ async function fetchPackagesByIds(packageIds) {
   return Object.fromEntries((data || []).map((pkg) => [pkg.package_id, pkg]));
 }
 
+async function fetchMemberPackagesByMemberIds(memberIds) {
+  const ids = [...new Set((memberIds || []).filter(Boolean))];
+  if (!ids.length) return {};
+
+  const { data, error } = await supabase
+    .from("member_packages")
+    .select("member_package_id,member_id,package_id,trainer_id,status,start_date,end_date,sessions_total,sessions_used,used_sessions,remaining_sessions,activated_at,created_at")
+    .in("member_id", ids)
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+
+  const rowsByMember = {};
+  (data || []).forEach((row) => {
+    if (!rowsByMember[row.member_id]) rowsByMember[row.member_id] = [];
+    rowsByMember[row.member_id].push(row);
+  });
+  return rowsByMember;
+}
+
+function getCurrentMemberPackage(memberPackageRows = [], trainerId = "") {
+  const rows = [...memberPackageRows];
+  return (
+    rows.find((row) => row.trainer_id === trainerId && String(row.status || "").toLowerCase() === "active")
+    || rows.find((row) => row.trainer_id === trainerId)
+    || rows.find((row) => String(row.status || "").toLowerCase() === "active")
+    || rows[0]
+    || null
+  );
+}
+
+function formatPackageStatus(status) {
+  const normalized = String(status || "").toLowerCase();
+  if (normalized === "active") return "Active";
+  if (normalized === "pending_payment") return "Pending Payment";
+  if (normalized === "pending_pt_approval") return "Pending PT Approval";
+  if (normalized === "expired") return "Expired";
+  if (normalized === "cancelled" || normalized === "canceled") return "Cancelled";
+  return status || "";
+}
+
 function initials(name) {
   return String(name || "")
     .split(/\s+/)
@@ -288,7 +328,15 @@ export async function fetchPtPortalData() {
     ];
     const membersById = await fetchMembersByIds(memberIds);
     const usersById = await fetchUsersByIds(Object.values(membersById).map((member) => member.user_id));
-    const packagesById = await fetchPackagesByIds((sessionResult.data || []).map((row) => row.package_id));
+    const memberPackagesByMemberId = await fetchMemberPackagesByMemberIds(Object.keys(membersById));
+    const currentPackageRows = Object.values(memberPackagesByMemberId)
+      .map((rows) => getCurrentMemberPackage(rows, trainer.trainer_id))
+      .filter(Boolean);
+    const packageIds = [
+      ...(sessionResult.data || []).map((row) => row.package_id),
+      ...currentPackageRows.map((row) => row.package_id),
+    ];
+    const packagesById = await fetchPackagesByIds(packageIds);
     const mealPlansById = Object.fromEntries((mealPlanResult.data || []).map((plan) => [plan.meal_plan_id, plan]));
 
     const memberRows = Object.values(membersById).map((member) => {
@@ -296,12 +344,16 @@ export async function fetchPtPortalData() {
       const name = fullName(user, member.full_name || member.member_code || "Member");
       const dob = new Date(user.date_of_birth);
       const age = Number.isNaN(dob.getTime()) ? 0 : new Date().getFullYear() - dob.getFullYear();
+      const currentPackage = getCurrentMemberPackage(memberPackagesByMemberId[member.member_id] || [], trainer.trainer_id);
+      const packageRow = packagesById[currentPackage?.package_id] || {};
       return {
         id: member.member_id,
         name,
         phone: user.phone_number || "",
         email: user.email || "",
-        package: "Membership",
+        package: packageRow.package_name || "Membership",
+        packageStatus: formatPackageStatus(currentPackage?.status),
+        packageRegisteredAt: formatDisplayDate(currentPackage?.activated_at || currentPackage?.start_date || currentPackage?.created_at || member.join_date),
         avatar: initials(name),
         joinDate: formatDisplayDate(member.join_date || member.created_at),
         age,
@@ -314,9 +366,14 @@ export async function fetchPtPortalData() {
       memberId: row.member_id,
       assignmentDate: formatDisplayDate(row.assigned_at),
       status: row.status === "paused" ? "Paused" : row.status === "completed" ? "Completed" : "Active",
-      sessionsRemaining: 0,
-      progress: 0,
-      totalSessions: 0,
+      ...(() => {
+        const currentPackage = getCurrentMemberPackage(memberPackagesByMemberId[row.member_id] || [], trainer.trainer_id);
+        const sessionsTotal = Number(currentPackage?.sessions_total || currentPackage?.remaining_sessions || 0);
+        const sessionsUsed = Number(currentPackage?.sessions_used || currentPackage?.used_sessions || 0);
+        const sessionsRemaining = Math.max(0, sessionsTotal - sessionsUsed);
+        const progress = sessionsTotal > 0 ? Math.min(100, Math.round((sessionsUsed / sessionsTotal) * 100)) : 0;
+        return { sessionsRemaining, progress, totalSessions: sessionsTotal };
+      })(),
     }));
 
     const schedules = (sessionResult.data || []).map((row) => {

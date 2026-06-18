@@ -20,6 +20,8 @@ export type DisplayPackage = {
 
 export type DisplayTransaction = {
   id: string;
+  receiptCode?: string;
+  packageName?: string;
   service: string;
   date: string;
   amount: string;
@@ -180,6 +182,18 @@ export function mapPaymentToDisplayTransaction(payment: any): DisplayTransaction
     date: formatDate(payment.paymentDate),
     amount: formatVnd(payment.amount),
     status: payment.paymentStatusLabel || (payment.paymentStatus ? payment.paymentStatus[0].toUpperCase() + payment.paymentStatus.slice(1) : 'Paid'),
+  };
+}
+
+export function mapReceiptToDisplayTransaction(receipt: any): DisplayTransaction {
+  return {
+    id: receipt.id || receipt.paymentId,
+    receiptCode: receipt.receiptCode,
+    packageName: receipt.package?.name || 'Membership package',
+    service: receipt.package?.name || 'Membership package',
+    date: receipt.payment?.paymentDateLabel || formatDate(receipt.payment?.paymentDate),
+    amount: receipt.payment?.amountLabel || formatVnd(receipt.payment?.amount),
+    status: receipt.payment?.status || 'Paid',
   };
 }
 

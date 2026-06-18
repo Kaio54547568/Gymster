@@ -18,6 +18,7 @@ export type RoleNotification = {
 };
 
 const NOTIFICATION_CHANGE_EVENT = 'gymster-role-notifications-change';
+const NOTIFICATION_CHANGE_STORAGE_KEY = `gymster-client-event:${NOTIFICATION_CHANGE_EVENT}`;
 
 export const DEFAULT_ROLE_NOTIFICATIONS: RoleNotification[] = [];
 
@@ -54,12 +55,19 @@ export function useRoleNotifications(baseNotifications: RoleNotification[] = DEF
     const handleNotificationChange = () => {
       void loadNotifications(false);
     };
+    const handleNotificationStorageChange = (event: StorageEvent) => {
+      if (event.key === NOTIFICATION_CHANGE_STORAGE_KEY) {
+        void loadNotifications(false);
+      }
+    };
     window.addEventListener(NOTIFICATION_CHANGE_EVENT, handleNotificationChange);
+    window.addEventListener('storage', handleNotificationStorageChange);
 
     return () => {
       isMounted = false;
       window.clearInterval(refreshTimer);
       window.removeEventListener(NOTIFICATION_CHANGE_EVENT, handleNotificationChange);
+      window.removeEventListener('storage', handleNotificationStorageChange);
     };
   }, [baseNotifications]);
 

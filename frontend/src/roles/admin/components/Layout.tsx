@@ -23,7 +23,7 @@ const menuItems: RoleShellItem[] = [
   { id: 'payroll', path: '/admin/payroll', icon: Wallet, label: 'Payroll / Salary Slip' },
   { id: 'equipment', path: '/admin/equipment', icon: Dumbbell, label: 'Equipment Management' },
   { id: 'maintenance-tracking', path: '/admin/maintenance-tracking', icon: ClipboardList, label: 'Maintenance Tracking' },
-  { id: 'feedback', path: '/admin/feedback', icon: MessageSquare, label: 'Feedback & Satisfaction' },
+  { id: 'feedback', path: '/admin/feedback', icon: MessageSquare, label: 'Feedback & Report' },
   { id: 'packages', path: '/admin/packages', icon: Wallet, label: 'Packages & Payments' },
   { id: 'settings', path: '/admin/settings', icon: Settings, label: 'Settings' },
 ];

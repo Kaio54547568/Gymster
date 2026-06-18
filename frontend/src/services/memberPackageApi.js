@@ -1,6 +1,7 @@
 import { supabase } from "./supabaseClient";
 import { getAllowedLeaveDaysForPackage } from "./packageEntitlement";
 import { getCurrentUser } from "./authService";
+import { notifyPtPortalDataChanged } from "./notificationApi";
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const LOCAL_PACKAGE_CHANGE_REQUESTS_KEY = "gymster_local_package_change_requests";
@@ -19,7 +20,7 @@ const fallbackActivePackage = {
   hasPersonalTrainer: true,
   trainerName: "Khoa Le",
   startDate: new Date().toISOString().slice(0, 10),
-  endDate: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+  endDate: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
   usedSessions: 3,
   remainingSessions: 21,
   sessionsTotal: 24,
@@ -776,6 +777,13 @@ export async function assignTrainerToMember(memberId, trainerId, notes = "Assign
     console.error("[Gymster hệ thống] Failed to create trainer assignment:", error);
     return { data: null, error };
   }
+
+  notifyPtPortalDataChanged({
+    reason: "trainer-assignment-created",
+    trainerId,
+    memberId,
+    assignmentId: data?.trainer_assignment_id,
+  });
 
   return { data, error: null };
 }

@@ -2,19 +2,21 @@ import type { DisplayTransaction } from '../domain/packageTransactionMappers';
 
 type PackageTransactionTableProps = {
   getBadgeClass: (status: string) => string;
+  onDownloadReceipt?: (transaction: DisplayTransaction) => void;
+  onViewReceipt?: (transaction: DisplayTransaction) => void;
   transactions: DisplayTransaction[];
 };
 
-export default function PackageTransactionTable({ getBadgeClass, transactions }: PackageTransactionTableProps) {
+export default function PackageTransactionTable({ getBadgeClass, onDownloadReceipt, onViewReceipt, transactions }: PackageTransactionTableProps) {
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-left text-sm">
         <thead className="text-white/45">
           <tr>
-            <th className="py-3">Payment</th>
-            <th>Service</th>
-            <th>Date</th>
+            <th className="py-3">Receipt Code</th>
+            <th>Package Name</th>
             <th>Amount</th>
+            <th>Payment Date</th>
             <th>Status</th>
             <th></th>
           </tr>
@@ -23,17 +25,30 @@ export default function PackageTransactionTable({ getBadgeClass, transactions }:
           {transactions.length ? (
             transactions.map((item) => (
               <tr key={item.id} className="border-t border-white/8 text-white">
-                <td className="py-3 font-mono text-[#EF233C]">{item.id}</td>
-                <td>{item.service}</td>
-                <td>{item.date}</td>
+                <td className="py-3 font-mono text-[#EF233C]">{item.receiptCode || item.id}</td>
+                <td>{item.packageName || item.service}</td>
                 <td>{item.amount}</td>
+                <td>{item.date}</td>
                 <td>
                   <span className={`rounded-full px-2.5 py-1 text-xs font-black ${getBadgeClass(item.status)}`}>
                     {item.status}
                   </span>
                 </td>
                 <td className="text-right">
-                  <button className="rounded-lg border border-[#EF233C]/30 px-3 py-1.5 text-xs font-bold text-[#EF233C]">Print Receipt</button>
+                  <div className="flex justify-end gap-2">
+                    <button
+                      onClick={() => onViewReceipt?.(item)}
+                      className="rounded-lg border border-[#EF233C]/30 px-3 py-1.5 text-xs font-bold text-[#EF233C] transition hover:bg-[#EF233C] hover:text-white"
+                    >
+                      View Receipt
+                    </button>
+                    <button
+                      onClick={() => onDownloadReceipt?.(item)}
+                      className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs font-bold text-white transition hover:border-[#EF233C] hover:text-[#EF233C]"
+                    >
+                      Download PDF
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))

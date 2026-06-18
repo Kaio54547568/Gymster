@@ -236,8 +236,12 @@ create table if not exists public.employees (
   full_name text not null,
   email text,
   phone_number text,
+  gender text check (gender in ('male', 'female', 'other', 'unspecified')),
+  date_of_birth date,
   role text not null check (role in ('trainer', 'staff', 'admin', 'owner')),
   department text,
+  member_limit integer not null default 10 check (member_limit >= 0),
+  current_active_members integer not null default 0 check (current_active_members >= 0),
   hire_date date,
   base_salary numeric(12, 2) check (base_salary is null or base_salary >= 0),
   status text not null default 'active' check (status in ('active', 'inactive', 'suspended')),
@@ -564,11 +568,12 @@ create table if not exists public.equipment (
   category text,
   brand text,
   model text,
+  serial_number text,
   purchase_date date,
   last_maintenance_date date,
   next_maintenance_date date,
   status text not null default 'active' check (
-    status in ('active', 'broken', 'under_maintenance', 'retired')
+    status in ('active', 'in_use', 'broken', 'under_maintenance', 'retired')
   ),
   notes text,
   created_at timestamptz not null default now(),
@@ -755,6 +760,9 @@ create table if not exists public.progress_records (
   muscle_mass_kg numeric(6, 2),
   calories_burned integer check (calories_burned is null or calories_burned >= 0),
   performance_score numeric(5, 2),
+  progress_text text,
+  comment text,
+  next_goal text,
   notes text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -772,6 +780,7 @@ create table if not exists public.body_metrics (
   chest_cm numeric(6, 2),
   waist_cm numeric(6, 2),
   hip_cm numeric(6, 2),
+  blood_pressure text,
   notes text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -918,6 +927,7 @@ create index if not exists idx_trainer_assignments_trainer_id on public.trainer_
 create index if not exists idx_trainer_assignments_member_id on public.trainer_assignments(member_id);
 create index if not exists idx_training_goals_member_id on public.training_goals(member_id);
 create index if not exists idx_progress_records_member_id on public.progress_records(member_id);
+create index if not exists idx_progress_records_member_trainer_date on public.progress_records(member_id, trainer_id, record_date desc);
 create index if not exists idx_body_metrics_member_id on public.body_metrics(member_id);
 create index if not exists idx_medical_records_member_id on public.medical_records(member_id);
 create index if not exists idx_medical_history_requests_member_id on public.medical_history_requests(member_id);
@@ -1086,6 +1096,14 @@ alter table public.members add column if not exists full_name text;
 alter table public.members add column if not exists phone_number text;
 alter table public.members add column if not exists date_of_birth date;
 alter table public.members add column if not exists gender text;
+alter table public.employees add column if not exists member_limit integer not null default 10 check (member_limit >= 0);
+alter table public.employees add column if not exists current_active_members integer not null default 0 check (current_active_members >= 0);
+alter table public.employees add column if not exists gender text check (gender in ('male', 'female', 'other', 'unspecified'));
+alter table public.employees add column if not exists date_of_birth date;
+
+update public.employees
+set member_limit = 10
+where role = 'staff';
 
 update public.members m
 set
@@ -1255,6 +1273,11 @@ alter table public.workout_sessions add constraint workout_sessions_status_check
     'missed',
     'no_show'
   )
+);
+
+alter table public.equipment drop constraint if exists equipment_status_check;
+alter table public.equipment add constraint equipment_status_check check (
+  status in ('active', 'in_use', 'broken', 'under_maintenance', 'retired')
 );
 
 alter table public.notifications add column if not exists updated_at timestamptz not null default now();

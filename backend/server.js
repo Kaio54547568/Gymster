@@ -17,6 +17,29 @@ import {
   createTrainingRequestServer,
   updateTrainingRequestStatusServer,
 } from "./services/trainingRequestService.js";
+import {
+  checkEmployeeCodeUnique,
+  createAdminStaff,
+  getAdminStaffDetail,
+} from "./services/adminStaffService.js";
+import {
+  createEquipment,
+  deleteEquipment,
+  getEquipmentStats,
+  listEquipments,
+  updateEquipment,
+} from "./services/equipmentService.js";
+import {
+  getProgressForMember,
+  listProgressMembers,
+  saveProgressEvaluation,
+  updateProgressEvaluation,
+} from "./services/progressService.js";
+import {
+  getMemberReceipt,
+  getMemberReceiptPdf,
+  listMemberReceipts,
+} from "./services/memberReceiptService.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, ".env") });
@@ -29,6 +52,15 @@ function sendJson(response, statusCode, payload) {
     "Content-Type": "application/json",
   });
   response.end(JSON.stringify(payload));
+}
+
+function sendPdf(response, filename, buffer) {
+  response.writeHead(200, {
+    "Content-Type": "application/pdf",
+    "Content-Disposition": `attachment; filename="${filename}"`,
+    "Content-Length": buffer.length,
+  });
+  response.end(buffer);
 }
 
 function readJsonBody(request) {
@@ -186,6 +218,149 @@ const server = http.createServer(async (request, response) => {
 
   if (request.method === "GET" && url.pathname === "/api/health") {
     sendJson(response, 200, { ok: true });
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/admin/staff/employee-code") {
+    const result = await checkEmployeeCodeUnique(url.searchParams.get("code") || "");
+    sendJson(response, result.ok ? 200 : result.status || 400, result);
+    return;
+  }
+
+  if (request.method === "GET" && ["/api/equipments", "/equipments"].includes(url.pathname)) {
+    const result = await listEquipments();
+    sendJson(response, result.ok ? 200 : result.status || 400, result);
+    return;
+  }
+
+  if (request.method === "GET" && ["/api/equipments/stats", "/equipments/stats"].includes(url.pathname)) {
+    const result = await getEquipmentStats();
+    sendJson(response, result.ok ? 200 : result.status || 400, result);
+    return;
+  }
+
+  if (request.method === "GET" && ["/api/progress/members", "/progress/members"].includes(url.pathname)) {
+    const result = await listProgressMembers(url.searchParams.get("trainerId") || url.searchParams.get("trainer_id") || "");
+    sendJson(response, result.ok ? 200 : result.status || 400, result);
+    return;
+  }
+
+  if (request.method === "GET" && ["/api/member/receipts", "/member/receipts"].includes(url.pathname)) {
+    const result = await listMemberReceipts(Object.fromEntries(url.searchParams.entries()));
+    sendJson(response, result.ok ? 200 : result.status || 400, result);
+    return;
+  }
+
+  if (request.method === "GET" && (url.pathname.startsWith("/api/member/receipts/") || url.pathname.startsWith("/member/receipts/"))) {
+    const prefix = url.pathname.startsWith("/api/member/receipts/") ? "/api/member/receipts/" : "/member/receipts/";
+    const suffix = decodeURIComponent(url.pathname.replace(prefix, ""));
+    const isPdf = suffix.endsWith("/pdf");
+    const id = isPdf ? suffix.slice(0, -4) : suffix;
+    if (isPdf) {
+      const result = await getMemberReceiptPdf(id, Object.fromEntries(url.searchParams.entries()));
+      if (!result.ok) {
+        sendJson(response, result.status || 400, result);
+        return;
+      }
+      sendPdf(response, result.filename, result.buffer);
+      return;
+    }
+
+    const result = await getMemberReceipt(id, Object.fromEntries(url.searchParams.entries()));
+    sendJson(response, result.ok ? 200 : result.status || 400, result);
+    return;
+  }
+
+  if (request.method === "GET" && (url.pathname.startsWith("/api/progress/member/") || url.pathname.startsWith("/progress/member/"))) {
+    const prefix = url.pathname.startsWith("/api/progress/member/") ? "/api/progress/member/" : "/progress/member/";
+    const memberId = decodeURIComponent(url.pathname.replace(prefix, ""));
+    const result = await getProgressForMember(memberId, url.searchParams.get("trainerId") || url.searchParams.get("trainer_id") || "");
+    sendJson(response, result.ok ? 200 : result.status || 400, result);
+    return;
+  }
+
+  if (request.method === "POST" && ["/api/equipments", "/equipments"].includes(url.pathname)) {
+    let payload;
+    try {
+      payload = await readJsonBody(request);
+    } catch (error) {
+      sendJson(response, 400, { ok: false, message: error.message });
+      return;
+    }
+    const result = await createEquipment(payload);
+    sendJson(response, result.ok ? 200 : result.status || 400, result);
+    return;
+  }
+
+  if (request.method === "POST" && ["/api/progress", "/progress"].includes(url.pathname)) {
+    let payload;
+    try {
+      payload = await readJsonBody(request);
+    } catch (error) {
+      sendJson(response, 400, { ok: false, message: error.message });
+      return;
+    }
+
+    const result = await saveProgressEvaluation(payload);
+    sendJson(response, result.ok ? 200 : result.status || 400, result);
+    return;
+  }
+
+  if (request.method === "PUT" && (url.pathname.startsWith("/api/progress/") || url.pathname.startsWith("/progress/"))) {
+    const prefix = url.pathname.startsWith("/api/progress/") ? "/api/progress/" : "/progress/";
+    const id = decodeURIComponent(url.pathname.replace(prefix, ""));
+    let payload;
+    try {
+      payload = await readJsonBody(request);
+    } catch (error) {
+      sendJson(response, 400, { ok: false, message: error.message });
+      return;
+    }
+
+    const result = await updateProgressEvaluation(id, payload);
+    sendJson(response, result.ok ? 200 : result.status || 400, result);
+    return;
+  }
+
+  if ((request.method === "PUT" || request.method === "DELETE") && (url.pathname.startsWith("/api/equipments/") || url.pathname.startsWith("/equipments/"))) {
+    const prefix = url.pathname.startsWith("/api/equipments/") ? "/api/equipments/" : "/equipments/";
+    const id = decodeURIComponent(url.pathname.replace(prefix, ""));
+    if (request.method === "DELETE") {
+      const result = await deleteEquipment(id);
+      sendJson(response, result.ok ? 200 : result.status || 400, result);
+      return;
+    }
+
+    let payload;
+    try {
+      payload = await readJsonBody(request);
+    } catch (error) {
+      sendJson(response, 400, { ok: false, message: error.message });
+      return;
+    }
+    const result = await updateEquipment(id, payload);
+    sendJson(response, result.ok ? 200 : result.status || 400, result);
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname.startsWith("/api/admin/staff/")) {
+    const id = decodeURIComponent(url.pathname.replace("/api/admin/staff/", ""));
+    const result = await getAdminStaffDetail(id, url.searchParams.get("role") || "");
+    sendJson(response, result.ok ? 200 : result.status || 400, result);
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/admin/staff") {
+    let payload;
+    try {
+      payload = await readJsonBody(request);
+    } catch (error) {
+      sendJson(response, 400, { ok: false, message: error.message });
+      return;
+    }
+
+    const result = await createAdminStaff(payload);
+    sendJson(response, result.ok ? 200 : result.status || 400, result);
     return;
   }
 
