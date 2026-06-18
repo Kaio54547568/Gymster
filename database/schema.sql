@@ -569,6 +569,7 @@ create table if not exists public.equipment (
   equipment_code text unique,
   equipment_name text not null,
   category text,
+  description text,
   brand text,
   model text,
   serial_number text,
@@ -691,6 +692,7 @@ create table if not exists public.payslips (
   employee_id uuid not null references public.employees(employee_id) on delete cascade,
   base_salary numeric(12, 2) not null default 0 check (base_salary >= 0),
   bonus_amount numeric(12, 2) not null default 0 check (bonus_amount >= 0),
+  allowance_amount numeric(12, 2) not null default 0 check (allowance_amount >= 0),
   deduction_amount numeric(12, 2) not null default 0 check (deduction_amount >= 0),
   net_amount numeric(12, 2) not null default 0 check (net_amount >= 0),
   status text not null default 'draft' check (
@@ -702,6 +704,9 @@ create table if not exists public.payslips (
   updated_at timestamptz not null default now(),
   unique (payroll_period_id, employee_id)
 );
+
+alter table public.payslips
+  add column if not exists allowance_amount numeric(12, 2) not null default 0 check (allowance_amount >= 0);
 
 create table if not exists public.performance_reviews (
   performance_review_id uuid primary key default gen_random_uuid(),
@@ -771,6 +776,9 @@ create table if not exists public.progress_records (
   updated_at timestamptz not null default now()
 );
 
+alter table public.equipment
+  add column if not exists description text;
+
 create table if not exists public.body_metrics (
   body_metric_id uuid primary key default gen_random_uuid(),
   member_id uuid not null references public.members(member_id) on delete cascade,
@@ -784,6 +792,7 @@ create table if not exists public.body_metrics (
   waist_cm numeric(6, 2),
   hip_cm numeric(6, 2),
   blood_pressure text,
+  resting_heart_rate integer check (resting_heart_rate is null or resting_heart_rate >= 0),
   notes text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()

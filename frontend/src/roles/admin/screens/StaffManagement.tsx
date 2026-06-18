@@ -90,11 +90,11 @@ const initials = (name: string) => name
 
 const validateWorkerPassword = (password: string) => {
   if (!password) return '';
-  if (password.length < 8) return 'Mật khẩu tối thiểu 8 ký tự.';
-  if (!/[A-Z]/.test(password)) return 'Mật khẩu cần có ít nhất 1 chữ hoa.';
-  if (!/[a-z]/.test(password)) return 'Mật khẩu cần có ít nhất 1 chữ thường.';
-  if (!/\d/.test(password)) return 'Mật khẩu cần có ít nhất 1 số.';
-  if (!/[^A-Za-z0-9]/.test(password)) return 'Mật khẩu cần có ít nhất 1 ký tự đặc biệt.';
+  if (password.length < 8) return 'Password must be at least 8 characters.';
+  if (!/[A-Z]/.test(password)) return 'Password must include at least one uppercase letter.';
+  if (!/[a-z]/.test(password)) return 'Password must include at least one lowercase letter.';
+  if (!/\d/.test(password)) return 'Password must include at least one number.';
+  if (!/[^A-Za-z0-9]/.test(password)) return 'Password must include at least one special character.';
   return '';
 };
 
@@ -200,12 +200,12 @@ export default function StaffManagement() {
     const employeeCode = staffForm.maNV.trim();
 
     if (!name || !email || !phone || !staffForm.gioiTinh || !staffForm.ngaySinh || !staffForm.chucVu) {
-      setFormError('Vui lòng nhập đầy đủ thông tin bắt buộc.');
+      setFormError('Please complete all required fields.');
       return;
     }
 
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      setFormError('Vui lòng nhập email hợp lệ.');
+      setFormError('Please enter a valid email address.');
       return;
     }
 
@@ -225,7 +225,7 @@ export default function StaffManagement() {
       }
       if (!unique) {
         setSaving(false);
-        setFormError('Mã nhân sự đã tồn tại, vui lòng nhập mã khác');
+        setFormError('Employee code already exists. Please enter another code.');
         return;
       }
     }
@@ -349,10 +349,7 @@ export default function StaffManagement() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
-          {filteredStaff.map((employee) => {
-            const activeMembers = Number(employee.currentActiveMembers || 0);
-
-            return (
+          {filteredStaff.map((employee) => (
               <motion.div
                 key={employee.maNV}
                 whileHover={{ scale: 1.02, y: -4 }}
@@ -382,10 +379,6 @@ export default function StaffManagement() {
                     <Phone className="h-4 w-4 shrink-0 text-[#EF233C]" />
                     <span className="truncate">{employee.sdt || '-'}</span>
                   </div>
-                  <div className="flex items-center gap-3 text-[#A1A1AA]">
-                    <Users className="h-4 w-4 shrink-0 text-[#EF233C]" />
-                    <span>Members <span className="font-bold text-white">{activeMembers}/10</span></span>
-                  </div>
                 </div>
 
                 <div className="mt-5 flex items-center justify-between">
@@ -404,8 +397,7 @@ export default function StaffManagement() {
                   </button>
                 </div>
               </motion.div>
-            );
-          })}
+          ))}
         </div>
 
         {!loading && !filteredStaff.length && (
@@ -502,17 +494,17 @@ export default function StaffManagement() {
 
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <label className="space-y-2">
-                <span className="text-sm font-semibold text-[#A1A1AA]">Mã nhân sự</span>
+                <span className="text-sm font-semibold text-[#A1A1AA]">Employee code</span>
                 <input
                   value={staffForm.maNV}
                   onChange={(event) => updateStaffForm('maNV', event.target.value)}
-                  placeholder="Để trống để tự sinh NV0001..."
+                  placeholder="Leave blank to auto-generate NV0001..."
                   className="w-full rounded-xl border border-[#EF233C]/20 bg-[#050607] px-4 py-3 text-white outline-none focus:border-[#EF233C]"
                 />
               </label>
 
               <label className="space-y-2">
-                <span className="text-sm font-semibold text-[#A1A1AA]">Họ tên</span>
+                <span className="text-sm font-semibold text-[#A1A1AA]">Full name</span>
                 <input value={staffForm.hoTen} onChange={(event) => updateStaffForm('hoTen', event.target.value)} className="w-full rounded-xl border border-[#EF233C]/20 bg-[#050607] px-4 py-3 text-white outline-none focus:border-[#EF233C]" />
               </label>
 
@@ -522,15 +514,15 @@ export default function StaffManagement() {
               </label>
 
               <label className="space-y-2">
-                <span className="text-sm font-semibold text-[#A1A1AA]">Số điện thoại</span>
+                <span className="text-sm font-semibold text-[#A1A1AA]">Phone number</span>
                 <input value={staffForm.sdt} onChange={(event) => updateStaffForm('sdt', event.target.value)} className="w-full rounded-xl border border-[#EF233C]/20 bg-[#050607] px-4 py-3 text-white outline-none focus:border-[#EF233C]" />
               </label>
 
               <label className="space-y-2">
-                <span className="text-sm font-semibold text-[#A1A1AA]">Giới tính</span>
+                <span className="text-sm font-semibold text-[#A1A1AA]">Gender</span>
                 <select value={staffForm.gioiTinh} onChange={(event) => updateStaffForm('gioiTinh', event.target.value as StaffForm['gioiTinh'])} className="w-full rounded-xl border border-[#EF233C]/20 bg-[#050607] px-4 py-3 text-white outline-none focus:border-[#EF233C]">
-                  <option value="">Chọn giới tính</option>
-                  <option value="unspecified">Không xác định</option>
+                  <option value="">Select gender</option>
+                  <option value="unspecified">Unspecified</option>
                   <option value="male">Male</option>
                   <option value="female">Female</option>
                   <option value="other">Other</option>
@@ -538,7 +530,7 @@ export default function StaffManagement() {
               </label>
 
               <label className="space-y-2">
-                <span className="text-sm font-semibold text-[#A1A1AA]">Ngày tháng năm sinh</span>
+                <span className="text-sm font-semibold text-[#A1A1AA]">Date of birth</span>
                 <input
                   type="date"
                   value={staffForm.ngaySinh}
@@ -556,12 +548,12 @@ export default function StaffManagement() {
               </label>
 
               <label className="space-y-2 md:col-span-2">
-                <span className="text-sm font-semibold text-[#A1A1AA]">Mật khẩu</span>
+                <span className="text-sm font-semibold text-[#A1A1AA]">Password</span>
                 <input
                   type="password"
                   value={staffForm.matKhau}
                   onChange={(event) => updateStaffForm('matKhau', event.target.value)}
-                  placeholder="Mặc định: Worker@123"
+                  placeholder="Default: Worker@123"
                   className="w-full rounded-xl border border-[#EF233C]/20 bg-[#050607] px-4 py-3 text-white outline-none focus:border-[#EF233C]"
                 />
               </label>

@@ -44,17 +44,19 @@ function requireClient() {
 function normalizeStatus(value) {
   const status = String(value || "").toLowerCase().replace(/\s+/g, "_");
   if (["active", "in_use", "under_maintenance", "broken", "retired"].includes(status)) return status;
+  if (status === "available") return "active";
   if (status === "under_maintenance" || status === "maintenance") return "under_maintenance";
   return "active";
 }
 
 function displayStatus(status) {
   switch (status) {
+    case "active": return "Available";
     case "in_use": return "In Use";
     case "under_maintenance": return "Maintenance";
     case "broken": return "Broken";
     case "retired": return "Retired";
-    default: return "Active";
+    default: return "Available";
   }
 }
 
@@ -66,6 +68,7 @@ function mapEquipment(row, roomsById = {}) {
     equipmentCode: row.equipment_code || row.equipment_id,
     equipmentName: row.equipment_name,
     category: row.category || "",
+    description: row.description || "",
     status: displayStatus(row.status),
     rawStatus: row.status,
     purchaseDate: row.purchase_date || "",
@@ -129,9 +132,11 @@ function payloadFromForm(body, roomId) {
     room_id: roomId,
     status: normalizeStatus(body.status || body.trangThai),
     purchase_date: body.purchase_date || body.purchaseDate || body.ngayNhap || null,
+    description: String(body.description || body.moTa || "").trim(),
     brand: String(body.manufacturer || body.brand || "").trim(),
     model: String(body.model || "").trim(),
     serial_number: String(body.serial_number || body.serialNumber || "").trim(),
+    last_maintenance_date: body.last_maintenance_date || body.lastMaintenanceDate || null,
     notes: String(body.notes || body.ghiChu || "").trim(),
   };
 }

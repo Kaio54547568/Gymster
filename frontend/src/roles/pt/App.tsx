@@ -2486,11 +2486,17 @@ function ProgressEvaluationScreen({ showToast }: { showToast: (msg: string) => v
   const [selectedMember, setSelectedMember] = useState("");
   const [selectedMemberDetail, setSelectedMemberDetail] = useState<any>(null);
   const [bodyMetrics, setBodyMetrics] = useState<any>(null);
+  const [bodyMetricsHistory, setBodyMetricsHistory] = useState<any[]>([]);
   const [history, setHistory] = useState<any[]>([]);
   const [progressText, setProgressText] = useState("");
   const [comment, setComment] = useState("");
   const [nextGoal, setNextGoal] = useState("");
   const [notes, setNotes] = useState("");
+  const [heightCm, setHeightCm] = useState("");
+  const [weightKg, setWeightKg] = useState("");
+  const [bodyFatPercent, setBodyFatPercent] = useState("");
+  const [bloodPressure, setBloodPressure] = useState("");
+  const [restingHeartRate, setRestingHeartRate] = useState("");
   const [loadingMembers, setLoadingMembers] = useState(true);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -2521,6 +2527,7 @@ function ProgressEvaluationScreen({ showToast }: { showToast: (msg: string) => v
     if (!memberId || !currentTrainerId) {
       setSelectedMemberDetail(null);
       setBodyMetrics(null);
+      setBodyMetricsHistory([]);
       setHistory([]);
       return;
     }
@@ -2530,11 +2537,18 @@ function ProgressEvaluationScreen({ showToast }: { showToast: (msg: string) => v
       const data = await getProgressForMember(memberId, currentTrainerId);
       setSelectedMemberDetail(data.member);
       setBodyMetrics(data.bodyMetrics);
+      setBodyMetricsHistory(data.bodyMetricsHistory || []);
       setHistory(data.history || []);
+      setHeightCm(data.bodyMetrics?.heightCm ? String(data.bodyMetrics.heightCm) : "");
+      setWeightKg(data.bodyMetrics?.weightKg ? String(data.bodyMetrics.weightKg) : "");
+      setBodyFatPercent(data.bodyMetrics?.bodyFatPercent ? String(data.bodyMetrics.bodyFatPercent) : "");
+      setBloodPressure(data.bodyMetrics?.bloodPressure || "");
+      setRestingHeartRate(data.bodyMetrics?.restingHeartRate ? String(data.bodyMetrics.restingHeartRate) : "");
     } catch (error: any) {
       showToast(error?.message || "Không thể tải tiến trình học viên.");
       setSelectedMemberDetail(null);
       setBodyMetrics(null);
+      setBodyMetricsHistory([]);
       setHistory([]);
     } finally {
       setLoadingDetail(false);
@@ -2565,6 +2579,17 @@ function ProgressEvaluationScreen({ showToast }: { showToast: (msg: string) => v
       showToast("Vui lòng nhập nội dung đánh giá, nhận xét và mục tiêu tiếp theo.");
       return;
     }
+    const numericFields = [
+      ["Height", heightCm],
+      ["Weight", weightKg],
+      ["Body fat", bodyFatPercent],
+      ["Resting heart rate", restingHeartRate],
+    ];
+    const invalidField = numericFields.find(([, value]) => String(value || "").trim() && (!Number.isFinite(Number(value)) || Number(value) < 0));
+    if (invalidField) {
+      showToast(`${invalidField[0]} must be a valid non-negative number.`);
+      return;
+    }
 
     setSaving(true);
     try {
@@ -2575,6 +2600,11 @@ function ProgressEvaluationScreen({ showToast }: { showToast: (msg: string) => v
         comment,
         nextGoal,
         notes,
+        heightCm,
+        weightKg,
+        bodyFatPercent,
+        bloodPressure,
+        restingHeartRate,
       });
       await loadMemberProgress(selectedMember, trainerId);
       setProgressText("");
@@ -2603,7 +2633,7 @@ function ProgressEvaluationScreen({ showToast }: { showToast: (msg: string) => v
     ["BMI", bodyMetrics?.bmi ? String(bodyMetrics.bmi) : ""],
     ["Body Fat", bodyMetrics?.bodyFatPercent ? `${bodyMetrics.bodyFatPercent}%` : ""],
     ["Blood Pressure", bodyMetrics?.bloodPressure || ""],
-    ["Hip to Waist", bodyMetrics?.hipToWaist ? String(bodyMetrics.hipToWaist) : ""],
+    ["Resting HR", bodyMetrics?.restingHeartRate ? `${bodyMetrics.restingHeartRate} bpm` : ""],
   ];
 
   return (
@@ -2695,6 +2725,24 @@ function ProgressEvaluationScreen({ showToast }: { showToast: (msg: string) => v
               <p className="text-[#555] text-sm">Chưa có dữ liệu chỉ số cơ thể cho học viên này.</p>
             )}
           </div>
+          <div className="bg-[#181818] border border-white/5 rounded-xl p-5">
+            <h3 className="text-white font-semibold text-sm mb-4">Body Metrics Chart</h3>
+            {bodyMetricsHistory.length ? (
+              <ResponsiveContainer width="100%" height={220}>
+                <LineChart data={bodyMetricsHistory}>
+                  <CartesianGrid stroke="#2A2A2A" strokeDasharray="3 3" />
+                  <XAxis dataKey="name" stroke="#777" fontSize={11} />
+                  <YAxis stroke="#777" fontSize={11} />
+                  <Tooltip contentStyle={{ background: "#111", border: "1px solid #333", color: "#fff" }} />
+                  <Line type="monotone" dataKey="weightKg" name="Weight (kg)" stroke="#FF3B3B" strokeWidth={2} dot={{ r: 3 }} />
+                  <Line type="monotone" dataKey="bodyFatPercent" name="Body fat %" stroke="#F97316" strokeWidth={2} dot={{ r: 3 }} />
+                  <Line type="monotone" dataKey="bmi" name="BMI" stroke="#60A5FA" strokeWidth={2} dot={{ r: 3 }} />
+                </LineChart>
+              </ResponsiveContainer>
+            ) : (
+              <p className="text-[#555] text-sm">No body metrics chart data yet.</p>
+            )}
+          </div>
         </div>
 
         <div className="space-y-4 xl:col-span-3">
@@ -2703,6 +2751,19 @@ function ProgressEvaluationScreen({ showToast }: { showToast: (msg: string) => v
               <h3 className="text-white font-semibold text-sm">Evaluation Form</h3>
             </div>
             <div className="p-5 space-y-4">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                <Input label="Height (cm)" value={heightCm} onChange={setHeightCm} disabled={!selectedMember || saving} />
+                <Input label="Weight (kg)" value={weightKg} onChange={setWeightKg} disabled={!selectedMember || saving} />
+                <Input label="Body fat (%)" value={bodyFatPercent} onChange={setBodyFatPercent} disabled={!selectedMember || saving} />
+                <Input label="Blood pressure" value={bloodPressure} onChange={setBloodPressure} disabled={!selectedMember || saving} />
+                <Input label="Resting heart rate" value={restingHeartRate} onChange={setRestingHeartRate} disabled={!selectedMember || saving} />
+                <div className="rounded-lg border border-white/10 bg-[#111] px-3 py-2.5">
+                  <div className="text-[10px] font-bold uppercase tracking-widest text-[#666]">BMI</div>
+                  <div className="mt-1 text-sm font-bold text-white">
+                    {heightCm && weightKg ? (Number(weightKg) / ((Number(heightCm) / 100) ** 2)).toFixed(1) : "Auto calculated"}
+                  </div>
+                </div>
+              </div>
               <Textarea label="Nội dung đánh giá" value={progressText} onChange={setProgressText} rows={3} disabled={!selectedMember || saving} />
               <Textarea label="Nhận xét" value={comment} onChange={setComment} rows={3} disabled={!selectedMember || saving} />
               <Textarea label="Mục tiêu tiếp theo" value={nextGoal} onChange={setNextGoal} rows={3} disabled={!selectedMember || saving} />

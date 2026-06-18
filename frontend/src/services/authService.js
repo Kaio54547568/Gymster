@@ -181,6 +181,22 @@ const SEEDED_DEMO_USERS = [
     accountStatus: "PendingOnboarding",
     account_status: "pending_onboarding",
   },
+  {
+    id: "00000000-0000-4000-8000-000000000096",
+    userId: "00000000-0000-4000-8000-000000000096",
+    username: "newmember02",
+    email: "newmember02@gymster.local",
+    password: "Member@123",
+    fullName: "New Member 02",
+    firstName: "New",
+    lastName: "Member 02",
+    phone: "0910000096",
+    dob: "2002-03-12",
+    gender: "other",
+    role: "member",
+    accountStatus: "PendingOnboarding",
+    account_status: "pending_onboarding",
+  },
 ];
 
 const SEEDED_MEMBER_DEMO_USERS = Array.from({ length: 24 }, (_, index) => {
@@ -880,7 +896,10 @@ export async function loginUser(identifier, password, options = {}) {
   }
 
   const supabaseResult = await loginSupabaseUser(identifier, password, options);
-  return supabaseResult;
+  if (supabaseResult.ok) return supabaseResult;
+
+  const localResult = loginLocalUser(identifier, password, options);
+  return localResult.ok ? localResult : supabaseResult;
 }
 
 export async function signInWithOAuthProvider(provider, options = {}) {

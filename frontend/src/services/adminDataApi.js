@@ -1,4 +1,5 @@
 import { supabase } from "./supabaseClient";
+import { getUsers } from "./authService";
 
 const EMPTY_RESULT = { data: null, error: null };
 const STAFF_MEMBER_LIMIT = 10;
@@ -27,6 +28,98 @@ function formatDateKey(value) {
 function fullName(row, fallback = "User") {
   const name = [row?.first_name, row?.last_name].filter(Boolean).join(" ").trim();
   return row?.full_name || name || row?.username || row?.email || fallback;
+}
+
+function localUserName(user, fallback = "User") {
+  return fullName({
+    full_name: user?.fullName || user?.full_name,
+    first_name: user?.firstName || user?.first_name,
+    last_name: user?.lastName || user?.last_name,
+    username: user?.username,
+    email: user?.email,
+  }, fallback);
+}
+
+function buildLocalAdminStaffData() {
+  const users = getUsers();
+  const staffUsers = users.filter((user) => {
+    const role = String(user.role || user.sourceRole || "").toLowerCase();
+    return role === "staff" || role === "trainer" || role === "pt";
+  });
+
+  const data = staffUsers.map((user, index) => {
+    const role = String(user.role || "").toLowerCase();
+    const sourceRole = String(user.sourceRole || "").toLowerCase();
+    const normalizedRole = role === "pt" || role === "trainer" || sourceRole === "trainer" ? "trainer" : "staff";
+    const employeeCode = user.employeeCode || user.employee_code || (normalizedRole === "trainer" ? `PT-DEMO-${index + 1}` : `ST-DEMO-${index + 1}`);
+
+    return {
+      maNV: employeeCode,
+      id: user.id || user.userId || user.user_id || employeeCode,
+      userId: user.userId || user.user_id || user.id || "",
+      hoTen: localUserName(user, normalizedRole === "trainer" ? "Trainer" : "Staff"),
+      email: user.email || "",
+      role: normalizedRole,
+      chucVu: normalizedRole === "trainer" ? "Trainer" : "Staff",
+      luongCoBan: "0",
+      sdt: user.phone || user.phone_number || "",
+      chuyenMon: normalizedRole === "trainer" ? "Personal training" : "Staff",
+      chungChi: user.accountStatus || user.account_status || "Active",
+      currentActiveMembers: Number(user.currentActiveMembers || user.current_active_members || 0),
+      maxActiveMembers: Number(user.maxActiveMembers || user.max_active_members || STAFF_MEMBER_LIMIT),
+      performance: 0,
+      avatar: user.avatar || user.avatar_url || "",
+      rawUser: user,
+    };
+  });
+
+  const trainers = data
+    .filter((employee) => employee.role === "trainer")
+    .map((employee) => ({
+      id: employee.rawUser?.trainerId || employee.rawUser?.trainer_id || employee.id,
+      name: employee.hoTen,
+      specialty: employee.chuyenMon || "Personal training",
+      email: employee.email,
+      phone: employee.sdt,
+      avatar: employee.avatar,
+      currentActiveMembers: employee.currentActiveMembers,
+      maxActiveMembers: employee.maxActiveMembers,
+      status: employee.chungChi || "Active",
+    }));
+
+  return {
+    data: data.map(({ rawUser, ...employee }) => employee),
+    trainers,
+    error: null,
+  };
+}
+
+function getLocalAdminStaffDetail(id, role) {
+  const localData = buildLocalAdminStaffData();
+  const normalizedRole = String(role || "").toLowerCase();
+  const rows = normalizedRole === "trainer" ? localData.trainers : localData.data;
+  const row = rows.find((item) => {
+    const values = [item.id, item.maNV, item.email].filter(Boolean).map((value) => String(value).toLowerCase());
+    return values.includes(String(id || "").toLowerCase());
+  });
+
+  if (!row) return null;
+
+  return {
+    id: row.id || row.maNV,
+    employee_code: row.maNV || row.id,
+    full_name: row.hoTen || row.name,
+    role: normalizedRole === "trainer" || row.specialty ? "trainer" : "staff",
+    email: row.email || "",
+    phone: row.sdt || row.phone || "",
+    gender: "",
+    date_of_birth: "",
+    department: row.chuyenMon || row.specialty || "",
+    base_salary: 0,
+    status: row.chungChi || row.status || "Active",
+    active_members: Number(row.currentActiveMembers || 0),
+    max_members: Number(row.maxActiveMembers || STAFF_MEMBER_LIMIT),
+  };
 }
 
 function formatMethod(method) {
@@ -253,7 +346,7 @@ export async function fetchMembershipAnalyticsData() {
 
 export async function fetchAdminStaffData() {
   const configError = requireSupabase("staff management");
-  if (configError) return { data: [], trainers: [], error: configError };
+  if (configError) return buildLocalAdminStaffData();
 
   try {
     const [{ data: employees, error: employeeError }, { data: trainers, error: trainerError }] = await Promise.all([
@@ -325,7 +418,7 @@ export async function fetchAdminStaffData() {
     };
   } catch (error) {
     console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to load admin staff data:", error);
-    return { data: [], trainers: [], error };
+    return buildLocalAdminStaffData();
   }
 }
 
@@ -374,44 +467,44 @@ export async function createAdminStaffRecord(form) {
 export async function fetchAdminStaffDetail(id, role) {
   const path = `/api/admin/staff/${encodeURIComponent(id)}?role=${encodeURIComponent(role || "")}`;
   const { data, error } = await adminStaffJson(path);
-  return { data: data?.data || null, error };
+  if (!error && data?.data) return { data: data.data, error: null };
+
+  const localDetail = getLocalAdminStaffDetail(id, role);
+  if (localDetail) return { data: localDetail, error: null };
+
+  return { data: null, error };
 }
 
 
 export async function fetchPayrollData() {
-  const configError = requireSupabase("payroll");
-  if (configError) return { data: [], error: configError };
+  const { data, error } = await payrollJson("/api/payroll");
+  return { data: data?.data || [], employees: data?.employees || [], error };
+}
 
+async function payrollJson(path, options = {}) {
   try {
-    const { data: rows, error } = await supabase
-      .from("payslips")
-      .select("*, payroll_periods(period_name,period_start,period_end,status)")
-      .order("created_at", { ascending: false });
-    if (error) throw error;
-    const employeesById = await fetchEmployeesByIds((rows || []).map((row) => row.employee_id));
-    return {
-      data: (rows || []).map((row) => {
-        const employee = employeesById[row.employee_id] || {};
-        const periodStart = new Date(row.payroll_periods?.period_start || row.created_at);
-        return {
-          employeeCode: employee.employee_code || row.employee_id,
-          employeeName: employee.full_name || "Employee",
-          role: employee.role === "trainer" ? "Trainer" : employee.role === "admin" || employee.role === "owner" ? "Manager" : "Staff",
-          baseSalary: Number(row.base_salary || 0),
-          bonus: Number(row.bonus_amount || 0),
-          deductions: Number(row.deduction_amount || 0),
-          status: row.status === "paid" ? "Paid" : row.status === "cancelled" ? "Failed" : "Pending",
-          month: Number.isNaN(periodStart.getTime()) ? "Unknown" : periodStart.toLocaleString("en-US", { month: "long" }),
-          quarter: Number.isNaN(periodStart.getTime()) ? "Q1" : `Q${Math.floor(periodStart.getMonth() / 3) + 1}`,
-          year: Number.isNaN(periodStart.getTime()) ? "" : String(periodStart.getFullYear()),
-        };
-      }),
-      error: null,
-    };
+    const response = await fetch(path, options);
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data.ok === false) {
+      return { data: null, error: new Error(data.message || data.error || "Payroll API request failed.") };
+    }
+    return { data, error: null };
   } catch (error) {
-    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to load payroll:", error);
-    return { data: [], error };
+    return { data: null, error };
   }
+}
+
+export async function createPayrollRecord(form) {
+  return payrollJson("/api/payroll", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(form),
+  });
+}
+
+export async function fetchPayrollRecordDetail(payslipId) {
+  const { data, error } = await payrollJson(`/api/payroll/${encodeURIComponent(payslipId)}`);
+  return { data: data?.data || null, error };
 }
 
 

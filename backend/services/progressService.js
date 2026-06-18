@@ -51,6 +51,17 @@ function formatNumber(value, digits = 1) {
   return Number(number.toFixed(digits));
 }
 
+function nullableNumber(value, digits = 1) {
+  if (value === "" || value === null || value === undefined) return null;
+  return formatNumber(value, digits);
+}
+
+function nullableInteger(value) {
+  if (value === "" || value === null || value === undefined) return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? Math.round(number) : null;
+}
+
 function fullName(user, member) {
   const userName = [user?.first_name, user?.last_name].filter(Boolean).join(" ").trim();
   return member?.full_name || user?.full_name || userName || user?.username || member?.member_code || "Member";
@@ -75,7 +86,7 @@ async function fetchUsersByIds(client, userIds) {
 
   const { data, error } = await client
     .from("users")
-    .select("user_id,first_name,last_name,full_name,username,email,phone_number,avatar_url")
+    .select("user_id,first_name,last_name,username,email,phone_number,avatar_url")
     .in("user_id", ids);
   if (error) throw error;
   return Object.fromEntries((data || []).map((row) => [row.user_id, row]));
@@ -153,10 +164,26 @@ function mapBodyMetrics(row) {
     bmi,
     bodyFatPercent: formatNumber(row.body_fat_percent, 1),
     bloodPressure: row.blood_pressure || "",
+    restingHeartRate: row.resting_heart_rate === null || row.resting_heart_rate === undefined ? null : Number(row.resting_heart_rate),
     hipToWaist,
     waistCm,
     hipCm,
     latestUpdatedAt: row.recorded_at || row.updated_at || row.created_at || "",
+  };
+}
+
+function mapBodyMetricChart(row) {
+  const mapped = mapBodyMetrics(row);
+  const date = row?.recorded_at || row?.created_at || "";
+  return {
+    id: row?.body_metric_id || "",
+    date,
+    name: date ? new Date(date).toLocaleDateString("en-GB", { day: "2-digit", month: "short" }) : "",
+    heightCm: mapped?.heightCm,
+    weightKg: mapped?.weightKg,
+    bmi: mapped?.bmi,
+    bodyFatPercent: mapped?.bodyFatPercent,
+    restingHeartRate: mapped?.restingHeartRate,
   };
 }
 
@@ -226,14 +253,16 @@ export async function getProgressForMember(memberId, trainerId) {
       return { ok: false, status: 403, message: "This member is not assigned to the current PT." };
     }
 
-    const [memberResult, metricResult, historyResult] = await Promise.all([
+    const [memberResult, metricResult, metricHistoryResult, historyResult] = await Promise.all([
       client.from("members").select("member_id,user_id,member_code,full_name,status,join_date").eq("member_id", normalizedMemberId).maybeSingle(),
       client.from("body_metrics").select("*").eq("member_id", normalizedMemberId).order("recorded_at", { ascending: false }).limit(1).maybeSingle(),
+      client.from("body_metrics").select("*").eq("member_id", normalizedMemberId).order("recorded_at", { ascending: true }).limit(24),
       client.from("progress_records").select("*").eq("member_id", normalizedMemberId).order("record_date", { ascending: false }).order("created_at", { ascending: false }),
     ]);
 
     if (memberResult.error) throw memberResult.error;
     if (metricResult.error) throw metricResult.error;
+    if (metricHistoryResult.error) throw metricHistoryResult.error;
     if (historyResult.error) throw historyResult.error;
 
     const usersById = await fetchUsersByIds(client, [memberResult.data?.user_id].filter(Boolean));
@@ -243,6 +272,7 @@ export async function getProgressForMember(memberId, trainerId) {
       ok: true,
       member: memberResult.data ? mapMember(memberResult.data, usersById[memberResult.data.user_id] || {}) : null,
       bodyMetrics: mapBodyMetrics(metricResult.data),
+      bodyMetricsHistory: (metricHistoryResult.data || []).map(mapBodyMetricChart),
       history: (historyResult.data || []).map((row) => mapProgressRecord(row, trainerNames)),
     };
   } catch (error) {
@@ -262,6 +292,13 @@ export async function saveProgressEvaluation(payload) {
   const nextGoal = normalizeText(payload?.nextGoal || payload?.next_goal);
   const notes = normalizeText(payload?.notes);
   const recordDate = normalizeText(payload?.recordDate || payload?.record_date) || todayDate();
+  const metricValues = {
+    height_cm: nullableNumber(payload?.heightCm || payload?.height_cm, 1),
+    weight_kg: nullableNumber(payload?.weightKg || payload?.weight_kg, 1),
+    body_fat_percent: nullableNumber(payload?.bodyFatPercent || payload?.body_fat_percent, 1),
+    blood_pressure: normalizeText(payload?.bloodPressure || payload?.blood_pressure) || null,
+    resting_heart_rate: nullableInteger(payload?.restingHeartRate ?? payload?.resting_heart_rate),
+  };
 
   if (!memberId || !trainerId || !progressText) {
     return { ok: false, status: 400, message: "memberId, trainerId and progressText are required." };
@@ -301,6 +338,33 @@ export async function saveProgressEvaluation(payload) {
 
     const { data, error } = await query.select("*").single();
     if (error) throw error;
+
+    if (Object.values(metricValues).some((value) => value !== null && value !== "")) {
+      const metricPayload = {
+        member_id: memberId,
+        recorded_by_trainer_id: trainerId,
+        recorded_at: new Date(`${recordDate}T12:00:00.000Z`).toISOString(),
+        ...metricValues,
+        notes,
+        updated_at: new Date().toISOString(),
+      };
+      const { data: existingMetric, error: existingMetricError } = await client
+        .from("body_metrics")
+        .select("body_metric_id")
+        .eq("member_id", memberId)
+        .eq("recorded_by_trainer_id", trainerId)
+        .gte("recorded_at", `${recordDate}T00:00:00.000Z`)
+        .lte("recorded_at", `${recordDate}T23:59:59.999Z`)
+        .limit(1)
+        .maybeSingle();
+      if (existingMetricError) throw existingMetricError;
+
+      const metricQuery = existingMetric?.body_metric_id
+        ? client.from("body_metrics").update(metricPayload).eq("body_metric_id", existingMetric.body_metric_id)
+        : client.from("body_metrics").insert(metricPayload);
+      const { error: metricError } = await metricQuery;
+      if (metricError) throw metricError;
+    }
 
     const trainerNames = await fetchTrainerUserMap(client, [trainerId]);
     return { ok: true, evaluation: mapProgressRecord(data, trainerNames), action: existing?.progress_record_id ? "updated" : "created" };

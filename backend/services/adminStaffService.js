@@ -298,11 +298,11 @@ export async function createAdminStaff(payload = {}) {
   let employeeCode = normalizeEmployeeCode(payload.employeeCode);
 
   if (!fullName || !email || !phone || !role) {
-    return { ok: false, status: 400, message: "Vui lòng nhập đầy đủ thông tin bắt buộc." };
+    return { ok: false, status: 400, message: "Please complete all required fields." };
   }
 
   if (payload.password && !isStrongPassword(password)) {
-    return { ok: false, status: 400, message: "Mật khẩu không hợp lệ." };
+    return { ok: false, status: 400, message: "Password does not meet the required rules." };
   }
 
   try {
@@ -313,12 +313,12 @@ export async function createAdminStaff(payload = {}) {
       .maybeSingle();
     if (existingUserError) throw existingUserError;
     if (existingUser?.user_id) {
-      return { ok: false, status: 409, code: "EMAIL_EXISTS", message: "Email đã tồn tại, vui lòng nhập email khác" };
+      return { ok: false, status: 409, code: "EMAIL_EXISTS", message: "Email already exists. Please enter another email." };
     }
 
     if (employeeCode) {
       if (await employeeCodeExists(client, employeeCode)) {
-        return { ok: false, status: 409, code: "EMPLOYEE_CODE_EXISTS", message: "Mã nhân sự đã tồn tại, vui lòng nhập mã khác" };
+        return { ok: false, status: 409, code: "EMPLOYEE_CODE_EXISTS", message: "Employee code already exists. Please enter another code." };
       }
     } else {
       employeeCode = await generateEmployeeCode(client);
@@ -398,12 +398,12 @@ export async function createAdminStaff(payload = {}) {
 
     const message = String(error.message || "");
     if (message.toLowerCase().includes("duplicate") && message.includes("employees_employee_code")) {
-      return { ok: false, status: 409, code: "EMPLOYEE_CODE_EXISTS", message: "Mã nhân sự đã tồn tại, vui lòng nhập mã khác" };
+      return { ok: false, status: 409, code: "EMPLOYEE_CODE_EXISTS", message: "Employee code already exists. Please enter another code." };
     }
     if (message.toLowerCase().includes("duplicate") && message.includes("users_email")) {
-      return { ok: false, status: 409, code: "EMAIL_EXISTS", message: "Email đã tồn tại, vui lòng nhập email khác" };
+      return { ok: false, status: 409, code: "EMAIL_EXISTS", message: "Email already exists. Please enter another email." };
     }
 
-    return { ok: false, status: 500, message: message || "Không thể tạo nhân sự." };
+    return { ok: false, status: 500, message: message || "Could not create staff record." };
   }
 }

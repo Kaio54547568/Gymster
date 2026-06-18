@@ -46,6 +46,11 @@ import {
   listStaffPaymentRequests,
   rejectPaymentRequest,
 } from "./services/paymentRequestService.js";
+import {
+  createPayslip,
+  getPayslip,
+  listPayroll,
+} from "./services/payrollService.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, ".env") });
@@ -263,6 +268,20 @@ const server = http.createServer(async (request, response) => {
     return;
   }
 
+  if (request.method === "GET" && ["/api/payroll", "/payroll"].includes(url.pathname)) {
+    const result = await listPayroll();
+    sendJson(response, result.ok ? 200 : result.status || 400, result);
+    return;
+  }
+
+  if (request.method === "GET" && (url.pathname.startsWith("/api/payroll/") || url.pathname.startsWith("/payroll/"))) {
+    const prefix = url.pathname.startsWith("/api/payroll/") ? "/api/payroll/" : "/payroll/";
+    const id = decodeURIComponent(url.pathname.replace(prefix, ""));
+    const result = await getPayslip(id);
+    sendJson(response, result.ok ? 200 : result.status || 400, result);
+    return;
+  }
+
   if (request.method === "GET" && (url.pathname.startsWith("/api/member/receipts/") || url.pathname.startsWith("/member/receipts/"))) {
     const prefix = url.pathname.startsWith("/api/member/receipts/") ? "/api/member/receipts/" : "/member/receipts/";
     const suffix = decodeURIComponent(url.pathname.replace(prefix, ""));
@@ -327,6 +346,19 @@ const server = http.createServer(async (request, response) => {
       return;
     }
     const result = await createPackagePaymentRequest(payload);
+    sendJson(response, result.ok ? 200 : result.status || 400, result);
+    return;
+  }
+
+  if (request.method === "POST" && ["/api/payroll", "/payroll"].includes(url.pathname)) {
+    let payload;
+    try {
+      payload = await readJsonBody(request);
+    } catch (error) {
+      sendJson(response, 400, { ok: false, message: error.message });
+      return;
+    }
+    const result = await createPayslip(payload);
     sendJson(response, result.ok ? 200 : result.status || 400, result);
     return;
   }

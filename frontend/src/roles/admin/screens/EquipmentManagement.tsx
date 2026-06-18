@@ -9,6 +9,7 @@ import {
   fetchEquipmentStats,
   updateEquipmentRecord,
 } from '../../../services/adminDataApi';
+import { getCurrentUser } from '../../../services/authService';
 
 type EquipmentRow = {
   id: string;
@@ -18,11 +19,13 @@ type EquipmentRow = {
   status: string;
   purchaseDate: string;
   location: string;
+  description?: string;
   notes: string;
   brand?: string;
   manufacturer?: string;
   model?: string;
   serialNumber?: string;
+  lastMaintenanceDate?: string;
 };
 
 type EquipmentStats = {
@@ -37,10 +40,12 @@ type EquipmentForm = {
   equipmentCode: string;
   category: string;
   location: string;
-  status: 'Active' | 'In Use' | 'Maintenance' | 'Broken';
+  status: 'Available' | 'In Use' | 'Maintenance' | 'Broken';
   purchaseDate: string;
   manufacturer: string;
   serialNumber: string;
+  description: string;
+  lastMaintenanceDate: string;
   notes: string;
 };
 
@@ -49,10 +54,12 @@ const initialEquipmentForm: EquipmentForm = {
   equipmentCode: '',
   category: '',
   location: '',
-  status: 'Active',
+  status: 'Available',
   purchaseDate: '',
   manufacturer: '',
   serialNumber: '',
+  description: '',
+  lastMaintenanceDate: '',
   notes: '',
 };
 
@@ -62,15 +69,21 @@ function formFromEquipment(item: EquipmentRow): EquipmentForm {
     equipmentCode: item.equipmentCode || '',
     category: item.category || '',
     location: item.location || '',
-    status: (['Active', 'In Use', 'Maintenance', 'Broken'].includes(item.status) ? item.status : 'Active') as EquipmentForm['status'],
+    status: (['Available', 'Active', 'In Use', 'Maintenance', 'Broken'].includes(item.status) ? (item.status === 'Active' ? 'Available' : item.status) : 'Available') as EquipmentForm['status'],
     purchaseDate: item.purchaseDate || '',
     manufacturer: item.manufacturer || item.brand || '',
     serialNumber: item.serialNumber || '',
+    description: item.description || '',
+    lastMaintenanceDate: item.lastMaintenanceDate || '',
     notes: item.notes || '',
   };
 }
 
 export default function EquipmentManagement() {
+  const currentUser = getCurrentUser();
+  const normalizedRole = String(currentUser?.role || '').toLowerCase();
+  const normalizedSourceRole = String(currentUser?.sourceRole || '').toLowerCase();
+  const canManageEquipment = Boolean(currentUser && (normalizedRole === 'owner' || normalizedSourceRole === 'owner'));
   const [selectedRoom, setSelectedRoom] = useState('all');
   const [selectedStatus, setSelectedStatus] = useState('all');
   const [query, setQuery] = useState('');
@@ -87,6 +100,10 @@ export default function EquipmentManagement() {
   const [loadMessage, setLoadMessage] = useState('');
 
   const loadEquipment = useCallback(async () => {
+    if (!canManageEquipment) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     const [listResult, statsResult] = await Promise.all([
       fetchEquipmentManagementData(),
@@ -96,7 +113,7 @@ export default function EquipmentManagement() {
     setStats(statsResult.data || { total: 0, active: 0, inUse: 0, maintenance: 0 });
     setLoadMessage(listResult.error || statsResult.error ? 'Equipment data could not be loaded.' : '');
     setLoading(false);
-  }, []);
+  }, [canManageEquipment]);
 
   useEffect(() => {
     void loadEquipment();
@@ -120,6 +137,7 @@ export default function EquipmentManagement() {
 
   const getStatusColor = (status: string) => {
     switch (status) {
+      case 'Available':
       case 'Active':
         return { bg: 'bg-[#22C55E]/10', border: 'border-[#22C55E]/30', text: 'text-[#22C55E]' };
       case 'In Use':
@@ -135,6 +153,7 @@ export default function EquipmentManagement() {
 
   const getStatusIcon = (status: string) => {
     switch (status) {
+      case 'Available':
       case 'Active':
         return <CheckCircle className="w-5 h-5 text-[#22C55E]" />;
       case 'In Use':
@@ -222,6 +241,17 @@ export default function EquipmentManagement() {
     window.setTimeout(() => setSuccessMessage(''), 3500);
   };
 
+  if (!canManageEquipment) {
+    return (
+      <div className="p-8">
+        <div className="rounded-2xl border border-[#EF233C]/20 bg-[#0c1014] p-8">
+          <h1 className="bebas mb-3 text-5xl tracking-wider text-white">ACCESS DENIED</h1>
+          <p className="text-[#A1A1AA]">Equipment management is available only to Owner accounts.</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="p-8 space-y-8">
       <div className="flex items-center justify-between">
@@ -246,7 +276,7 @@ export default function EquipmentManagement() {
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         <KPICard title="Total Equipment" value={stats.total} icon={Dumbbell} iconColor="#EF233C" />
-        <KPICard title="Active" value={stats.active} icon={CheckCircle} iconColor="#22C55E" />
+        <KPICard title="Available" value={stats.active} icon={CheckCircle} iconColor="#22C55E" />
         <KPICard title="In Use" value={stats.inUse} icon={Dumbbell} iconColor="#60A5FA" />
         <KPICard title="Maintenance" value={stats.maintenance} icon={Wrench} iconColor="#F97316" />
       </div>
@@ -268,7 +298,7 @@ export default function EquipmentManagement() {
         </select>
         <select value={selectedStatus} onChange={(event) => setSelectedStatus(event.target.value)} className="bg-[#0c1014] border border-[#EF233C]/30 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-[#EF233C] cursor-pointer">
           <option value="all">All status</option>
-          <option value="Active">Active</option>
+          <option value="Available">Available</option>
           <option value="In Use">In Use</option>
           <option value="Maintenance">Maintenance</option>
           <option value="Broken">Broken</option>
@@ -308,6 +338,8 @@ export default function EquipmentManagement() {
                   <p className="text-[#A1A1AA]">Purchase date: <span className="text-white">{equipment.purchaseDate || 'Not set'}</span></p>
                   {(equipment.manufacturer || equipment.brand) && <p className="text-[#A1A1AA]">Manufacturer: <span className="text-white">{equipment.manufacturer || equipment.brand}</span></p>}
                   {equipment.serialNumber && <p className="text-[#A1A1AA]">Serial: <span className="text-white">{equipment.serialNumber}</span></p>}
+                  {equipment.description && <p className="text-[#A1A1AA]">Description: <span className="text-white">{equipment.description}</span></p>}
+                  {equipment.lastMaintenanceDate && <p className="text-[#A1A1AA]">Last maintenance: <span className="text-white">{equipment.lastMaintenanceDate}</span></p>}
                   {equipment.notes && <p className="text-[#A1A1AA]">Notes: <span className="text-white">{equipment.notes}</span></p>}
                 </div>
                 <div className="mt-5 flex gap-3">
@@ -359,7 +391,7 @@ export default function EquipmentManagement() {
               <label className="space-y-2">
                 <span className="text-sm font-semibold text-[#A1A1AA]">Status</span>
                 <select value={equipmentForm.status} onChange={(event) => updateEquipmentForm('status', event.target.value as EquipmentForm['status'])} className="w-full rounded-xl border border-[#EF233C]/20 bg-[#050607] px-4 py-3 text-white outline-none focus:border-[#EF233C]">
-                  <option value="Active">Active</option>
+                  <option value="Available">Available</option>
                   <option value="In Use">In Use</option>
                   <option value="Maintenance">Maintenance</option>
                   <option value="Broken">Broken</option>
@@ -380,6 +412,14 @@ export default function EquipmentManagement() {
               <label className="space-y-2">
                 <span className="text-sm font-semibold text-[#A1A1AA]">Serial Number</span>
                 <input value={equipmentForm.serialNumber} onChange={(event) => updateEquipmentForm('serialNumber', event.target.value)} className="w-full rounded-xl border border-[#EF233C]/20 bg-[#050607] px-4 py-3 text-white outline-none focus:border-[#EF233C]" />
+              </label>
+              <label className="space-y-2">
+                <span className="text-sm font-semibold text-[#A1A1AA]">Last Maintenance Date</span>
+                <input type="date" value={equipmentForm.lastMaintenanceDate} onChange={(event) => updateEquipmentForm('lastMaintenanceDate', event.target.value)} className="w-full rounded-xl border border-[#EF233C]/20 bg-[#050607] px-4 py-3 text-white outline-none focus:border-[#EF233C]" />
+              </label>
+              <label className="space-y-2 md:col-span-2">
+                <span className="text-sm font-semibold text-[#A1A1AA]">Description</span>
+                <textarea value={equipmentForm.description} onChange={(event) => updateEquipmentForm('description', event.target.value)} rows={3} className="w-full resize-none rounded-xl border border-[#EF233C]/20 bg-[#050607] px-4 py-3 text-white outline-none focus:border-[#EF233C]" />
               </label>
               <label className="space-y-2 md:col-span-2">
                 <span className="text-sm font-semibold text-[#A1A1AA]">Notes</span>

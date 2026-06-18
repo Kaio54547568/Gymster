@@ -102,6 +102,7 @@ export async function getProgressForMember(memberId, trainerId) {
   return {
     member: data.member ? mapMember(data.member) : null,
     bodyMetrics: mapBodyMetrics(data.bodyMetrics),
+    bodyMetricsHistory: data.bodyMetricsHistory || [],
     history: (data.history || []).map(mapEvaluation),
   };
 }
