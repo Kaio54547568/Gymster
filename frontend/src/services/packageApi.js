@@ -1,5 +1,6 @@
 import { supabase } from "./supabaseClient";
 import { getAllowedLeaveDaysForPackage } from "./packageEntitlement";
+import { authenticatedJson } from "./authenticatedApi";
 
 const packageTypeLabels = {
   gym: "Gym",
@@ -7,89 +8,15 @@ const packageTypeLabels = {
   vip_pt: "VIP Personal Training",
 };
 
+
+
 const adminPackageTypeLabels = {
   gym: "Basic",
   pt: "PT",
   vip_pt: "VIP",
 };
 
-const fallbackPackageRows = [
-  {
-    package_id: "local-gym-1m",
-    package_code: "GYM-1M",
-    package_name: "Gym Access 1 Month",
-    package_type: "gym",
-    duration_months: 1,
-    price: 390000,
-    description: "Monthly access to gym floor, locker room, and basic check-in tracking.",
-    session_limit: null,
-    has_personal_trainer: false,
-    is_popular: false,
-    sessions_per_week: 1,
-    is_active: true,
-    status: "active",
-  },
-  {
-    package_id: "local-gym-6m",
-    package_code: "GYM-6M",
-    package_name: "Gym Access 6 Months",
-    package_type: "gym",
-    duration_months: 6,
-    price: 1750000,
-    description: "Semiannual membership with better price per month.",
-    session_limit: null,
-    has_personal_trainer: false,
-    is_popular: true,
-    sessions_per_week: 1,
-    is_active: true,
-    status: "active",
-  },
-  {
-    package_id: "local-pt-1m",
-    package_code: "PT-1M",
-    package_name: "PT Starter 1 Month",
-    package_type: "pt",
-    duration_months: 1,
-    price: 1800000,
-    description: "Eight private coaching sessions for beginners or short goals.",
-    session_limit: 8,
-    has_personal_trainer: true,
-    is_popular: false,
-    sessions_per_week: 1,
-    is_active: true,
-    status: "active",
-  },
-  {
-    package_id: "local-pt-3m",
-    package_code: "PT-3M",
-    package_name: "PT Progress 3 Months",
-    package_type: "pt",
-    duration_months: 3,
-    price: 4800000,
-    description: "Twenty-four sessions with trainer assignment, goals, and progress records.",
-    session_limit: 24,
-    has_personal_trainer: true,
-    is_popular: true,
-    sessions_per_week: 1,
-    is_active: true,
-    status: "active",
-  },
-  {
-    package_id: "local-vip-pt-6m",
-    package_code: "VIP-PT-6M",
-    package_name: "VIP PT 6 Months",
-    package_type: "vip_pt",
-    duration_months: 6,
-    price: 12800000,
-    description: "Sixty VIP sessions with priority trainer slots and monthly body metrics.",
-    session_limit: 60,
-    has_personal_trainer: true,
-    is_popular: true,
-    sessions_per_week: 2,
-    is_active: true,
-    status: "active",
-  },
-];
+// Fallback removed to enforce API usage only.
 
 function formatPrice(price) {
   return Number(price || 0).toLocaleString("vi-VN");
@@ -131,6 +58,8 @@ function mapPackageRow(row) {
   const sessionLimit = hasPersonalTrainer && row.session_limit ? `${row.session_limit} PT sessions` : hasPersonalTrainer ? "PT sessions included" : "Unlimited gym access";
   const packageTypeLabel = packageTypeLabels[packageType] || packageType || "Package";
   const maxLeaveDays = getAllowedLeaveDaysForPackage({ durationMonths });
+  const originalPrice = Number(row.originalPrice ?? row.price ?? 0);
+  const discountedPrice = Number(row.discountedPrice ?? originalPrice);
 
   return {
     id: row.package_id,
@@ -143,8 +72,15 @@ function mapPackageRow(row) {
     durationMonths,
     durationText: `${durationMonths} months`,
     duration: `${durationMonths} months`,
-    price: Number(row.price || 0),
-    priceText: formatPrice(row.price),
+    price: discountedPrice,
+    priceText: formatPrice(discountedPrice),
+    originalPrice,
+    originalPriceText: formatPrice(originalPrice),
+    discountedPrice,
+    discountedPriceText: formatPrice(discountedPrice),
+    discountPercent: Number(row.discountPercent || 0),
+    discountAmount: Number(row.discountAmount || 0),
+    promotion: row.promotion || null,
     description: row.description || "",
     sessionLimitValue: row.session_limit ?? null,
     sessionLimit,
@@ -187,21 +123,27 @@ async function queryPackages() {
 }
 
 export async function fetchPackagesFromSupabase() {
-  if (!supabase) {
-    return { data: fallbackPackageRows.map(mapPackageRow), error: null };
+  const apiResult = await authenticatedJson("/api/packages");
+  if (!apiResult.error && Array.isArray(apiResult.data)) {
+    return { data: apiResult.data.map(mapPackageRow), error: null };
   }
 
-  const { data, error } = await queryPackages();
+  // If the API call fails, we do NOT fallback to static rows.
+  return { data: [], error: apiResult.error || new Error("Failed to load packages.") };
+}
 
-  if (error) {
-    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to load packages:", error);
-    return { data: [], error };
-  }
+export async function fetchPackageQuote(payload) {
+  return authenticatedJson("/api/package-quotes", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
 
-  return {
-    data: Array.isArray(data) ? data.map(mapPackageRow) : [],
-    error: null,
-  };
+export function createPackagePromotion(payload) {
+  return authenticatedJson("/api/admin/package-promotions", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 }
 
 export async function createPackageInSupabase(packageData) {

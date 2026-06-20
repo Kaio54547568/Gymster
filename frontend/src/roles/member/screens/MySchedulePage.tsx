@@ -5,6 +5,7 @@ import { getCurrentUser } from '../../../services/authService';
 import {
   cancelWorkoutSessionForMember,
   createManualWorkoutSessionForMember,
+  addSessionBasedWorkout,
   getMakeupSessionSummary,
   getWorkoutSessionStatusLabel,
   getWorkoutSessionsForMember,
@@ -69,6 +70,13 @@ export default function MySchedulePage() {
   const [rescheduleMessage, setRescheduleMessage] = useState('');
   const [isLoadingSlots, setIsLoadingSlots] = useState(false);
   const [isSubmittingReschedule, setIsSubmittingReschedule] = useState(false);
+  const [selectedShift, setSelectedShift] = useState('');
+  const SHIFTS = [
+    { code: 'shift_1', label: 'Morning (06:00 - 09:00)', startHour: 6 },
+    { code: 'shift_2', label: 'Noon (11:00 - 13:00)', startHour: 11 },
+    { code: 'shift_3', label: 'Afternoon (16:00 - 18:00)', startHour: 16 },
+    { code: 'shift_4', label: 'Evening (18:00 - 21:00)', startHour: 18 }
+  ];
   const [cancelSession, setCancelSession] = useState<ScheduleSession | null>(null);
   const [cancelReason, setCancelReason] = useState('');
   const [cancelMessage, setCancelMessage] = useState('');
@@ -289,13 +297,35 @@ export default function MySchedulePage() {
 
   const createManualWorkout = async () => {
     setCreateWorkoutError('');
-    if (manualWorkout.startTime >= manualWorkout.endTime) {
-      setCreateWorkoutError('End time must be later than start time.');
-      return;
+    
+    setIsCreatingWorkout(true);
+    let data, error;
+    
+    if (activePackage?.packageType === 'session_based' || activePackage?.package_type === 'session_based') {
+      if (!selectedShift) {
+        setCreateWorkoutError('Please select a shift.');
+        setIsCreatingWorkout(false);
+        return;
+      }
+      const result = await addSessionBasedWorkout({
+        sessionDate: manualWorkout.sessionDate,
+        shiftCode: selectedShift,
+        title: manualWorkout.title,
+        notes: manualWorkout.notes,
+      }, getCurrentUser());
+      data = result.data;
+      error = result.error;
+    } else {
+      if (manualWorkout.startTime >= manualWorkout.endTime) {
+        setCreateWorkoutError('End time must be later than start time.');
+        setIsCreatingWorkout(false);
+        return;
+      }
+      const result = await createManualWorkoutSessionForMember(manualWorkout, getCurrentUser());
+      data = result.data;
+      error = result.error;
     }
 
-    setIsCreatingWorkout(true);
-    const { data, error } = await createManualWorkoutSessionForMember(manualWorkout, getCurrentUser());
     setIsCreatingWorkout(false);
     if (error || !data) {
       setCreateWorkoutError(error?.message || 'The workout could not be created.');
@@ -412,28 +442,39 @@ export default function MySchedulePage() {
             Max leave: {currentPackageInfo.maxLeaveDays || getAllowedLeaveDaysForPackage(currentPackageInfo)} days
           </div>
         </div>
-        <div className="rounded-2xl border border-white/8 bg-[#181818] p-5">
-          <div className="text-xs font-bold uppercase tracking-[0.18em] text-white/35">Remaining Sessions</div>
-          <div className="mt-2 text-xl font-black text-[#EF233C]">{currentPackageInfo.remainingSessions ?? 0}</div>
-        </div>
+        {(activePackage?.packageType === 'session_based' || activePackage?.package_type === 'session_based') ? (
+          <div className="rounded-2xl border border-white/8 bg-[#181818] p-5">
+            <div className="text-xs font-bold uppercase tracking-[0.18em] text-white/35">Session Stats</div>
+            <div className="mt-2 text-sm font-black text-white">Purchased: <span className="text-emerald-300">{activePackage.sessionsTotal ?? 0}</span></div>
+            <div className="mt-1 text-sm font-black text-white">Used: <span className="text-amber-300">{activePackage.usedSessions ?? 0}</span></div>
+            <div className="mt-1 text-sm font-black text-white">Remaining: <span className="text-[#EF233C]">{activePackage.remainingSessions ?? 0}</span></div>
+          </div>
+        ) : (
+          <div className="rounded-2xl border border-white/8 bg-[#181818] p-5">
+            <div className="text-xs font-bold uppercase tracking-[0.18em] text-white/35">Remaining Sessions</div>
+            <div className="mt-2 text-xl font-black text-[#EF233C]">{currentPackageInfo.remainingSessions ?? 0}</div>
+          </div>
+        )}
         <div className="rounded-2xl border border-white/8 bg-[#181818] p-5">
           <div className="text-xs font-bold uppercase tracking-[0.18em] text-white/35">Next Session</div>
           <div className="mt-2 text-xl font-black text-white">{nextSession ? nextSession.title : 'No upcoming session'}</div>
           {nextSession && <div className="mt-1 text-sm text-white/50">{nextSession.date} - {nextSession.time}</div>}
         </div>
-        <div 
-          onClick={() => setIsMakeupModalOpen(true)}
-          className="rounded-2xl border border-[#EF233C]/25 bg-[#211316] p-5 text-white hover:border-[#EF233C] cursor-pointer transition-all duration-200"
-        >
-          <div className="text-xs font-bold uppercase tracking-[0.18em] text-[#FF7A8D]">Buổi bù</div>
-          <div className="mt-2 text-xl font-black text-white">Còn lại: {makeupSummary.credits} buổi</div>
-          <div className="mt-1 text-xs font-semibold text-[#FF9AAB]">
-            Đã nhận tháng này: {makeupSummary.grantedThisMonth}/{makeupSummary.monthlyLimit}
+        {(activePackage?.packageType !== 'session_based' && activePackage?.package_type !== 'session_based') && (
+          <div 
+            onClick={() => setIsMakeupModalOpen(true)}
+            className="rounded-2xl border border-[#EF233C]/25 bg-[#211316] p-5 text-white hover:border-[#EF233C] cursor-pointer transition-all duration-200"
+          >
+            <div className="text-xs font-bold uppercase tracking-[0.18em] text-[#FF7A8D]">Buổi bù</div>
+            <div className="mt-2 text-xl font-black text-white">Remaining: {makeupSummary.credits} buổi</div>
+            <div className="mt-1 text-xs font-semibold text-[#FF9AAB]">
+              Đã nhận tháng này: {makeupSummary.grantedThisMonth}/{makeupSummary.monthlyLimit}
+            </div>
+            <div className="mt-2 text-[10px] font-medium text-white/50 border-t border-white/5 pt-2">
+              Ghi chú: Hủy/đổi lịch trước 2 giờ để được cộng buổi bù
+            </div>
           </div>
-          <div className="mt-2 text-[10px] font-medium text-white/50 border-t border-white/5 pt-2">
-            Ghi chú: Hủy/đổi lịch trước 2 giờ để được cộng buổi bù
-          </div>
-        </div>
+        )}
       </div>
 
       <Section title="Workout Calendar">
@@ -879,16 +920,41 @@ export default function MySchedulePage() {
                 <span className="mb-2 block text-xs font-black uppercase tracking-[0.16em] text-white/45">Date</span>
                 <input type="date" value={manualWorkout.sessionDate} onChange={(event) => setManualWorkout((current) => ({ ...current, sessionDate: event.target.value }))} className="w-full rounded-xl border border-white/10 bg-[#222] px-4 py-3 text-sm text-white outline-none focus:border-[#EF233C]/60" />
               </label>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <label className="block">
-                  <span className="mb-2 block text-xs font-black uppercase tracking-[0.16em] text-white/45">Start time</span>
-                  <input type="time" value={manualWorkout.startTime} onChange={(event) => setManualWorkout((current) => ({ ...current, startTime: event.target.value }))} className="w-full rounded-xl border border-white/10 bg-[#222] px-4 py-3 text-sm text-white outline-none focus:border-[#EF233C]/60" />
-                </label>
-                <label className="block">
-                  <span className="mb-2 block text-xs font-black uppercase tracking-[0.16em] text-white/45">End time</span>
-                  <input type="time" value={manualWorkout.endTime} onChange={(event) => setManualWorkout((current) => ({ ...current, endTime: event.target.value }))} className="w-full rounded-xl border border-white/10 bg-[#222] px-4 py-3 text-sm text-white outline-none focus:border-[#EF233C]/60" />
-                </label>
-              </div>
+
+              {(activePackage?.packageType === 'session_based' || activePackage?.package_type === 'session_based') ? (
+                <div className="block">
+                  <span className="mb-2 block text-xs font-black uppercase tracking-[0.16em] text-white/45">Shift</span>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {SHIFTS.map((shift) => {
+                      const isToday = manualWorkout.sessionDate === new Date().toISOString().slice(0, 10);
+                      const currentHour = new Date().getHours();
+                      const isDisabled = isToday && currentHour >= shift.startHour;
+                      return (
+                        <button
+                          key={shift.code}
+                          type="button"
+                          disabled={isDisabled}
+                          onClick={() => setSelectedShift(shift.code)}
+                          className={`rounded-xl border px-4 py-3 text-sm font-bold transition ${isDisabled ? 'opacity-40 cursor-not-allowed border-white/5 bg-white/[0.02] text-white/40 line-through' : selectedShift === shift.code ? 'border-[#EF233C] bg-[#EF233C] text-white' : 'border-white/10 bg-[#222] text-white/70 hover:border-[#EF233C]/40 hover:text-white'}`}
+                        >
+                          {shift.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : (
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <label className="block">
+                    <span className="mb-2 block text-xs font-black uppercase tracking-[0.16em] text-white/45">Start time</span>
+                    <input type="time" value={manualWorkout.startTime} onChange={(event) => setManualWorkout((current) => ({ ...current, startTime: event.target.value }))} className="w-full rounded-xl border border-white/10 bg-[#222] px-4 py-3 text-sm text-white outline-none focus:border-[#EF233C]/60" />
+                  </label>
+                  <label className="block">
+                    <span className="mb-2 block text-xs font-black uppercase tracking-[0.16em] text-white/45">End time</span>
+                    <input type="time" value={manualWorkout.endTime} onChange={(event) => setManualWorkout((current) => ({ ...current, endTime: event.target.value }))} className="w-full rounded-xl border border-white/10 bg-[#222] px-4 py-3 text-sm text-white outline-none focus:border-[#EF233C]/60" />
+                  </label>
+                </div>
+              )}
               <label className="block">
                 <span className="mb-2 block text-xs font-black uppercase tracking-[0.16em] text-white/45">Workout name</span>
                 <input value={manualWorkout.title} onChange={(event) => setManualWorkout((current) => ({ ...current, title: event.target.value }))} placeholder="Example: Evening cardio" className="w-full rounded-xl border border-white/10 bg-[#222] px-4 py-3 text-sm text-white outline-none placeholder:text-white/25 focus:border-[#EF233C]/60" />

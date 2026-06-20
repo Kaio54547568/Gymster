@@ -13,7 +13,7 @@ async function postAuthJson(path, payload) {
   } catch (error) {
     return {
       ok: false,
-      message: "Backend auth API is not available. Please start the backend server.",
+      message: "Authentication service is temporarily unavailable. Please try again.",
     };
   }
 
@@ -21,19 +21,15 @@ async function postAuthJson(path, payload) {
   if (!response.ok) {
     return {
       ok: false,
-      message: data.message || data.error || "Backend auth API is not available. Please start the backend server.",
+      message: data.message || data.error || "Authentication service is temporarily unavailable. Please try again.",
     };
   }
 
   return data;
 }
 
-export function requestMemberRegistrationCode(registrationData) {
-  return postAuthJson("/api/auth/register/request-code", registrationData);
-}
-
-export function verifyMemberRegistrationCode(data) {
-  return postAuthJson("/api/auth/register/verify-code", data);
+export function registerMemberAccount(registrationData) {
+  return postAuthJson("/api/auth/register", registrationData);
 }
 
 export function requestPasswordResetCode(email) {
@@ -46,196 +42,6 @@ export function verifyPasswordResetCode(email, code) {
 
 export function resetPasswordWithCode(email, code, newPassword) {
   return postAuthJson("/api/auth/password-reset/reset", { email, code, newPassword });
-}
-
-function mapCreatedAccount(userRow, memberRow) {
-  const fullName = [userRow.first_name, userRow.last_name].filter(Boolean).join(" ").trim();
-
-  return {
-    id: userRow.user_id,
-    userId: userRow.user_id,
-    user_id: userRow.user_id,
-    memberId: memberRow.member_id,
-    member_id: memberRow.member_id,
-    username: userRow.username,
-    email: userRow.email,
-    firstName: userRow.first_name || "",
-    lastName: userRow.last_name || "",
-    fullName,
-    phone: userRow.phone_number,
-    dob: userRow.date_of_birth,
-    gender: userRow.gender,
-    role: "member",
-    accountStatus: "PendingOnboarding",
-    account_status: userRow.account_status || "pending_onboarding",
-  };
-}
-
-function splitFullName(fullName) {
-  const parts = String(fullName || "").trim().split(/\s+/).filter(Boolean);
-  if (!parts.length) return { firstName: "", lastName: "" };
-  if (parts.length === 1) return { firstName: parts[0], lastName: "" };
-  return { firstName: parts[0], lastName: parts.slice(1).join(" ") };
-}
-
-function getRegistrationNameParts(registrationData) {
-  const firstName = String(registrationData.firstName || "").trim();
-  const lastName = String(registrationData.lastName || "").trim();
-
-  if (firstName || lastName) {
-    return { firstName, lastName };
-  }
-
-  return splitFullName(registrationData.fullName);
-}
-
-function getRegistrationFullName(registrationData) {
-  return [registrationData.firstName, registrationData.lastName]
-    .map((value) => String(value || "").trim())
-    .filter(Boolean)
-    .join(" ") || String(registrationData.fullName || "").trim();
-}
-
-function isValidUsername(username) {
-  return /^[A-Za-z0-9][A-Za-z0-9._-]{4,28}[A-Za-z0-9]$/.test(username);
-}
-
-async function ensureEmailIsAvailable(email) {
-  const { data, error } = await supabase
-    .from("users")
-    .select("user_id")
-    .ilike("email", email)
-    .limit(1);
-
-  if (error) {
-    return { ok: false, message: "Could not validate email availability." };
-  }
-
-  if (data?.length) {
-    return { ok: false, message: "Email already exists." };
-  }
-
-  return { ok: true };
-}
-
-async function ensureUsernameIsAvailable(username) {
-  const { data, error } = await supabase
-    .from("users")
-    .select("user_id")
-    .ilike("username", username)
-    .limit(1);
-
-  if (error) {
-    return { ok: false, message: "Could not validate username availability." };
-  }
-
-  if (data?.length) {
-    return { ok: false, message: "Username already exists." };
-  }
-
-  return { ok: true };
-}
-
-async function insertTargetMember(userRow, registrationData) {
-  return supabase
-    .from("members")
-    .insert({
-      user_id: userRow.user_id,
-      full_name: getRegistrationFullName(registrationData),
-      phone_number: registrationData.phone,
-      date_of_birth: registrationData.dob,
-      gender: registrationData.gender,
-      status: "pending",
-    })
-    .select("*")
-    .single();
-}
-
-async function insertCurrentSchemaMember(userRow) {
-  return supabase
-    .from("members")
-    .insert({
-      user_id: userRow.user_id,
-      status: "pending_onboarding",
-    })
-    .select("*")
-    .single();
-}
-
-export async function createPendingMemberAccount(registrationData) {
-  if (!supabase) {
-    return {
-      ok: false,
-      message: "h\u1ec7 th\u1ed1ng is not configured. Please check the frontend environment variables.",
-    };
-  }
-
-  const email = registrationData.email.trim().toLowerCase();
-  const username = registrationData.username.trim();
-  const nameParts = getRegistrationNameParts(registrationData);
-
-  if (!isValidUsername(username)) {
-    return {
-      ok: false,
-      message: "Username must be 6-30 characters, use only A-Z, a-z, 0-9, _, ., -, and cannot start or end with _, ., or -.",
-    };
-  }
-
-  const emailCheck = await ensureEmailIsAvailable(email);
-
-  if (!emailCheck.ok) {
-    return emailCheck;
-  }
-
-  const usernameCheck = await ensureUsernameIsAvailable(username);
-
-  if (!usernameCheck.ok) {
-    return usernameCheck;
-  }
-
-  const { data: userRow, error: userError } = await supabase
-    .from("users")
-    .insert({
-      username,
-      email,
-      password_hash: registrationData.password,
-      first_name: nameParts.firstName,
-      last_name: nameParts.lastName,
-      phone_number: registrationData.phone.trim(),
-      date_of_birth: registrationData.dob,
-      gender: registrationData.gender,
-      role: "member",
-      account_status: "pending_onboarding",
-    })
-    .select("*")
-    .single();
-
-  if (userError) {
-    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to create pending user:", userError);
-    return {
-      ok: false,
-      message: userError.code === "23505" ? "Username or email already exists." : "Could not create member account.",
-    };
-  }
-
-  let { data: memberRow, error: memberError } = await insertTargetMember(userRow, registrationData);
-
-  if (memberError) {
-    ({ data: memberRow, error: memberError } = await insertCurrentSchemaMember(userRow));
-  }
-
-  if (memberError) {
-    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to create pending member:", memberError);
-    return {
-      ok: false,
-      message: "User was created, but the member profile could not be created.",
-    };
-  }
-
-  return {
-    ok: true,
-    user: mapCreatedAccount(userRow, memberRow),
-  };
 }
 
 async function resolveMemberIdForActivation(currentUser) {

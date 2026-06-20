@@ -10,16 +10,25 @@ export type DisplayPackage = {
   durationMonths?: number;
   price: string;
   priceValue: number;
+  originalPrice: string;
+  originalPriceValue: number;
+  discountPercent: number;
+  discountAmount: number;
+  promotion?: any;
   description: string;
   sessionLimit: string;
+  sessionLimitValue?: number | null;
   maxLeaveDays?: number;
   hasPersonalTrainer: boolean;
   isPopular?: boolean;
+  sessionsPerWeek?: number;
   benefits: string[];
 };
 
 export type DisplayTransaction = {
   id: string;
+  receiptCode?: string;
+  packageName?: string;
   service: string;
   date: string;
   amount: string;
@@ -119,19 +128,28 @@ function resolveSessionStats(item: any) {
 }
 
 export function mapPackageToDisplayPackage(pkg: any): DisplayPackage {
+  const originalPrice = Number(pkg.originalPrice ?? pkg.price ?? 0);
+  const finalPrice = Number(pkg.discountedPrice ?? pkg.price ?? originalPrice);
   return {
     id: pkg.id,
     title: pkg.name,
     name: pkg.name,
     duration: pkg.durationText || pkg.duration,
     durationMonths: pkg.durationMonths,
-    price: formatVnd(pkg.price),
-    priceValue: pkg.price,
+    price: formatVnd(finalPrice),
+    priceValue: finalPrice,
+    originalPrice: formatVnd(originalPrice),
+    originalPriceValue: originalPrice,
+    discountPercent: Number(pkg.discountPercent || 0),
+    discountAmount: Number(pkg.discountAmount || 0),
+    promotion: pkg.promotion || null,
     description: pkg.description,
     sessionLimit: pkg.sessionLimit,
+    sessionLimitValue: pkg.sessionLimitValue ?? null,
     maxLeaveDays: pkg.maxLeaveDays || getAllowedLeaveDaysForPackage(pkg),
     hasPersonalTrainer: pkg.hasPersonalTrainer,
     isPopular: pkg.isPopular,
+    sessionsPerWeek: pkg.sessionsPerWeek ?? (pkg.packageType === "vip_pt" ? 2 : 1),
     benefits: [
       pkg.description || 'Package benefits configured',
       pkg.sessionLimit,
@@ -180,6 +198,18 @@ export function mapPaymentToDisplayTransaction(payment: any): DisplayTransaction
     date: formatDate(payment.paymentDate),
     amount: formatVnd(payment.amount),
     status: payment.paymentStatusLabel || (payment.paymentStatus ? payment.paymentStatus[0].toUpperCase() + payment.paymentStatus.slice(1) : 'Paid'),
+  };
+}
+
+export function mapReceiptToDisplayTransaction(receipt: any): DisplayTransaction {
+  return {
+    id: receipt.id || receipt.paymentId,
+    receiptCode: receipt.receiptCode,
+    packageName: receipt.package?.name || 'Membership package',
+    service: receipt.package?.name || 'Membership package',
+    date: receipt.payment?.paymentDateLabel || formatDate(receipt.payment?.paymentDate),
+    amount: receipt.payment?.amountLabel || formatVnd(receipt.payment?.amount),
+    status: receipt.payment?.status || 'Paid',
   };
 }
 

@@ -8,11 +8,15 @@ import * as trainingService from "../services/trainingRequestService.js";
 import * as claudeService from "../services/claudeService.js";
 import * as aiChatService from "../services/aiChatService.js";
 import * as staffAiChatService from "../services/staffAiChatService.js";
+import * as paymentService from "../services/paymentRequestService.js";
+import * as requestAuthService from "../services/requestAuthService.js";
+import * as packagePromotionService from "../services/packagePromotionService.js";
+import * as trainerDirectoryService from "../services/trainerDirectoryService.js";
 
 vi.mock("../services/authRegistrationService.js", () => ({
   loginWithPassword: vi.fn(),
-  requestRegistrationCode: vi.fn(),
-  verifyRegistrationCode: vi.fn(),
+  registerMemberAccount: vi.fn(),
+  registerAccount: vi.fn(),
 }));
 
 vi.mock("../services/trainingRequestService.js", () => ({
@@ -33,11 +37,93 @@ vi.mock("../services/staffAiChatService.js", () => ({
   handleStaffAiChat: vi.fn(),
 }));
 
+vi.mock("../services/paymentRequestService.js", () => ({
+  completeDemoPayment: vi.fn(),
+  getStaffPaymentReceipt: vi.fn(),
+  listStaffPaymentHistory: vi.fn(),
+}));
+
+vi.mock("../services/requestAuthService.js", () => ({
+  authenticateRequest: vi.fn(() => Promise.resolve({ ok: false, status: 401, message: "Authentication is required." })),
+  getServiceClient: vi.fn(() => null),
+}));
+
+vi.mock("../services/packagePromotionService.js", () => ({
+  listAvailablePackages: vi.fn(),
+}));
+
+vi.mock("../services/trainerDirectoryService.js", () => ({
+  listActiveTrainers: vi.fn(),
+}));
+
 describe("GET /api/health", () => {
   it("should return ok: true", async () => {
     const res = await request(server).get("/api/health");
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ ok: true });
+  });
+});
+
+describe.each(["/api/packages", "/api/member/packages"])("GET %s", (path) => {
+  it("returns role-aware packages for an authenticated staff user", async () => {
+    requestAuthService.authenticateRequest.mockResolvedValue({
+      ok: true,
+      client: {},
+      user: { user_id: "user-1", role: "staff" },
+    });
+    packagePromotionService.listAvailablePackages.mockResolvedValue({
+      ok: true,
+      data: [{ package_id: "package-1", package_name: "Gym Access" }],
+    });
+
+    const res = await request(server)
+      .get(path)
+      .set("Authorization", "Bearer test-token");
+
+    expect(res.status).toBe(200);
+    expect(res.body.data).toHaveLength(1);
+    expect(packagePromotionService.listAvailablePackages).toHaveBeenCalledWith({}, "staff");
+  });
+});
+
+describe("GET /api/trainers", () => {
+  it("returns active trainers through the authenticated backend", async () => {
+    requestAuthService.authenticateRequest.mockResolvedValue({
+      ok: true,
+      client: {},
+      user: { user_id: "user-1", role: "staff" },
+    });
+    trainerDirectoryService.listActiveTrainers.mockResolvedValue({
+      ok: true,
+      data: [{ id: "trainer-1", name: "Trainer One" }],
+    });
+
+    const res = await request(server)
+      .get("/api/trainers")
+      .set("Authorization", "Bearer test-token");
+
+    expect(res.status).toBe(200);
+    expect(res.body.data[0].id).toBe("trainer-1");
+  });
+});
+
+describe("GET /api/admin/performance", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    requestAuthService.authenticateRequest.mockResolvedValue({
+      ok: false,
+      status: 401,
+      message: "Authentication is required.",
+    });
+  });
+
+  it("rejects requests without a bearer token", async () => {
+    const res = await request(server)
+      .get("/api/admin/performance")
+      .query({ periodStart: "2026-06-01", periodEnd: "2026-06-30" });
+
+    expect(res.status).toBe(401);
+    expect(res.body.message).toBe("Authentication is required.");
   });
 });
 
@@ -74,51 +160,143 @@ describe("POST /api/auth/login", () => {
   });
 });
 
-describe("POST /api/auth/register/request-code", () => {
+describe("POST /api/auth/register", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it("should return 200 with verification details on success", async () => {
-    const mockPayload = { email: "test@example.com", username: "testuser" };
-    authService.requestRegistrationCode.mockResolvedValue({
-      ok: true,
+  it("should create a member account without email verification", async () => {
+    const mockPayload = {
+      firstName: "Test",
+      lastName: "Member",
+      username: "testmember",
       email: "test@example.com",
-      message: "Verification code generated."
+      password: "Password123!",
+      phone: "0912345678",
+      dob: "2000-01-01",
+      gender: "male",
+    };
+    const mockUser = { id: "user-123", email: "test@example.com", role: "member" };
+    authService.registerAccount.mockResolvedValue({
+      ok: true,
+      user: mockUser,
+      message: "Account created successfully.",
     });
 
     const res = await request(server)
-      .post("/api/auth/register/request-code")
+      .post("/api/auth/register")
       .send(mockPayload);
 
     expect(res.status).toBe(200);
-    expect(res.body.ok).toBe(true);
-    expect(res.body.message).toBe("Verification code generated.");
-    expect(authService.requestRegistrationCode).toHaveBeenCalledWith(mockPayload);
+    expect(res.body).toEqual({
+      ok: true,
+      user: mockUser,
+      message: "Account created successfully.",
+    });
+    expect(authService.registerAccount).toHaveBeenCalledWith(mockPayload);
+  });
+
+  it("passes through conflict status and message from the register service", async () => {
+    authService.registerAccount.mockResolvedValue({
+      ok: false,
+      status: 409,
+      message: "Phone number already exists.",
+    });
+
+    const res = await request(server)
+      .post("/api/auth/register")
+      .send({
+        firstName: "Test",
+        lastName: "Member",
+        username: "testmember",
+        email: "test@example.com",
+        password: "Password123!",
+        phone: "0912345678",
+        dob: "2000-01-01",
+        gender: "male",
+        occupation: "Student",
+        address: "Hanoi",
+      });
+
+    expect(res.status).toBe(409);
+    expect(res.body.message).toBe("Phone number already exists.");
   });
 });
 
-describe("POST /api/auth/register/verify-code", () => {
+describe("immediate demo payment API", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    requestAuthService.authenticateRequest.mockResolvedValue({
+      ok: false,
+      status: 401,
+      message: "Authentication is required.",
+    });
   });
 
-  it("should return 200 on successful verification", async () => {
-    const mockPayload = { email: "test@example.com", code: "123456" };
-    const mockUser = { id: "user-123", email: "test@example.com", role: "member" };
-    authService.verifyRegistrationCode.mockResolvedValue({
+  it("rejects checkout without a bearer token", async () => {
+    const res = await request(server)
+      .post("/api/member/demo-payment-complete")
+      .send({ packageId: "package-1", checkoutKey: "checkout-1" });
+
+    expect(res.status).toBe(401);
+    expect(paymentService.completeDemoPayment).not.toHaveBeenCalled();
+  });
+
+  it("completes member checkout through the atomic payment service", async () => {
+    requestAuthService.authenticateRequest.mockResolvedValue({
       ok: true,
-      user: mockUser,
-      message: "Account verified and created successfully."
+      user: { user_id: "user-1", role: "member" },
+    });
+    paymentService.completeDemoPayment.mockResolvedValue({
+      ok: true,
+      data: {
+        user: { id: "user-1", account_status: "active" },
+        payment: { payment_id: "payment-1", payment_status: "paid" },
+      },
     });
 
     const res = await request(server)
-      .post("/api/auth/register/verify-code")
-      .send(mockPayload);
+      .post("/api/member/demo-payment-complete")
+      .send({ packageId: "package-1", checkoutKey: "checkout-1" });
 
     expect(res.status).toBe(200);
-    expect(res.body.ok).toBe(true);
-    expect(res.body.user).toEqual(mockUser);
+    expect(res.body.data.payment.payment_status).toBe("paid");
+    expect(paymentService.completeDemoPayment).toHaveBeenCalledWith(expect.objectContaining({
+      packageId: "package-1",
+      checkoutKey: "checkout-1",
+      userId: "user-1",
+    }));
+  });
+
+  it("lists paid transactions for staff payment history", async () => {
+    requestAuthService.authenticateRequest.mockResolvedValue({
+      ok: true,
+      client: {},
+      user: { user_id: "user-1", role: "staff" },
+    });
+    paymentService.listStaffPaymentHistory.mockResolvedValue({
+      ok: true,
+      data: [{ paymentId: "payment-1", paymentStatus: "paid" }],
+    });
+
+    const res = await request(server).get("/api/staff/payment-history");
+
+    expect(res.status).toBe(200);
+    expect(res.body.data).toHaveLength(1);
+    expect(paymentService.listStaffPaymentHistory).toHaveBeenCalledWith({});
+  });
+
+  it("rejects payment history without an authenticated staff session", async () => {
+    requestAuthService.authenticateRequest.mockResolvedValue({
+      ok: false,
+      status: 401,
+      message: "Authentication is required.",
+    });
+
+    const res = await request(server).get("/api/staff/payment-history");
+
+    expect(res.status).toBe(401);
+    expect(paymentService.listStaffPaymentHistory).not.toHaveBeenCalled();
   });
 });
 

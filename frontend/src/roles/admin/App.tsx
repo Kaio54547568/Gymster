@@ -4,7 +4,6 @@ import ExecutiveDashboard from './screens/ExecutiveDashboard';
 import RevenueAnalytics from './screens/RevenueAnalytics';
 import MembershipAnalytics from './screens/MembershipAnalytics';
 import StaffManagement from './screens/StaffManagement';
-import Payroll from './screens/Payroll';
 import EquipmentManagement from './screens/EquipmentManagement';
 import MaintenanceTracking from './screens/MaintenanceTracking';
 import FeedbackSatisfaction from './screens/FeedbackSatisfaction';
@@ -12,16 +11,17 @@ import PackagesPayments from './screens/PackagesPayments';
 import Settings from './screens/Settings';
 import Profile from './screens/Profile';
 import RoleNotificationsPage from '../shared/RoleNotificationsPage';
+import RoomManagement from './screens/RoomManagement';
 
 export default function App() {
   return (
     <Layout>
       <Routes>
         <Route index element={<ExecutiveDashboard />} />
+        <Route path="rooms" element={<RoomManagement />} />
         <Route path="revenue" element={<RevenueAnalytics />} />
         <Route path="membership" element={<MembershipAnalytics />} />
         <Route path="staff" element={<StaffManagement />} />
-        <Route path="payroll" element={<Payroll />} />
         <Route path="equipment" element={<EquipmentManagement />} />
         <Route path="maintenance-report" element={<Navigate to="/admin/maintenance-tracking" replace />} />
         <Route path="maintenance-tracking" element={<MaintenanceTracking />} />

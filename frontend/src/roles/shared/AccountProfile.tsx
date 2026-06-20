@@ -15,6 +15,9 @@ type AccountProfileProps = {
   phone: string;
   initials: string;
   avatarUrl?: string;
+  memberCode?: string;
+  occupation?: string;
+  address?: string;
 };
 
 export default function AccountProfile({
@@ -29,6 +32,9 @@ export default function AccountProfile({
   phone,
   initials,
   avatarUrl: initialAvatarUrl = '',
+  memberCode,
+  occupation: initialOccupation,
+  address: initialAddress,
 }: AccountProfileProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [editing, setEditing] = useState(false);
@@ -36,6 +42,8 @@ export default function AccountProfile({
   const [lastName, setLastName] = useState(initialLastName);
   const [dob, setDob] = useState(initialDob);
   const [headline, setHeadline] = useState(initialHeadline);
+  const [occupation, setOccupation] = useState(initialOccupation || '');
+  const [address, setAddress] = useState(initialAddress || '');
   const [avatarUrl, setAvatarUrl] = useState(initialAvatarUrl);
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
   const [statusMessage, setStatusMessage] = useState('');
@@ -46,7 +54,9 @@ export default function AccountProfile({
     setLastName(initialLastName);
     setDob(initialDob);
     setHeadline(initialHeadline);
-  }, [initialFirstName, initialLastName, initialDob, initialHeadline]);
+    if (initialOccupation !== undefined) setOccupation(initialOccupation);
+    if (initialAddress !== undefined) setAddress(initialAddress);
+  }, [initialFirstName, initialLastName, initialDob, initialHeadline, initialOccupation, initialAddress]);
 
   useEffect(() => {
     setAvatarUrl(initialAvatarUrl);
@@ -61,6 +71,8 @@ export default function AccountProfile({
     setLastName(initialLastName);
     setDob(initialDob);
     setHeadline(initialHeadline);
+    if (initialOccupation !== undefined) setOccupation(initialOccupation);
+    if (initialAddress !== undefined) setAddress(initialAddress);
     setStatusMessage('');
     setEditing(false);
   };
@@ -72,6 +84,8 @@ export default function AccountProfile({
       lastName,
       dob,
       headline,
+      occupation: initialOccupation !== undefined ? occupation : undefined,
+      address: initialAddress !== undefined ? address : undefined,
     });
 
     setStatusMessage(result.message);
@@ -195,6 +209,24 @@ export default function AccountProfile({
               Dob
               <input type="date" className={fieldClass} value={dob} disabled={!editing} onChange={(event) => setDob(event.target.value)} />
             </label>
+            {memberCode !== undefined && (
+              <label className="text-xs font-bold uppercase tracking-wide text-white/55">
+                Member Code
+                <input className="mt-2 w-full cursor-not-allowed rounded-xl border border-white/10 bg-[#222] px-4 py-3 text-sm text-white opacity-70" value={memberCode} disabled />
+              </label>
+            )}
+            {initialOccupation !== undefined && (
+              <label className="text-xs font-bold uppercase tracking-wide text-white/55">
+                Occupation
+                <input type="text" className={fieldClass} value={occupation} disabled={!editing} onChange={(event) => setOccupation(event.target.value)} />
+              </label>
+            )}
+            {initialAddress !== undefined && (
+              <label className="text-xs font-bold uppercase tracking-wide text-white/55">
+                Address
+                <input type="text" className={fieldClass} value={address} disabled={!editing} onChange={(event) => setAddress(event.target.value)} />
+              </label>
+            )}
             <label className="md:col-span-2 text-xs font-bold uppercase tracking-wide text-white/55">
               Headlines
               <textarea className={`${fieldClass} min-h-28 resize-none`} value={headline} disabled={!editing} onChange={(event) => setHeadline(event.target.value)} />

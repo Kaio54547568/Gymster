@@ -1,4 +1,4 @@
-﻿import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useMemo } from "react";
 import { createPortal } from "react-dom";
 import {
   LayoutDashboard, Users, CalendarDays, Dumbbell, BarChart2,
@@ -33,6 +33,11 @@ import {
 } from "../../services/workoutSessionApi";
 import { updateCurrentUserProfile, uploadCurrentUserAvatar } from "../../services/userProfileApi";
 import { fetchPtPortalData } from "../../services/ptDataApi";
+import {
+  getProgressForMember,
+  getProgressManagedMembers,
+  saveProgressEvaluation,
+} from "../../services/progressEvaluationApi";
 import { createStaffMaintenanceReport, getStaffEquipmentStatus } from "../../services/staffOperationsApi";
 import {
   createWorkoutPlan,
@@ -43,6 +48,9 @@ import {
 import { requestMedicalHistoryForMember } from "../../services/medicalHistoryApi";
 import { updateMemberCurrentGoal } from "../../services/memberCareApi";
 import MuscleGroupSelector from "./components/workout-guidance/MuscleGroupSelector";
+
+const PT_PORTAL_CHANGE_EVENT = "gymster-pt-portal-data-change";
+const PT_PORTAL_CHANGE_STORAGE_KEY = `gymster-client-event:${PT_PORTAL_CHANGE_EVENT}`;
 
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // TYPES
@@ -68,6 +76,7 @@ type MealPlanStatus = "Draft" | "Assigned" | "Completed";
 interface Member {
   id: string; name: string; phone: string; email: string;
   package: string; avatar: string; joinDate: string; age: number; gender: string;
+  packageStatus?: string; packageRegisteredAt?: string;
 }
 interface TrainerAssignment {
   assignmentId: string; memberId: string; assignmentDate: string;
@@ -129,7 +138,7 @@ let TRAINER = {
   experience: "",
   avatar: "PT",
 };
-const LOCAL_TRAINER_ID = "";
+const LOCAL_TRAINER_ID = "local-trainer-khoa";
 
 const SPECIALTY_OPTIONS = [
   "PT Strength & Conditioning",
@@ -758,7 +767,8 @@ function TrainingRequestsPanel({ showToast }: { showToast: (msg: string) => void
   const [declineReason, setDeclineReason] = useState("");
   const [isLoadingRequests, setIsLoadingRequests] = useState(true);
   const [requestLoadMessage, setRequestLoadMessage] = useState("");
-  const ptRequests = requests.filter((request: any) => request.source === "supabase" || request.trainerName === TRAINER.name || request.trainerId === LOCAL_TRAINER_ID);
+  const currentTrainerId = getCurrentUser()?.trainerId || getCurrentUser()?.trainer_id || LOCAL_TRAINER_ID;
+  const ptRequests = requests.filter((request: any) => request.source === "supabase" || request.trainerName === TRAINER.name || request.trainerId === currentTrainerId);
 
   const loadRequests = async () => {
     setIsLoadingRequests(true);
@@ -933,7 +943,7 @@ function ManageTraineesScreen({ onViewMember }: { onViewMember: (id: string) => 
           <table className="w-full">
             <thead>
               <tr className="border-b border-white/5">
-                {["Trainee", "Member ID", "Package", "Assignment Date", "Status", "Remaining Sessions", "Progress"].map(h => (
+                {["Member", "Email", "Phone", "Package", "Registered Date", "Package Status", "Training Status", "Sessions"].map(h => (
                   <th key={h} className="text-left text-[#444] text-[10px] font-bold uppercase tracking-widest px-4 py-3">{h}</th>
                 ))}
               </tr>
@@ -962,19 +972,19 @@ function ManageTraineesScreen({ onViewMember }: { onViewMember: (id: string) => 
                         </div>
                       </div>
                     </td>
-                    <td className="px-4 py-3.5 text-[#555] text-xs font-mono">{m.id}</td>
+                    <td className="px-4 py-3.5 text-[#BDBDBD] text-xs">{m.email || "-"}</td>
+                    <td className="px-4 py-3.5 text-[#BDBDBD] text-xs">{m.phone || "-"}</td>
                     <td className="px-4 py-3.5 text-[#BDBDBD] text-xs">{m.package}</td>
-                    <td className="px-4 py-3.5 text-[#555] text-xs">{a.assignmentDate}</td>
+                    <td className="px-4 py-3.5 text-[#555] text-xs">{m.packageRegisteredAt || a.assignmentDate || m.joinDate}</td>
+                    <td className="px-4 py-3.5">
+                      <span className="rounded-full border border-emerald-400/25 bg-emerald-400/10 px-2.5 py-1 text-xs font-bold text-emerald-300">
+                        {m.packageStatus || "Active"}
+                      </span>
+                    </td>
                     <td className="px-4 py-3.5"><Badge status={a.status} /></td>
                     <td className="px-4 py-3.5">
                       <span className="text-white text-sm font-bold">{a.sessionsRemaining}</span>
                       <span className="text-[#555] text-xs">/{a.totalSessions}</span>
-                    </td>
-                    <td className="px-4 py-3.5 w-36">
-                      <div className="flex items-center gap-2">
-                        <div className="flex-1"><Bar2 value={a.progress} /></div>
-                        <span className="text-white text-xs font-semibold w-7">{a.progress}%</span>
-                      </div>
                     </td>
                   </tr>
                 );
@@ -2471,58 +2481,160 @@ function WorkoutGuidanceScreen({ showToast }: { showToast: (msg: string) => void
 // SCREEN 6: PROGRESS EVALUATION
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function ProgressEvaluationScreen({ showToast }: { showToast: (msg: string) => void }) {
-  const managedMembers = getManagedMembers();
-  const managedMemberKey = managedMembers.map(member => member.id).join("|");
-  const [selectedMember, setSelectedMember] = useState(managedMembers[0]?.id || "");
-  const [evalDate, setEvalDate] = useState("06/05/2025");
-  const [comment, setComment] = useState("Học viên có sự tiến bộ tốt trong giai đoạn này.");
-  const [strengths, setStrengths] = useState("Kiên trì, kỹ thuật tốt, nhiệt tình");
-  const [improvements, setImprovements] = useState("Cần cải thiện chế độ nghỉ ngơi và dinh dưỡng");
-  const [recommendation, setRecommendation] = useState("Tăng cường cardio, chú ý chế độ ăn");
-  const [rating, setRating] = useState(4);
-  const [savedEvaluations, setSavedEvaluations] = useState<ProgressEvaluation[]>([]);
-  const [showSuccess, setShowSuccess] = useState(false);
+  const [trainerId, setTrainerId] = useState("");
+  const [members, setMembers] = useState<any[]>([]);
+  const [selectedMember, setSelectedMember] = useState("");
+  const [selectedMemberDetail, setSelectedMemberDetail] = useState<any>(null);
+  const [bodyMetrics, setBodyMetrics] = useState<any>(null);
+  const [bodyMetricsHistory, setBodyMetricsHistory] = useState<any[]>([]);
+  const [history, setHistory] = useState<any[]>([]);
+  const [progressText, setProgressText] = useState("");
+  const [comment, setComment] = useState("");
+  const [nextGoal, setNextGoal] = useState("");
+  const [notes, setNotes] = useState("");
+  const [heightCm, setHeightCm] = useState("");
+  const [weightKg, setWeightKg] = useState("");
+  const [bodyFatPercent, setBodyFatPercent] = useState("");
+  const [bloodPressure, setBloodPressure] = useState("");
+  const [restingHeartRate, setRestingHeartRate] = useState("");
+  const [loadingMembers, setLoadingMembers] = useState(true);
+  const [loadingDetail, setLoadingDetail] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [memberPickerOpen, setMemberPickerOpen] = useState(false);
 
-  const m = getMember(selectedMember);
-  const metrics = BODY_METRICS.filter(bm => bm.memberId === selectedMember);
-  const latestMetric = BODY_METRIC_DETAILS.find(metric => metric.memberId === selectedMember);
-  const externalEvaluations = EVALUATIONS.filter(evaluation => evaluation.memberId === selectedMember);
-  const recentEvaluations = [
-    ...savedEvaluations.filter(evaluation => evaluation.memberId === selectedMember),
-    ...externalEvaluations,
-  ];
+  const selectedOption = members.find(member => member.id === selectedMember) || selectedMemberDetail;
 
-  useEffect(() => {
-    if (!managedMembers.length) {
-      if (selectedMember) setSelectedMember("");
+  const loadMembers = async () => {
+    setLoadingMembers(true);
+    try {
+      const data = await getProgressManagedMembers();
+      setTrainerId(data.trainer?.trainer_id || "");
+      setMembers(data.members || []);
+      setSelectedMember(current => {
+        if (current && (data.members || []).some((member: any) => member.id === current)) return current;
+        return data.members?.[0]?.id || "";
+      });
+    } catch (error: any) {
+      showToast(error?.message || "Không thể tải danh sách học viên.");
+      setMembers([]);
+      setSelectedMember("");
+    } finally {
+      setLoadingMembers(false);
+    }
+  };
+
+  const loadMemberProgress = async (memberId: string, currentTrainerId = trainerId) => {
+    if (!memberId || !currentTrainerId) {
+      setSelectedMemberDetail(null);
+      setBodyMetrics(null);
+      setBodyMetricsHistory([]);
+      setHistory([]);
       return;
     }
 
-    if (!managedMembers.some(member => member.id === selectedMember)) {
-      setSelectedMember(managedMembers[0].id);
+    setLoadingDetail(true);
+    try {
+      const data = await getProgressForMember(memberId, currentTrainerId);
+      setSelectedMemberDetail(data.member);
+      setBodyMetrics(data.bodyMetrics);
+      setBodyMetricsHistory(data.bodyMetricsHistory || []);
+      setHistory(data.history || []);
+      setHeightCm(data.bodyMetrics?.heightCm ? String(data.bodyMetrics.heightCm) : "");
+      setWeightKg(data.bodyMetrics?.weightKg ? String(data.bodyMetrics.weightKg) : "");
+      setBodyFatPercent(data.bodyMetrics?.bodyFatPercent ? String(data.bodyMetrics.bodyFatPercent) : "");
+      setBloodPressure(data.bodyMetrics?.bloodPressure || "");
+      setRestingHeartRate(data.bodyMetrics?.restingHeartRate ? String(data.bodyMetrics.restingHeartRate) : "");
+    } catch (error: any) {
+      showToast(error?.message || "Không thể tải tiến trình học viên.");
+      setSelectedMemberDetail(null);
+      setBodyMetrics(null);
+      setBodyMetricsHistory([]);
+      setHistory([]);
+    } finally {
+      setLoadingDetail(false);
     }
-  }, [managedMemberKey, selectedMember]);
+  };
 
-  const handleSave = () => {
+  useEffect(() => {
+    loadMembers();
+  }, []);
+
+  useEffect(() => {
+    if (selectedMember && trainerId) {
+      loadMemberProgress(selectedMember, trainerId);
+    }
+  }, [selectedMember, trainerId]);
+
+  const selectMember = (memberId: string) => {
+    setSelectedMember(memberId);
+    setMemberPickerOpen(false);
+  };
+
+  const handleSave = async () => {
     if (!selectedMember) {
       showToast("Không có học viên đang quản lý để đánh giá.");
       return;
     }
+    if (!progressText.trim() || !comment.trim() || !nextGoal.trim()) {
+      showToast("Vui lòng nhập nội dung đánh giá, nhận xét và mục tiêu tiếp theo.");
+      return;
+    }
+    const numericFields = [
+      ["Height", heightCm],
+      ["Weight", weightKg],
+      ["Body fat", bodyFatPercent],
+      ["Resting heart rate", restingHeartRate],
+    ];
+    const invalidField = numericFields.find(([, value]) => String(value || "").trim() && (!Number.isFinite(Number(value)) || Number(value) < 0));
+    if (invalidField) {
+      showToast(`${invalidField[0]} must be a valid non-negative number.`);
+      return;
+    }
 
-    setSavedEvaluations(prev => [{
-      evaluationId: `local-evaluation-${Date.now()}`,
-      memberId: selectedMember,
-      evaluationDate: evalDate,
-      overallComment: comment,
-      strengths,
-      improvements,
-      recommendation,
-      rating,
-    }, ...prev]);
-    setShowSuccess(true);
-    showToast("Đã lưu đánh giá thành công!");
-    setTimeout(() => setShowSuccess(false), 2500);
+    setSaving(true);
+    try {
+      await saveProgressEvaluation({
+        memberId: selectedMember,
+        trainerId,
+        progressText,
+        comment,
+        nextGoal,
+        notes,
+        heightCm,
+        weightKg,
+        bodyFatPercent,
+        bloodPressure,
+        restingHeartRate,
+      });
+      await loadMemberProgress(selectedMember, trainerId);
+      setProgressText("");
+      setComment("");
+      setNextGoal("");
+      setNotes("");
+      showToast("Lưu đánh giá tiến trình thành công.");
+    } catch (error: any) {
+      showToast(error?.message || "Không thể lưu đánh giá tiến trình.");
+    } finally {
+      setSaving(false);
+    }
   };
+
+  const renderMemberAvatar = (member: any, size = "md") => {
+    const sz = size === "lg" ? "size-14" : size === "md" ? "size-10" : "size-8";
+    if (member?.avatarUrl) {
+      return <img src={member.avatarUrl} alt={member.name || "Member"} className={`${sz} shrink-0 rounded-full border border-[#FF3B3B]/25 object-cover`} />;
+    }
+    return <Avatar initials={member?.avatar || member?.name?.slice(0, 2) || "MB"} size={size as "sm" | "md" | "lg"} />;
+  };
+
+  const metricCards = [
+    ["Chiều cao", bodyMetrics?.heightCm ? `${bodyMetrics.heightCm} cm` : ""],
+    ["Cân nặng", bodyMetrics?.weightKg ? `${bodyMetrics.weightKg} kg` : ""],
+    ["BMI", bodyMetrics?.bmi ? String(bodyMetrics.bmi) : ""],
+    ["Body Fat", bodyMetrics?.bodyFatPercent ? `${bodyMetrics.bodyFatPercent}%` : ""],
+    ["Blood Pressure", bodyMetrics?.bloodPressure || ""],
+    ["Resting HR", bodyMetrics?.restingHeartRate ? `${bodyMetrics.restingHeartRate} bpm` : ""],
+  ];
 
   return (
     <div className="space-y-5 pb-6">
@@ -2533,180 +2645,174 @@ function ProgressEvaluationScreen({ showToast }: { showToast: (msg: string) => v
 
       {/* Member selector */}
       <div className="bg-[#181818] border border-white/5 rounded-xl p-5">
-        <div className="flex items-center gap-5">
-          <div className="flex-1 max-w-xs">
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-center">
+          <div className="relative flex-1 max-w-xl">
             <label className="block text-xs font-semibold text-[#BDBDBD] mb-1.5 uppercase tracking-wide">Select Trainee</label>
-            <select
-              value={selectedMember}
-              onChange={e => setSelectedMember(e.target.value)}
-              disabled={!managedMembers.length}
-              className="w-full bg-[#222] border border-white/10 text-white text-sm px-3 py-2.5 rounded-lg focus:outline-none focus:border-[#FF3B3B]/60 transition-colors"
+            <button
+              type="button"
+              onClick={() => members.length && setMemberPickerOpen(open => !open)}
+              disabled={!members.length || loadingMembers}
+              className="flex w-full items-center justify-between gap-3 rounded-lg border border-white/10 bg-[#222] px-3 py-2.5 text-left transition-colors hover:border-[#FF3B3B]/50 disabled:cursor-not-allowed disabled:opacity-70"
             >
-              {managedMembers.length ? (
-                managedMembers.map(mem => <option key={mem.id} value={mem.id}>{mem.name}</option>)
+              {loadingMembers ? (
+                <span className="text-sm text-[#777]">Đang tải học viên...</span>
+              ) : selectedOption ? (
+                <span className="flex min-w-0 items-center gap-3">
+                  {renderMemberAvatar(selectedOption, "sm")}
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm font-semibold text-white">{selectedOption.name}</span>
+                    <span className="block truncate text-xs text-[#777]">{selectedOption.memberCode} · {selectedOption.email || "No email"} · {selectedOption.phone || "No phone"}</span>
+                  </span>
+                </span>
               ) : (
-                <option value="">No assigned members</option>
+                <span className="text-sm text-[#777]">No assigned members</span>
               )}
-            </select>
+              <ChevronRight className={`size-4 shrink-0 text-[#777] transition-transform ${memberPickerOpen ? "rotate-90" : ""}`} />
+            </button>
+            {memberPickerOpen && (
+              <div className="absolute z-30 mt-2 max-h-80 w-full overflow-y-auto rounded-xl border border-[#FF3B3B]/30 bg-[#111] p-2 shadow-2xl">
+                {members.map(member => (
+                  <button
+                    key={member.id}
+                    type="button"
+                    onClick={() => selectMember(member.id)}
+                    className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors ${member.id === selectedMember ? "bg-[#FF3B3B]/15" : "hover:bg-white/5"}`}
+                  >
+                    {renderMemberAvatar(member, "sm")}
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm font-semibold text-white">{member.name}</span>
+                      <span className="block truncate text-xs text-[#777]">Member ID: {member.memberCode || member.memberId}</span>
+                      <span className="block truncate text-xs text-[#777]">{member.email || "No email"} · {member.phone || "No phone"}</span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
-          {m && (
+          {selectedOption && (
             <div className="flex items-center gap-3">
-              <Avatar initials={m.avatar} size="md" />
+              {renderMemberAvatar(selectedOption, "md")}
               <div>
-                <div className="text-white font-semibold text-sm">{m.name}</div>
-                <div className="text-[#555] text-xs">{m.package} · {m.id}</div>
-                <div className="text-[#555] text-xs">{m.age} tuổi · {m.gender}</div>
+                <div className="text-white font-semibold text-sm">{selectedOption.name}</div>
+                <div className="text-[#555] text-xs">Member ID: {selectedOption.memberCode || selectedOption.memberId}</div>
+                <div className="text-[#555] text-xs">{selectedOption.email || "No email"} · {selectedOption.phone || "No phone"}</div>
               </div>
             </div>
           )}
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        {/* Left: Recent evaluations */}
-        <div className="space-y-4">
-          <SectionCard title="Tiến độ đánh giá gần đây">
-            <div className="space-y-3">
-              {recentEvaluations.map(evaluation => (
-                <div key={evaluation.evaluationId} className="rounded-lg bg-[#222] p-3">
-                  <div className="mb-2 flex items-center justify-between gap-3">
-                    <span className="text-xs text-[#777]">{evaluation.evaluationDate || "Chưa có ngày"}</span>
-                    <span className="rounded-full border border-[#FF3B3B]/25 bg-[#FF3B3B]/10 px-2 py-0.5 text-xs font-bold text-[#FF3B3B]">
-                      {evaluation.rating || 0}/5
-                    </span>
-                  </div>
-                  <p className="text-sm font-semibold leading-relaxed text-white">{evaluation.overallComment || "Chưa có nhận xét tổng quan."}</p>
-                  <div className="mt-3 space-y-2 text-xs text-[#BDBDBD]">
-                    {evaluation.strengths && <p><span className="font-bold text-[#777]">Điểm mạnh:</span> {evaluation.strengths}</p>}
-                    {evaluation.improvements && <p><span className="font-bold text-[#777]">Cần cải thiện:</span> {evaluation.improvements}</p>}
-                    {evaluation.recommendation && <p><span className="font-bold text-[#777]">Khuyến nghị:</span> {evaluation.recommendation}</p>}
-                  </div>
-                </div>
-              ))}
-              {recentEvaluations.length === 0 && <p className="text-[#555] text-xs">Chưa có tiến độ đánh giá gần đây.</p>}
-            </div>
-          </SectionCard>
-        </div>
-
-        {/* Center: Body metrics */}
-        <div className="space-y-4">
+      <div className="grid grid-cols-1 gap-5 xl:grid-cols-5">
+        <div className="space-y-4 xl:col-span-2">
           <div className="bg-[#181818] border border-white/5 rounded-xl p-5">
             <h3 className="text-white font-semibold text-sm mb-4">Chỉ số cơ thể của học viên</h3>
-            {latestMetric ? (
+            {loadingDetail ? (
+              <p className="text-[#777] text-sm">Đang tải chỉ số cơ thể...</p>
+            ) : bodyMetrics ? (
               <div className="grid grid-cols-2 gap-3">
-                {[
-                  ["Chiều cao", latestMetric.height || "-"],
-                  ["Cân nặng", latestMetric.weight || "-"],
-                  ["BMI", latestMetric.bmi || "-"],
-                  ["Mỡ cơ thể", latestMetric.bodyFatPercentage || "-"],
-                  ["Huyết áp", latestMetric.bloodPressure || "-"],
-                  ["Nhịp tim nghỉ", latestMetric.restingHeartRate || "-"],
-                ].map(([label, value]) => (
+                {metricCards.map(([label, value]) => (
                   <div key={label} className="rounded-lg bg-[#222] p-3">
                     <div className="text-[10px] font-bold uppercase tracking-widest text-[#666]">{label}</div>
-                    <div className="mt-1 text-sm font-bold text-white">{value}</div>
+                    <div className="mt-1 text-sm font-bold text-white">{value || "Chưa có dữ liệu"}</div>
                   </div>
                 ))}
                 <div className="col-span-2 rounded-lg bg-[#111] p-3">
                   <div className="text-[10px] font-bold uppercase tracking-widest text-[#666]">Lần đo mới nhất</div>
-                  <div className="mt-1 text-sm font-bold text-white">{latestMetric.latestMeasurementDate || "-"}</div>
+                  <div className="mt-1 text-sm font-bold text-white">{bodyMetrics.latestUpdatedLabel || "Chưa có dữ liệu"}</div>
                 </div>
               </div>
             ) : (
               <p className="text-[#555] text-sm">Chưa có dữ liệu chỉ số cơ thể cho học viên này.</p>
             )}
           </div>
-
-          {metrics.length > 0 ? (
-            <>
-              <div className="bg-[#181818] border border-white/5 rounded-xl p-5">
-                <h3 className="text-white font-semibold text-sm mb-4">Xu hướng cân nặng (kg) — BodyMetric</h3>
-                <ResponsiveContainer width="100%" height={160}>
-                  <LineChart data={metrics}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#1f1f1f" />
-                    <XAxis dataKey="measuredDate" tick={{ fill: "#555", fontSize: 10 }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fill: "#555", fontSize: 10 }} axisLine={false} tickLine={false} />
-                    <Tooltip contentStyle={tooltipStyle} formatter={(v) => [`${v} kg`]} />
-                    <Line type="monotone" dataKey="weight" stroke="#FF3B3B" strokeWidth={2} dot={{ fill: "#FF3B3B", r: 3 }} />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-              <div className="bg-[#181818] border border-white/5 rounded-xl p-5">
-                <h3 className="text-white font-semibold text-sm mb-4">Tỷ lệ mỡ cơ thể (%) — BodyMetric</h3>
-                <ResponsiveContainer width="100%" height={160}>
-                  <LineChart data={metrics}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#1f1f1f" />
-                    <XAxis dataKey="measuredDate" tick={{ fill: "#555", fontSize: 10 }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fill: "#555", fontSize: 10 }} axisLine={false} tickLine={false} />
-                    <Tooltip contentStyle={tooltipStyle} formatter={(v) => [`${v}%`]} />
-                    <Line type="monotone" dataKey="bodyFatRate" stroke="#FF7B7B" strokeWidth={2} dot={{ fill: "#FF7B7B", r: 3 }} />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            </>
-          ) : (
-            <div className="bg-[#181818] border border-white/5 rounded-xl p-12 text-center">
-              <Activity className="size-10 mx-auto mb-3 text-[#333]" />
-              <p className="text-[#555] text-sm">Chưa có dữ liệu chỉ số cơ thể</p>
-            </div>
-          )}
+          <div className="bg-[#181818] border border-white/5 rounded-xl p-5">
+            <h3 className="text-white font-semibold text-sm mb-4">Body Metrics Chart</h3>
+            {bodyMetricsHistory.length ? (
+              <ResponsiveContainer width="100%" height={220}>
+                <LineChart data={bodyMetricsHistory}>
+                  <CartesianGrid stroke="#2A2A2A" strokeDasharray="3 3" />
+                  <XAxis dataKey="name" stroke="#777" fontSize={11} />
+                  <YAxis stroke="#777" fontSize={11} />
+                  <Tooltip contentStyle={{ background: "#111", border: "1px solid #333", color: "#fff" }} />
+                  <Line type="monotone" dataKey="weightKg" name="Weight (kg)" stroke="#FF3B3B" strokeWidth={2} dot={{ r: 3 }} />
+                  <Line type="monotone" dataKey="bodyFatPercent" name="Body fat %" stroke="#F97316" strokeWidth={2} dot={{ r: 3 }} />
+                  <Line type="monotone" dataKey="bmi" name="BMI" stroke="#60A5FA" strokeWidth={2} dot={{ r: 3 }} />
+                </LineChart>
+              </ResponsiveContainer>
+            ) : (
+              <p className="text-[#555] text-sm">No body metrics chart data yet.</p>
+            )}
+          </div>
         </div>
 
-        {/* Right: Evaluation form */}
-        <div className="space-y-4">
+        <div className="space-y-4 xl:col-span-3">
           <div className="bg-[#181818] border border-white/5 rounded-xl overflow-hidden">
             <div className="px-5 py-4 border-b border-white/5">
               <h3 className="text-white font-semibold text-sm">Evaluation Form</h3>
             </div>
             <div className="p-5 space-y-4">
-              <Input label="Evaluation Date" value={evalDate} onChange={setEvalDate} placeholder="dd/mm/yyyy" />
-              <Textarea label="Nhận xét tổng quan (OverallComment)" value={comment} onChange={setComment} rows={2} />
-              <Textarea label="Điểm mạnh (Strengths)" value={strengths} onChange={setStrengths} rows={2} />
-              <Textarea label="Cần cải thiện (Improvements)" value={improvements} onChange={setImprovements} rows={2} />
-              <Textarea label="Khuyến nghị (Recommendation)" value={recommendation} onChange={setRecommendation} rows={2} />
-
-              <div>
-                <label className="block text-xs font-semibold text-[#BDBDBD] mb-2 uppercase tracking-wide">Đánh giá (Rating)</label>
-                <div className="flex gap-2">
-                  {[1, 2, 3, 4, 5].map(n => (
-                    <button
-                      key={n}
-                      onClick={() => setRating(n)}
-                      className={`flex-1 py-2 rounded-lg text-sm font-bold transition-all border ${n <= rating ? "bg-[#FF3B3B]/15 border-[#FF3B3B]/30 text-[#FF3B3B]" : "bg-[#222] border-white/5 text-[#555] hover:text-white"}`}
-                    >
-                      {n}
-                    </button>
-                  ))}
-                </div>
-                <div className="flex justify-between mt-1 px-1">
-                  <span className="text-[#555] text-xs">Kém</span>
-                  <span className="text-[#555] text-xs">Excellent</span>
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                <Input label="Height (cm)" value={heightCm} onChange={setHeightCm} disabled={!selectedMember || saving} />
+                <Input label="Weight (kg)" value={weightKg} onChange={setWeightKg} disabled={!selectedMember || saving} />
+                <Input label="Body fat (%)" value={bodyFatPercent} onChange={setBodyFatPercent} disabled={!selectedMember || saving} />
+                <Input label="Blood pressure" value={bloodPressure} onChange={setBloodPressure} disabled={!selectedMember || saving} />
+                <Input label="Resting heart rate" value={restingHeartRate} onChange={setRestingHeartRate} disabled={!selectedMember || saving} />
+                <div className="rounded-lg border border-white/10 bg-[#111] px-3 py-2.5">
+                  <div className="text-[10px] font-bold uppercase tracking-widest text-[#666]">BMI</div>
+                  <div className="mt-1 text-sm font-bold text-white">
+                    {heightCm && weightKg ? (Number(weightKg) / ((Number(heightCm) / 100) ** 2)).toFixed(1) : "Auto calculated"}
+                  </div>
                 </div>
               </div>
+              <Textarea label="Nội dung đánh giá" value={progressText} onChange={setProgressText} rows={3} disabled={!selectedMember || saving} />
+              <Textarea label="Nhận xét" value={comment} onChange={setComment} rows={3} disabled={!selectedMember || saving} />
+              <Textarea label="Mục tiêu tiếp theo" value={nextGoal} onChange={setNextGoal} rows={3} disabled={!selectedMember || saving} />
+              <Textarea label="Ghi chú" value={notes} onChange={setNotes} rows={2} disabled={!selectedMember || saving} />
 
               <button
                 onClick={handleSave}
-                disabled={!selectedMember}
+                disabled={!selectedMember || saving}
                 className="w-full py-3 bg-[#FF3B3B] hover:bg-[#cc2e2e] active:scale-95 text-white font-bold text-sm rounded-lg transition-all"
               >
-                Save Evaluation
+                {saving ? "Saving..." : "Save Evaluation"}
               </button>
             </div>
           </div>
         </div>
       </div>
 
-      {showSuccess && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
-          <div className="bg-[#181818] border border-emerald-500/30 rounded-2xl p-8 text-center max-w-sm mx-4">
-            <div className="size-14 bg-emerald-500/15 rounded-full flex items-center justify-center mx-auto mb-4">
-              <CheckCircle className="size-8 text-emerald-400" />
-            </div>
-            <h3 className="text-white font-bold text-lg mb-2">Đánh giá đã được lưu!</h3>
-            <p className="text-[#BDBDBD] text-sm">Đánh giá tiến độ cho <strong>{m?.name}</strong> đã được tạo thành công.</p>
-          </div>
+      <SectionCard title="Progress History">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[760px] text-left">
+            <thead>
+              <tr className="border-b border-white/5 text-[11px] uppercase tracking-widest text-[#777]">
+                <th className="py-3 pr-4">Ngày đánh giá</th>
+                <th className="py-3 pr-4">PT đánh giá</th>
+                <th className="py-3 pr-4">Nội dung đánh giá</th>
+                <th className="py-3 pr-4">Nhận xét</th>
+                <th className="py-3 pr-4">Mục tiêu tiếp theo</th>
+              </tr>
+            </thead>
+            <tbody>
+              {history.map(evaluation => (
+                <tr key={evaluation.id} className="border-b border-white/5 align-top text-sm">
+                  <td className="py-3 pr-4 text-[#BDBDBD]">{evaluation.evaluationDateLabel || evaluation.evaluationDate || "Chưa có ngày"}</td>
+                  <td className="py-3 pr-4 text-white">{evaluation.trainerName || "PT"}</td>
+                  <td className="py-3 pr-4 text-[#D5D5D5]">{evaluation.progressText || "Chưa có nội dung"}</td>
+                  <td className="py-3 pr-4 text-[#BDBDBD]">{evaluation.comment || "Chưa có nhận xét"}</td>
+                  <td className="py-3 pr-4 text-[#BDBDBD]">{evaluation.nextGoal || "Chưa có mục tiêu"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {!loadingDetail && history.length === 0 && (
+            <div className="py-10 text-center text-sm text-[#555]">Chưa có lịch sử đánh giá cho học viên này.</div>
+          )}
+          {loadingDetail && (
+            <div className="py-10 text-center text-sm text-[#777]">Đang tải lịch sử đánh giá...</div>
+          )}
         </div>
-      )}
+      </SectionCard>
     </div>
   );
 }
@@ -3287,7 +3393,7 @@ function Toast({ message, onDone }: { message: string; onDone: () => void }) {
 }
 
 function EquipmentReportScreen({ showToast }: { showToast: (msg: string) => void }) {
-  const [equipment, setEquipment] = useState<Array<{ equipmentUuid?: string; equipmentName: string; room: string }>>([]);
+  const [equipment, setEquipment] = useState<Array<{ equipmentUuid?: string; equipmentName: string; room: string; status?: string }>>([]);
   const [form, setForm] = useState({
     equipmentName: "",
     equipmentUuid: "",
@@ -3297,6 +3403,8 @@ function EquipmentReportScreen({ showToast }: { showToast: (msg: string) => void
     severity: "Medium",
   });
   const [message, setMessage] = useState("");
+
+  const activeEquipment = useMemo(() => equipment.filter((eq) => eq.status !== 'Retired'), [equipment]);
 
   useEffect(() => {
     let isMounted = true;
@@ -3313,7 +3421,7 @@ function EquipmentReportScreen({ showToast }: { showToast: (msg: string) => void
   }, []);
 
   const selectEquipment = (equipmentName: string) => {
-    const item = equipment.find((entry) => entry.equipmentName === equipmentName);
+    const item = activeEquipment.find((entry) => entry.equipmentName === equipmentName);
     setForm((current) => ({
       ...current,
       equipmentName,
@@ -3371,7 +3479,7 @@ function EquipmentReportScreen({ showToast }: { showToast: (msg: string) => void
               className="w-full bg-[#222] border border-white/10 text-white text-sm px-3 py-2.5 rounded-lg focus:outline-none focus:border-[#FF3B3B]/60 transition-colors"
             >
               <option value="">Select equipment...</option>
-              {equipment.map((item) => (
+              {activeEquipment.map((item) => (
                 <option key={`${item.equipmentUuid}-${item.equipmentName}`} value={item.equipmentName}>
                   {item.equipmentName}
                 </option>
@@ -3391,7 +3499,7 @@ function EquipmentReportScreen({ showToast }: { showToast: (msg: string) => void
 
       <SectionCard title="Equipment Directory">
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {equipment.slice(0, 9).map((item) => (
+          {activeEquipment.slice(0, 9).map((item) => (
             <button
               key={`${item.equipmentUuid}-${item.equipmentName}-card`}
               type="button"
@@ -3402,7 +3510,7 @@ function EquipmentReportScreen({ showToast }: { showToast: (msg: string) => void
               <div className="mt-1 text-xs text-[#777]">{item.room}</div>
             </button>
           ))}
-          {!equipment.length && <p className="text-sm text-[#777]">No equipment records available.</p>}
+          {!activeEquipment.length && <p className="text-sm text-[#777]">No equipment records available.</p>}
         </div>
       </SectionCard>
     </div>
@@ -3424,7 +3532,7 @@ export default function App() {
   useEffect(() => {
     let isMounted = true;
 
-    fetchPtPortalData().then(({ data, error }) => {
+    const loadPtPortalData = () => fetchPtPortalData().then(({ data, error }) => {
       if (!isMounted) return;
 
       if (data) {
@@ -3435,8 +3543,24 @@ export default function App() {
       setPtDataMessage(error ? "PT data could not be loaded." : "");
     });
 
+    void loadPtPortalData();
+
+    const handlePtPortalDataChange = () => {
+      void loadPtPortalData();
+    };
+    const handlePtPortalStorageChange = (event: StorageEvent) => {
+      if (event.key === PT_PORTAL_CHANGE_STORAGE_KEY) {
+        void loadPtPortalData();
+      }
+    };
+
+    window.addEventListener(PT_PORTAL_CHANGE_EVENT, handlePtPortalDataChange);
+    window.addEventListener("storage", handlePtPortalStorageChange);
+
     return () => {
       isMounted = false;
+      window.removeEventListener(PT_PORTAL_CHANGE_EVENT, handlePtPortalDataChange);
+      window.removeEventListener("storage", handlePtPortalStorageChange);
     };
   }, []);
 

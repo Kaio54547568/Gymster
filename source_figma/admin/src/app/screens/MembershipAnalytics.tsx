@@ -31,7 +31,7 @@ export default function MembershipAnalytics() {
     <div className="p-8 space-y-8">
       <div>
         <h1 className="bebas text-5xl text-white tracking-wider mb-2">MEMBERSHIP ANALYTICS</h1>
-        <p className="text-[#A1A1AA]">Phân tích hội viên và gói tập</p>
+        <p className="text-[#A1A1AA]">Membership and package analytics</p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">

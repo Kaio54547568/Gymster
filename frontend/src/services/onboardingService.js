@@ -6,6 +6,7 @@ export const ACCOUNT_STATUSES = {
   PendingOnboarding: "PendingOnboarding",
   PendingPTApproval: "PendingPTApproval",
   PendingPayment: "PendingPayment",
+  PendingVerification: "PendingVerification",
   Active: "Active",
   Cancelled: "Cancelled",
 };

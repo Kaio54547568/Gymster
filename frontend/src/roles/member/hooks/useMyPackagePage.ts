@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { getCurrentUser } from '../../../services/authService';
 import { getInvoicesForMember } from '../../../services/invoiceApi';
 import { createPackageChangeRequest, getCurrentMemberPackageForUser } from '../../../services/memberPackageApi';
+import { getMemberReceipts } from '../../../services/memberReceiptApi';
 import { fetchPackagesFromSupabase } from '../../../services/packageApi';
 import { getPaymentsForMember } from '../../../services/paymentApi';
 import { currentPackage, member } from '../domain/memberConstants';
@@ -13,11 +14,13 @@ import {
   mapInvoiceToDisplayTransaction,
   mapPackageToDisplayPackage,
   mapPaymentToDisplayTransaction,
+  mapReceiptToDisplayTransaction,
 } from '../domain/packageTransactionMappers';
 
 export function useMyPackagePage() {
   const [availablePackages, setAvailablePackages] = useState<DisplayPackage[]>([]);
   const [displayCurrentPackage, setDisplayCurrentPackage] = useState(emptyDisplayCurrentPackage);
+  const [pendingPackage, setPendingPackage] = useState<any | null>(null);
   const [transactionRows, setTransactionRows] = useState<DisplayTransaction[]>([]);
   const [resolvedMemberId, setResolvedMemberId] = useState<string | null>(null);
   const [selectedPackage, setSelectedPackage] = useState<DisplayPackage | null>(null);
@@ -40,62 +43,75 @@ export function useMyPackagePage() {
     ? Math.min(100, Math.round((displayCurrentPackage.usedSessions / displayCurrentPackage.totalSessions) * 100))
     : 0;
 
-  const canSubmitRequest = Boolean(selectedPackage && selectedPaymentMethod) && !hasMoreThan5DaysLeft;
+  const canSubmitRequest = Boolean(selectedPackage && selectedPaymentMethod) && !pendingPackage;
   const filteredPackages = availablePackages.filter((item) => {
     const search = packageSearch.trim().toLowerCase();
     return !search || item.title.toLowerCase().includes(search) || item.description.toLowerCase().includes(search);
   });
 
-  useEffect(() => {
-    let isMounted = true;
+  const loadMemberPackageData = async () => {
+    setIsLoadingMemberPackage(true);
     const currentUser = getCurrentUser();
+    const [packagesResult, currentPackageResult, paymentsResult, invoicesResult, receiptsResult] = await Promise.allSettled([
+      fetchPackagesFromSupabase(),
+      getCurrentMemberPackageForUser(currentUser),
+      getPaymentsForMember(currentUser),
+      getInvoicesForMember(currentUser),
+      getMemberReceipts(),
+    ]);
 
-    async function loadMemberPackageData() {
-      setIsLoadingMemberPackage(true);
-      const [packagesResult, currentPackageResult, paymentsResult, invoicesResult] = await Promise.all([
-        fetchPackagesFromSupabase(),
-        getCurrentMemberPackageForUser(currentUser),
-        getPaymentsForMember(currentUser),
-        getInvoicesForMember(currentUser),
-      ]);
+    const packageData = packagesResult.status === 'fulfilled' ? packagesResult.value : { data: [], error: packagesResult.reason };
+    const currentPackageData = currentPackageResult.status === 'fulfilled' ? currentPackageResult.value : { data: null, memberId: null, error: currentPackageResult.reason };
+    const paymentsData = paymentsResult.status === 'fulfilled' ? paymentsResult.value : { data: [], error: paymentsResult.reason };
+    const invoicesData = invoicesResult.status === 'fulfilled' ? invoicesResult.value : { data: [], error: invoicesResult.reason };
+    const receiptsData = receiptsResult.status === 'fulfilled' ? { data: receiptsResult.value, error: null } : { data: [], error: receiptsResult.reason };
 
-      if (!isMounted) return;
-
-      if (!packagesResult.error && packagesResult.data.length) {
-        setAvailablePackages(packagesResult.data.filter((pkg: any) => pkg.isActive !== false).map(mapPackageToDisplayPackage));
-      } else {
-        setAvailablePackages([]);
-      }
-
-      if (!currentPackageResult.error && currentPackageResult.data) {
-        const item = currentPackageResult.data;
-        setResolvedMemberId(currentPackageResult.memberId || item.memberId || null);
-        setDisplayCurrentPackage(mapCurrentPackageToDisplay(item));
-      } else {
-        setResolvedMemberId(currentPackageResult.memberId || null);
-      }
-
-      if (!invoicesResult.error && invoicesResult.data.length) {
-        setTransactionRows(invoicesResult.data.map(mapInvoiceToDisplayTransaction));
-      } else if (!paymentsResult.error && paymentsResult.data.length) {
-        setTransactionRows(paymentsResult.data.map(mapPaymentToDisplayTransaction));
-      } else {
-        setTransactionRows([]);
-      }
-
-      setLoadMessage(
-        packagesResult.error || currentPackageResult.error || paymentsResult.error || invoicesResult.error
-          ? 'Some package data could not be loaded.'
-          : ''
-      );
-      setIsLoadingMemberPackage(false);
+    if (!packageData.error && packageData.data.length) {
+      setAvailablePackages(packageData.data.filter((pkg: any) => pkg.isActive !== false).map(mapPackageToDisplayPackage));
+    } else {
+      setAvailablePackages([]);
     }
 
-    loadMemberPackageData();
+    if (!currentPackageData.error && currentPackageData.data) {
+      const item = currentPackageData.data;
+      setResolvedMemberId(currentPackageData.memberId || item.memberId || null);
+      setDisplayCurrentPackage(mapCurrentPackageToDisplay(item));
+      setPendingPackage(currentPackageData.pendingPackage || null);
+    } else {
+      setResolvedMemberId(currentPackageData.memberId || null);
+      setPendingPackage(currentPackageData.pendingPackage || null);
+    }
 
-    return () => {
-      isMounted = false;
-    };
+    if (!receiptsData.error && receiptsData.data.length) {
+      setTransactionRows(receiptsData.data.map(mapReceiptToDisplayTransaction));
+    } else if (!invoicesData.error && invoicesData.data.length) {
+      setTransactionRows(invoicesData.data.map(mapInvoiceToDisplayTransaction));
+    } else if (!paymentsData.error && paymentsData.data.length) {
+      setTransactionRows(paymentsData.data.map(mapPaymentToDisplayTransaction));
+    } else {
+      setTransactionRows([]);
+    }
+
+    if (packageData.error || currentPackageData.error || paymentsData.error || invoicesData.error || receiptsData.error) {
+      console.warn("[Gymster Debug] Member package load errors:", {
+        packageDataError: packageData.error,
+        currentPackageDataError: currentPackageData.error,
+        paymentsDataError: paymentsData.error,
+        invoicesDataError: invoicesData.error,
+        receiptsDataError: receiptsData.error,
+      });
+    }
+
+    setLoadMessage(
+      packageData.error || currentPackageData.error || paymentsData.error || invoicesData.error || receiptsData.error
+        ? 'Some package data could not be loaded.'
+        : ''
+    );
+    setIsLoadingMemberPackage(false);
+  };
+
+  useEffect(() => {
+    loadMemberPackageData();
   }, []);
 
   const getPackageAction = (index: number, title: string) => {
@@ -106,8 +122,8 @@ export function useMyPackagePage() {
 
   const submitRenewalRequest = async () => {
     if (!selectedPackage || !selectedPaymentMethod) return;
-    if (hasMoreThan5DaysLeft) {
-      setRequestMessage(`Gói hiện tại của bạn còn nhiều hơn 5 ngày (${displayCurrentPackage.daysRemaining} ngày). Bạn chỉ được gửi yêu cầu gia hạn hoặc đổi gói khi gói hiện tại còn tối đa 5 ngày.`);
+    if (pendingPackage) {
+      setRequestMessage('You already have a package waiting for activation. You cannot buy another package yet.');
       return;
     }
     const currentUser = getCurrentUser();
@@ -141,6 +157,7 @@ export function useMyPackagePage() {
     isLoadingMemberPackage,
     loadMessage,
     packageSearch,
+    pendingPackage,
     requestMessage,
     selectedPackage,
     selectedPaymentMethod,
@@ -151,5 +168,6 @@ export function useMyPackagePage() {
     transactionRows,
     usagePercent,
     hasMoreThan5DaysLeft,
+    refetchData: loadMemberPackageData,
   };
 }

@@ -1,3 +1,10 @@
 {
-  "type": "module"
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch server.js",
+    "start": "node server.js",
+    "test": "vitest run",
+    "sync:auth-users": "node scripts/syncSupabaseAuthUsers.js",
+    "reset:demo-auth": "node scripts/resetDemoAuthUsers.js"
+  }
 }

@@ -1,9 +1,12 @@
 import { supabase } from "./supabaseClient";
 import { getAllowedLeaveDaysForPackage } from "./packageEntitlement";
 import { getCurrentUser } from "./authService";
+import { notifyPtPortalDataChanged } from "./notificationApi";
+import { authenticatedJson } from "./authenticatedApi";
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const LOCAL_PACKAGE_CHANGE_REQUESTS_KEY = "gymster_local_package_change_requests";
+const LOCAL_PAYMENT_REQUESTS_KEY = "gymster_local_payment_requests";
 
 const fallbackActivePackage = {
   memberPackageId: "local-member-package-member00",
@@ -19,7 +22,7 @@ const fallbackActivePackage = {
   hasPersonalTrainer: true,
   trainerName: "Khoa Le",
   startDate: new Date().toISOString().slice(0, 10),
-  endDate: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+  endDate: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
   usedSessions: 3,
   remainingSessions: 21,
   sessionsTotal: 24,
@@ -28,6 +31,88 @@ const fallbackActivePackage = {
   createdAt: new Date().toISOString(),
   source: "local",
 };
+
+function isNoPackageDemoMember(user) {
+  const email = String(user?.email || "").trim().toLowerCase();
+  const username = String(user?.username || "").trim().toLowerCase();
+  return [
+    "newmember@gymster.local",
+    "freshmember@gymster.local",
+    "trialmember@gymster.local",
+  ].includes(email) || ["newmember", "freshmember", "trialmember"].includes(username);
+}
+
+function readLocalPaymentRequests() {
+  if (typeof window === "undefined" || !window.localStorage) return [];
+  try {
+    const rows = JSON.parse(window.localStorage.getItem(LOCAL_PAYMENT_REQUESTS_KEY) || "[]");
+    return Array.isArray(rows) ? rows : [];
+  } catch {
+    return [];
+  }
+}
+
+function getApprovedLocalPaymentRequestForUser(user) {
+  const userIds = [
+    user?.id,
+    user?.userId,
+    user?.user_id,
+    user?.memberId,
+    user?.member_id,
+  ].filter(Boolean).map((value) => String(value).toLowerCase());
+  const email = String(user?.email || "").trim().toLowerCase();
+
+  return readLocalPaymentRequests()
+    .filter((request) => {
+      const status = String(request.status || "").toLowerCase();
+      const paymentStatus = String(request.paymentStatus || "").toLowerCase();
+      const requestMemberId = String(request.memberId || "").toLowerCase();
+      const requestEmail = String(request.memberEmail || "").trim().toLowerCase();
+      const isApproved = status === "approved" || paymentStatus === "paid" || paymentStatus === "approved";
+      const isSameUser = (email && requestEmail === email) || (requestMemberId && userIds.includes(requestMemberId));
+      return isApproved && isSameUser;
+    })
+    .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())[0] || null;
+}
+
+function addMonths(date, months) {
+  const nextDate = new Date(date);
+  nextDate.setMonth(nextDate.getMonth() + Number(months || 1));
+  return nextDate;
+}
+
+function mapApprovedLocalPaymentToPackage(request, user) {
+  if (!request) return null;
+
+  const startDate = new Date(request.approvedAt || request.updatedAt || Date.now());
+  const durationMonths = Number(request.packageDurationMonths || request.durationMonths || 1);
+  const sessionTotal = request.remainingSessions ?? request.sessionLimit ?? request.sessionsTotal ?? null;
+
+  return {
+    memberPackageId: request.memberPackageId,
+    memberId: request.memberId || user?.memberId || user?.member_id || user?.id,
+    packageId: request.packageId,
+    trainerId: request.trainerId || null,
+    packageName: request.packageName || "Selected package",
+    packageType: request.packageType || (request.trainerId ? "pt" : "standard"),
+    packagePrice: Number(request.amount || 0),
+    packageDurationMonths: durationMonths,
+    durationMonths,
+    packageSessionLimit: sessionTotal,
+    maxLeaveDays: getAllowedLeaveDaysForPackage({ packageDurationMonths: durationMonths, durationMonths }),
+    hasPersonalTrainer: Boolean(request.trainerId),
+    trainerName: request.trainerName || "",
+    startDate: startDate.toISOString().slice(0, 10),
+    endDate: addMonths(startDate, durationMonths).toISOString().slice(0, 10),
+    usedSessions: 0,
+    remainingSessions: sessionTotal,
+    sessionsTotal: sessionTotal,
+    status: "active",
+    activatedAt: request.approvedAt || request.updatedAt || new Date().toISOString(),
+    createdAt: request.createdAt || new Date().toISOString(),
+    source: "local",
+  };
+}
 
 const packageColumns = `
   package_id,
@@ -397,6 +482,23 @@ export async function getCurrentMemberPackage(memberId) {
 
 export async function getMemberPackagesForUser(user) {
   if (!supabase) {
+    const approvedPackage = mapApprovedLocalPaymentToPackage(getApprovedLocalPaymentRequestForUser(user), user);
+    if (approvedPackage) {
+      return {
+        data: [approvedPackage],
+        memberId: approvedPackage.memberId,
+        error: null,
+      };
+    }
+
+    if (isNoPackageDemoMember(user)) {
+      return {
+        data: [],
+        memberId: user?.memberId || user?.member_id || user?.id || "00000000-0000-4000-8000-000000000099",
+        error: null,
+      };
+    }
+
     return {
       data: [fallbackActivePackage],
       memberId: user?.memberId || user?.member_id || user?.id || fallbackActivePackage.memberId,
@@ -409,6 +511,8 @@ export async function getMemberPackagesForUser(user) {
   if (!memberId || !uuidPattern.test(String(memberId))) {
     return { data: [], memberId: null, error: null };
   }
+
+  await supabase.rpc("gymster_sync_member_package_lifecycle", { target_member_id: memberId });
 
   const { data: rows, error } = await supabase
     .from("member_packages")
@@ -458,9 +562,14 @@ export async function getCurrentMemberPackageForUser(user) {
   }
 
   const activePackage = result.data.find((item) => item.status === "active");
-  const fallbackPackage = result.data[0] || null;
+  const pendingPackage = result.data.find((item) => item.status === "pending_activation");
 
-  return { data: activePackage || fallbackPackage, memberId: result.memberId, error: null };
+  return {
+    data: activePackage || null,
+    pendingPackage: pendingPackage || null,
+    memberId: result.memberId,
+    error: null,
+  };
 }
 
 export function createPendingRenewalRequest(request) {
@@ -551,16 +660,6 @@ export async function createPackageChangeRequest(request) {
         }
       }
 
-      // 2. Check days remaining on mock fallbackActivePackage
-      const endDate = fallbackActivePackage.endDate;
-      const diff = new Date(endDate).getTime() - Date.now();
-      const daysRemaining = Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)));
-      if (daysRemaining > 5) {
-        return {
-          data: null,
-          error: new Error(`Gói hiện tại của bạn còn nhiều hơn 5 ngày (${daysRemaining} ngày). Bạn chỉ được gửi yêu cầu gia hạn hoặc đổi gói khi gói hiện tại còn tối đa 5 ngày.`)
-        };
-      }
     }
 
     const row = {
@@ -586,6 +685,17 @@ export async function createPackageChangeRequest(request) {
 
     return { data: row, error: null };
   }
+
+  return authenticatedJson("/api/member/package-change-requests", {
+    method: "POST",
+    body: JSON.stringify({
+      memberId: request.memberId,
+      currentMemberPackageId: request.currentMemberPackageId || null,
+      packageId: request.packageId,
+      paymentMethod: request.paymentMethod || null,
+      requestType: request.requestType,
+    }),
+  });
 
   const memberId = await resolveCurrentMemberId({
     memberId: request.memberId,
@@ -618,38 +728,15 @@ export async function createPackageChangeRequest(request) {
       .from("member_packages")
       .select("member_package_id, status, start_date")
       .eq("member_id", memberId)
-      .or("status.eq.pending_payment,status.eq.active");
+      .in("status", ["pending_payment", "pending_activation"]);
 
     if (!queuedError && queuedPackages) {
-      const hasQueued = queuedPackages.some(pkg => 
-        pkg.status === "pending_payment" || 
-        (pkg.status === "active" && pkg.start_date && new Date(pkg.start_date) > new Date())
-      );
+      const hasQueued = queuedPackages.length > 0;
       if (hasQueued) {
-        return { data: null, error: new Error("Bạn đã có một gói tập đang chờ thanh toán hoặc gói tập tương lai đã được lên lịch.") };
+        return { data: null, error: new Error("You already have a package waiting for payment or activation. You cannot buy another package yet.") };
       }
     }
 
-    // Check active package days remaining
-    const { data: activePackages, error: activeError } = await supabase
-      .from("member_packages")
-      .select("end_date")
-      .eq("member_id", memberId)
-      .eq("status", "active");
-
-    if (!activeError && activePackages && activePackages.length > 0) {
-      const activePkg = activePackages.find(pkg => !pkg.start_date || new Date(pkg.start_date) <= new Date());
-      if (activePkg && activePkg.end_date) {
-        const diff = new Date(activePkg.end_date).getTime() - Date.now();
-        const daysRemaining = Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)));
-        if (daysRemaining > 5) {
-          return {
-            data: null,
-            error: new Error(`Gói hiện tại của bạn còn nhiều hơn 5 ngày (${daysRemaining} ngày). Bạn chỉ được gửi yêu cầu gia hạn hoặc đổi gói khi gói hiện tại còn tối đa 5 ngày.`)
-          };
-        }
-      }
-    }
   }
 
   const payload = {
@@ -776,6 +863,13 @@ export async function assignTrainerToMember(memberId, trainerId, notes = "Assign
     console.error("[Gymster hệ thống] Failed to create trainer assignment:", error);
     return { data: null, error };
   }
+
+  notifyPtPortalDataChanged({
+    reason: "trainer-assignment-created",
+    trainerId,
+    memberId,
+    assignmentId: data?.trainer_assignment_id,
+  });
 
   return { data, error: null };
 }

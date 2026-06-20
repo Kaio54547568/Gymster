@@ -10,7 +10,6 @@ import {
   Info,
   LogOut,
   Menu,
-  Search,
   ShieldAlert,
   User,
   X,
@@ -40,7 +39,7 @@ type RoleShellProps = {
   children: ReactNode;
   menuItems: RoleShellItem[];
   portalLabel: string;
-  searchPlaceholder: string;
+  searchPlaceholder?: string;
   userName: string;
   userRole: string;
   userInitials?: string;
@@ -51,13 +50,13 @@ type RoleShellProps = {
   onAvatarClick?: () => void;
   darkMode?: boolean;
   assistantSlot?: ReactNode;
+  showSearch?: boolean;
 };
 
 export default function RoleShell({
   children,
   menuItems,
   portalLabel,
-  searchPlaceholder,
   userName,
   userRole,
   userInitials,
@@ -68,6 +67,8 @@ export default function RoleShell({
   onAvatarClick,
   darkMode,
   assistantSlot,
+  searchPlaceholder: _searchPlaceholder,
+  showSearch: _showSearch,
 }: RoleShellProps) {
   const shellRef = useRef<HTMLDivElement>(null);
   const appearance = useAppearance();
@@ -195,26 +196,26 @@ export default function RoleShell({
           sidebarOpen ? 'w-80 translate-x-0' : 'w-24 -translate-x-full lg:translate-x-0'
         } glass-strong border-r border-white/5 transition-all duration-500 flex flex-col shadow-float`}
       >
-        <div className={`h-28 flex items-center border-b border-white/5 ${sidebarOpen ? 'px-6' : 'px-4'}`}>
+        <div className={`h-20 flex items-center border-b border-white/5 ${sidebarOpen ? 'px-6' : 'px-4'}`}>
           <div className="flex items-center gap-3 min-w-0 w-full">
             <div
               className={`rounded-2xl flex items-center justify-center shadow-glow-red relative overflow-hidden group shrink-0 bg-[#120f10] border border-[#EF233C]/35 ${
-                sidebarOpen ? 'w-14 h-14' : 'w-12 h-12'
+                sidebarOpen ? 'w-12 h-12' : 'w-10 h-10'
               }`}
             >
               <div className="absolute inset-0 bg-gradient-to-br from-white/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
               <img
                 src={BRAND_ICON_SRC}
                 alt="Gymster"
-                className={`${sidebarOpen ? 'w-12 h-12' : 'w-10 h-10'} relative z-10 rounded-xl object-cover`}
+                className={`${sidebarOpen ? 'w-10 h-10' : 'w-8 h-8'} relative z-10 rounded-xl object-cover`}
               />
             </div>
             {sidebarOpen && (
               <div className="min-w-0 flex-1">
-                <h1 className="bebas text-4xl text-white tracking-wider bg-gradient-to-r from-white to-white/80 bg-clip-text truncate">
+                <h1 className="bebas text-3xl text-white tracking-wider bg-gradient-to-r from-white to-white/80 bg-clip-text truncate">
                   Gymster
                 </h1>
-                <p className="text-sm text-white/50 font-medium truncate">{portalLabel}</p>
+                <p className="text-xs text-white/50 font-medium truncate">{portalLabel}</p>
               </div>
             )}
 
@@ -223,12 +224,12 @@ export default function RoleShell({
             onClick={() => setSidebarOpen((current) => !current)}
             className={`bg-white/5 hover:bg-[#EF233C]/15 border border-white/10 hover:border-[#EF233C]/40 flex items-center justify-center text-white/70 hover:text-white transition-all duration-300 shrink-0 ${
               sidebarOpen
-                ? 'w-10 h-10 rounded-2xl ml-auto'
+                ? 'w-8 h-8 rounded-xl ml-auto'
                 : 'w-8 h-8 rounded-xl bg-[#EF233C]/10 border-[#EF233C]/30 text-white lg:flex hidden'
             }`}
             aria-label={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
           >
-            {sidebarOpen ? <ChevronsLeft className="w-5 h-5" /> : <ChevronsRight className="w-4 h-4" />}
+            {sidebarOpen ? <ChevronsLeft className="w-4 h-4" /> : <ChevronsRight className="w-4 h-4" />}
           </button>
           </div>
         </div>
@@ -286,7 +287,7 @@ export default function RoleShell({
       </aside>
 
       <div className="flex-1 flex flex-col overflow-hidden">
-        <header className="h-24 glass border-b border-white/5 px-4 md:px-8 flex items-center justify-between relative z-[80] shadow-premium">
+        <header className="h-20 glass border-b border-white/5 px-4 md:px-8 flex items-center justify-between relative z-[80] shadow-premium">
           <button
             type="button"
             className="mr-3 p-3 glass rounded-2xl border border-white/5 hover:border-[#EF233C]/30 text-white lg:hidden flex items-center justify-center shrink-0"
@@ -296,28 +297,15 @@ export default function RoleShell({
             <Menu className="w-6 h-6" />
           </button>
 
-          <div className="mr-5 hidden items-center gap-3 rounded-2xl border border-white/5 bg-white/[0.03] px-3 py-2 xl:flex">
-            <img src={BRAND_ICON_SRC} alt="Gymster" className="h-10 w-10 rounded-xl object-cover shadow-glow-red" />
-            <span className="text-sm font-black uppercase tracking-[0.18em] text-white">Gymster</span>
-          </div>
-          <div className="flex-1 max-w-xs sm:max-w-md lg:max-w-2xl mr-2 sm:mr-0">
-            <div className="relative group">
-              <Search className="absolute left-3 md:left-5 top-1/2 -translate-y-1/2 w-5 h-5 md:w-6 md:h-6 text-white/40 group-hover:text-[#EF233C] transition-colors duration-300" />
-              <input
-                type="text"
-                placeholder={searchPlaceholder}
-                className="w-full glass border border-white/10 rounded-2xl pl-10 md:pl-14 pr-4 md:pr-5 py-2 md:py-4 text-sm md:text-base text-white placeholder-white/40 focus:outline-none focus:border-[#EF233C]/50 focus:shadow-glow-red transition-all duration-300"
-              />
-            </div>
-          </div>
+          <div className="flex-1" />
 
-          <div className="flex items-center gap-5 ml-6">
-            <div className="hidden xl:flex items-center gap-5">
-              <div className="flex items-center gap-3 px-4 py-2.5 glass rounded-2xl border border-white/5">
+          <div className="flex items-center gap-4 ml-6">
+            <div className="hidden xl:flex items-center gap-4">
+              <div className="flex items-center gap-3 px-4 py-2 glass rounded-2xl border border-white/5">
                 <CalendarDays className="w-5 h-5 text-[#EF233C]" />
                 <span className="text-sm font-medium text-white/80">{currentDate}</span>
               </div>
-              <div className="flex items-center gap-3 px-4 py-2.5 glass rounded-2xl border border-white/5">
+              <div className="flex items-center gap-3 px-4 py-2 glass rounded-2xl border border-white/5">
                 <Clock className="w-5 h-5 text-[#EF233C]" />
                 <span className="text-sm font-medium text-white/80">{currentTime}</span>
               </div>
@@ -417,16 +405,16 @@ export default function RoleShell({
             <button
               type="button"
               onClick={onAvatarClick}
-              className="flex items-center gap-4 glass rounded-2xl border border-white/5 px-4 py-2 text-left transition-all hover:border-[#EF233C]/30"
+              className="flex items-center gap-3 glass rounded-2xl border border-white/5 px-3 py-1.5 text-left transition-all hover:border-[#EF233C]/30"
             >
               <div className="text-right hidden md:block">
-                <p className="text-sm font-bold text-white">{userName}</p>
-                <p className="text-xs text-white/50">{userRole}</p>
+                <p className="text-xs sm:text-sm font-bold text-white">{userName}</p>
+                <p className="text-[10px] sm:text-xs text-white/50">{userRole}</p>
               </div>
-              <div className="w-12 h-12 bg-gradient-to-br from-[#EF233C] via-[#FF2D2D] to-[#990000] rounded-2xl flex items-center justify-center shadow-glow-red text-white font-bold">
+              <div className="w-10 h-10 bg-gradient-to-br from-[#EF233C] via-[#FF2D2D] to-[#990000] rounded-2xl flex items-center justify-center shadow-glow-red text-white font-bold shrink-0">
                 {userAvatarUrl ? (
                   <img src={userAvatarUrl} alt={`${userName} avatar`} className="h-full w-full rounded-2xl object-cover" />
-                ) : userInitials ? userInitials : <User className="w-6 h-6 text-white" />}
+                ) : userInitials ? userInitials : <User className="w-5 h-5 text-white" />}
               </div>
             </button>
           </div>

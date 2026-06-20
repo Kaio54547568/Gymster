@@ -113,7 +113,10 @@ insert into public.users (
   ('member21@gymster.local', 'member21', 'Member@123', 'Binh', 'Ngo', '0910000021', date '1987-09-04', 'male', 'member', 'Returning member renewing after a break.', 'vi', 'active'),
   ('member22@gymster.local', 'member22', 'Member@123', 'Nhu', 'Dinh', '0910000022', date '1999-10-16', 'female', 'member', 'Beginner PT member focused on confidence and form.', 'vi', 'active'),
   ('member23@gymster.local', 'member23', 'Member@123', 'Quan', 'Ta', '0910000023', date '1990-11-27', 'male', 'member', 'Member with pending upgrade request.', 'vi', 'active'),
-  ('member24@gymster.local', 'member24', 'Member@123', 'Mina', 'Lee', '0910000024', date '1996-12-02', 'female', 'member', 'Cancelled member kept for historical analytics.', 'en', 'cancelled');
+  ('member24@gymster.local', 'member24', 'Member@123', 'Mina', 'Lee', '0910000024', date '1996-12-02', 'female', 'member', 'Cancelled member kept for historical analytics.', 'en', 'cancelled'),
+  ('newmember@gymster.local', 'newmember', 'Member@123', 'New', 'Member', '0910000099', date '1999-09-09', 'other', 'member', 'New member account with no registered package for onboarding tests.', 'vi', 'pending_onboarding'),
+  ('freshmember@gymster.local', 'freshmember', 'Member@123', 'Fresh', 'Member', '0910000098', date '2000-01-15', 'other', 'member', 'Fresh member account with no registered package for clean onboarding tests.', 'vi', 'pending_onboarding'),
+  ('trialmember@gymster.local', 'trialmember', 'Member@123', 'Trial', 'Member', '0910000097', date '2001-02-10', 'other', 'member', 'Trial member account with no registered package for clean payment approval tests.', 'vi', 'pending_onboarding');
 
 insert into public.employees (
   user_id,
@@ -147,13 +150,13 @@ from (
     ('staff02@gymster.local', 'EMP-STF-003', 'Chi Vu', 'staff', 'Member Services', date '2024-03-01', 13200000::numeric, 'active'),
     ('staff03@gymster.local', 'EMP-STF-004', 'Duy Pham', 'staff', 'Operations', date '2023-11-20', 14200000::numeric, 'active'),
     ('staff04@gymster.local', 'EMP-STF-005', 'Ha Bui', 'staff', 'Customer Experience', date '2024-04-08', 12600000::numeric, 'active'),
-    ('trainer@gymster.local', 'EMP-PT-001', 'Khoa Le', 'trainer', 'Personal Training', date '2023-05-05', 22000000::numeric, 'active'),
-    ('trainer01@gymster.local', 'EMP-PT-002', 'Son Dang', 'trainer', 'Personal Training', date '2023-07-12', 20500000::numeric, 'active'),
-    ('trainer02@gymster.local', 'EMP-PT-003', 'Nhi Tran', 'trainer', 'Personal Training', date '2023-08-01', 19800000::numeric, 'active'),
-    ('trainer03@gymster.local', 'EMP-PT-004', 'Long Vo', 'trainer', 'Personal Training', date '2024-01-02', 21000000::numeric, 'active'),
-    ('trainer04@gymster.local', 'EMP-PT-005', 'Vy Lam', 'trainer', 'Personal Training', date '2024-02-14', 19000000::numeric, 'active'),
-    ('trainer05@gymster.local', 'EMP-PT-006', 'Huy Phan', 'trainer', 'Personal Training', date '2023-09-18', 21500000::numeric, 'active'),
-    ('trainer06@gymster.local', 'EMP-PT-007', 'Tara Nguyen', 'trainer', 'VIP Coaching', date '2023-10-30', 24500000::numeric, 'active')
+    ('trainer@gymster.local', 'EMP-PT-001', 'Khoa Le', 'trainer', 'PT Strength & Conditioning', date '2023-05-05', 22000000::numeric, 'active'),
+    ('trainer01@gymster.local', 'EMP-PT-002', 'Son Dang', 'trainer', 'Bodybuilding', date '2023-07-12', 20500000::numeric, 'active'),
+    ('trainer02@gymster.local', 'EMP-PT-003', 'Nhi Tran', 'trainer', 'Weight Loss Coaching', date '2023-08-01', 19800000::numeric, 'active'),
+    ('trainer03@gymster.local', 'EMP-PT-004', 'Long Vo', 'trainer', 'Yoga & Mobility', date '2024-01-02', 21000000::numeric, 'active'),
+    ('trainer04@gymster.local', 'EMP-PT-005', 'Vy Lam', 'trainer', 'Yoga & Mobility', date '2024-02-14', 19000000::numeric, 'active'),
+    ('trainer05@gymster.local', 'EMP-PT-006', 'Huy Phan', 'trainer', 'PT Strength & Conditioning', date '2023-09-18', 21500000::numeric, 'active'),
+    ('trainer06@gymster.local', 'EMP-PT-007', 'Tara Nguyen', 'trainer', 'Bodybuilding', date '2023-10-30', 24500000::numeric, 'active')
 ) as e(email, employee_code, full_name, role, department, hire_date, base_salary, status)
 join public.users u on u.email = e.email;
 
@@ -186,13 +189,13 @@ select
   t.status
 from (
   values
-    ('trainer@gymster.local', 'PT-001', 'Khoa Le', 'Strength Training', 'Builds progressive strength programs with careful form checks and clear session notes.', 4.90::numeric, 7, 12, '["Mon 18:00-19:00","Wed 18:00-19:00","Fri 18:00-19:00","Sat 09:00-10:00"]', 'active'),
-    ('trainer01@gymster.local', 'PT-002', 'Son Dang', 'Hypertrophy', 'Specializes in muscle gain, free weights, and structured overload plans.', 4.75::numeric, 8, 12, '["Tue 19:00-20:00","Thu 19:00-20:00","Sun 08:00-09:00"]', 'active'),
-    ('trainer02@gymster.local', 'PT-003', 'Nhi Tran', 'Weight Loss and HIIT', 'Combines HIIT, nutrition habits, and accountability for fat-loss members.', 4.85::numeric, 10, 10, '["Mon 07:00-08:00","Wed 07:00-08:00","Fri 07:00-08:00"]', 'full'),
-    ('trainer03@gymster.local', 'PT-004', 'Long Vo', 'Mobility and Recovery', 'Works with restricted movements, return-to-training plans, and low-impact progressions.', 4.65::numeric, 6, 10, '["Tue 18:00-19:00","Thu 18:00-19:00","Sat 10:00-11:00"]', 'active'),
-    ('trainer04@gymster.local', 'PT-005', 'Vy Lam', 'Pilates and Core', 'Focuses on posture, core control, balance, and beginner-friendly confidence.', 4.70::numeric, 5, 10, '["Mon 12:00-13:00","Wed 12:00-13:00","Sat 15:00-16:00"]', 'active'),
-    ('trainer05@gymster.local', 'PT-006', 'Huy Phan', 'Athletic Conditioning', 'Builds conditioning blocks for runners and sport-focused members.', 4.60::numeric, 7, 12, '["Tue 06:30-07:30","Thu 06:30-07:30","Sun 09:00-10:00"]', 'active'),
-    ('trainer06@gymster.local', 'PT-007', 'Tara Nguyen', 'VIP Transformation', 'Runs VIP body recomposition programs with monthly metrics reviews.', 4.95::numeric, 9, 10, '["Mon 20:00-21:00","Wed 20:00-21:00","Fri 20:00-21:00"]', 'active')
+    ('trainer@gymster.local', 'PT-001', 'Khoa Le', 'PT Strength & Conditioning', 'Builds progressive strength programs with careful form checks and clear session notes.', 4.90::numeric, 7, 12, '["Mon 18:00-19:00","Wed 18:00-19:00","Fri 18:00-19:00","Sat 09:00-10:00"]', 'active'),
+    ('trainer01@gymster.local', 'PT-002', 'Son Dang', 'Bodybuilding', 'Specializes in muscle gain, free weights, and structured overload plans.', 4.75::numeric, 8, 12, '["Tue 19:00-20:00","Thu 19:00-20:00","Sun 08:00-09:00"]', 'active'),
+    ('trainer02@gymster.local', 'PT-003', 'Nhi Tran', 'Weight Loss Coaching', 'Combines HIIT, nutrition habits, and accountability for fat-loss members.', 4.85::numeric, 10, 10, '["Mon 07:00-08:00","Wed 07:00-08:00","Fri 07:00-08:00"]', 'full'),
+    ('trainer03@gymster.local', 'PT-004', 'Long Vo', 'Yoga & Mobility', 'Works with restricted movements, return-to-training plans, and low-impact progressions.', 4.65::numeric, 6, 10, '["Tue 18:00-19:00","Thu 18:00-19:00","Sat 10:00-11:00"]', 'active'),
+    ('trainer04@gymster.local', 'PT-005', 'Vy Lam', 'Yoga & Mobility', 'Focuses on posture, core control, balance, and beginner-friendly confidence.', 4.70::numeric, 5, 10, '["Mon 12:00-13:00","Wed 12:00-13:00","Sat 15:00-16:00"]', 'active'),
+    ('trainer05@gymster.local', 'PT-006', 'Huy Phan', 'PT Strength & Conditioning', 'Builds conditioning blocks for runners and sport-focused members.', 4.60::numeric, 7, 12, '["Tue 06:30-07:30","Thu 06:30-07:30","Sun 09:00-10:00"]', 'active'),
+    ('trainer06@gymster.local', 'PT-007', 'Tara Nguyen', 'Bodybuilding', 'Runs VIP body recomposition programs with monthly metrics reviews.', 4.95::numeric, 9, 10, '["Mon 20:00-21:00","Wed 20:00-21:00","Fri 20:00-21:00"]', 'active')
 ) as t(email, trainer_code, full_name, specialty, bio, rating, current_active_members, max_active_members, slots, status)
 join public.users u on u.email = t.email
 join public.employees e on e.user_id = u.user_id;
@@ -307,7 +310,10 @@ from (
     ('member21@gymster.local', 'MB-021', 'Hieu Ngo', '0981000021', 'Returning member.', current_date - 20, 'active'),
     ('member22@gymster.local', 'MB-022', 'Thu Dinh', '0981000022', 'Beginner PT member.', current_date - 18, 'active'),
     ('member23@gymster.local', 'MB-023', 'Bach Ta', '0981000023', 'Considering VIP upgrade.', current_date - 28, 'active'),
-    ('member24@gymster.local', 'MB-024', 'Mina Lee', '0981000024', 'Cancelled after relocation.', current_date - 300, 'cancelled')
+    ('member24@gymster.local', 'MB-024', 'Mina Lee', '0981000024', 'Cancelled after relocation.', current_date - 300, 'cancelled'),
+    ('newmember@gymster.local', 'MB-099', 'New Member Emergency', '0981000099', 'No package registered yet; use for member onboarding tests.', null, 'pending_onboarding'),
+    ('freshmember@gymster.local', 'MB-098', 'Fresh Member', '0981000098', 'No package registered yet; clean account for onboarding tests.', null, 'pending_onboarding'),
+    ('trialmember@gymster.local', 'MB-097', 'Trial Member', '0981000097', 'No package registered yet; clean account for payment approval tests.', null, 'pending_onboarding')
 ) as m(email, member_code, emergency_contact_name, emergency_contact_phone, health_notes, join_date, status)
 join public.users u on u.email = m.email;
 
@@ -332,7 +338,9 @@ insert into public.equipment (
   last_maintenance_date,
   next_maintenance_date,
   status,
-  notes
+  notes,
+  origin,
+  warranty_expiry_date
 )
 select
   r.room_id,
@@ -345,20 +353,22 @@ select
   e.last_maintenance_date,
   e.next_maintenance_date,
   e.status,
-  e.notes
+  e.notes,
+  e.origin,
+  e.warranty_expiry_date
 from (
   values
-    ('ROOM-CARDIO-01', 'EQ-TREAD-001', 'Treadmill 01', 'Cardio', 'Technogym', 'Run 600', date '2024-02-10', current_date - 40, current_date + 20, 'active', 'High-use machine near window.'),
-    ('ROOM-CARDIO-01', 'EQ-TREAD-002', 'Treadmill 02', 'Cardio', 'Technogym', 'Run 600', date '2024-02-10', current_date - 40, current_date + 20, 'active', 'Normal operating condition.'),
-    ('ROOM-CARDIO-01', 'EQ-BIKE-001', 'Air Bike 01', 'Cardio', 'Assault', 'Classic', date '2023-09-15', current_date - 25, current_date + 35, 'under_maintenance', 'Resistance belt slipping under heavy load.'),
-    ('ROOM-FREE-01', 'EQ-RACK-001', 'Power Rack 01', 'Strength', 'Rogue', 'Monster Lite', date '2023-05-22', current_date - 60, current_date + 30, 'active', 'Inspect J-cups monthly.'),
-    ('ROOM-FREE-01', 'EQ-BENCH-001', 'Adjustable Bench 01', 'Strength', 'Impulse', 'IT7011', date '2023-06-05', current_date - 15, current_date + 15, 'active', 'Seat pad replaced last month.'),
-    ('ROOM-FREE-01', 'EQ-BENCH-002', 'Adjustable Bench 02', 'Strength', 'Impulse', 'IT7011', date '2023-06-05', current_date - 120, current_date - 5, 'broken', 'Backrest lock pin stuck; keep out of use.'),
-    ('ROOM-GYM-01', 'EQ-CABLE-001', 'Cable Crossover', 'Strength', 'Life Fitness', 'CMDAP', date '2024-01-18', current_date - 45, current_date + 45, 'active', 'Lubricate pulley monthly.'),
-    ('ROOM-PT-01', 'EQ-KB-001', 'Kettlebell Set', 'Functional', 'Again Faster', 'KB Set', date '2024-03-12', current_date - 30, current_date + 60, 'active', 'Shared PT studio set.'),
-    ('ROOM-CLASS-01', 'EQ-MAT-001', 'Yoga Mat Set', 'Class', 'Manduka', 'Studio', date '2024-04-20', current_date - 20, current_date + 40, 'active', 'Clean after classes.'),
-    ('ROOM-REC-01', 'EQ-MASSAGE-001', 'Massage Chair', 'Recovery', 'OSIM', 'uLove', date '2023-12-02', current_date - 90, current_date + 10, 'under_maintenance', 'Remote panel intermittently resets.')
-) as e(room_code, equipment_code, equipment_name, category, brand, model, purchase_date, last_maintenance_date, next_maintenance_date, status, notes)
+    ('ROOM-CARDIO-01', 'EQ-TREAD-001', 'Treadmill 01', 'Cardio', 'Technogym', 'Run 600', date '2024-02-10', current_date - 40, current_date + 20, 'active', 'High-use machine near window.', 'Italy', date '2026-02-10'),
+    ('ROOM-CARDIO-01', 'EQ-TREAD-002', 'Treadmill 02', 'Cardio', 'Technogym', 'Run 600', date '2024-02-10', current_date - 40, current_date + 20, 'active', 'Normal operating condition.', 'Italy', date '2026-02-10'),
+    ('ROOM-CARDIO-01', 'EQ-BIKE-001', 'Air Bike 01', 'Cardio', 'Assault', 'Classic', date '2023-09-15', current_date - 25, current_date + 35, 'under_maintenance', 'Resistance belt slipping under heavy load.', 'USA', date '2025-09-15'),
+    ('ROOM-FREE-01', 'EQ-RACK-001', 'Power Rack 01', 'Strength', 'Rogue', 'Monster Lite', date '2023-05-22', current_date - 60, current_date + 30, 'active', 'Inspect J-cups monthly.', 'USA', date '2025-05-22'),
+    ('ROOM-FREE-01', 'EQ-BENCH-001', 'Adjustable Bench 01', 'Strength', 'Impulse', 'IT7011', date '2023-06-05', current_date - 15, current_date + 15, 'active', 'Seat pad replaced last month.', 'China', date '2025-06-05'),
+    ('ROOM-FREE-01', 'EQ-BENCH-002', 'Adjustable Bench 02', 'Strength', 'Impulse', 'IT7011', date '2023-06-05', current_date - 120, current_date - 5, 'broken', 'Backrest lock pin stuck; keep out of use.', 'China', date '2025-06-05'),
+    ('ROOM-GYM-01', 'EQ-CABLE-001', 'Cable Crossover', 'Strength', 'Life Fitness', 'CMDAP', date '2024-01-18', current_date - 45, current_date + 45, 'active', 'Lubricate pulley monthly.', 'USA', date '2026-01-18'),
+    ('ROOM-PT-01', 'EQ-KB-001', 'Kettlebell Set', 'Functional', 'Again Faster', 'KB Set', date '2024-03-12', current_date - 30, current_date + 60, 'active', 'Shared PT studio set.', 'China', date '2026-03-12'),
+    ('ROOM-CLASS-01', 'EQ-MAT-001', 'Yoga Mat Set', 'Class', 'Manduka', 'Studio', date '2024-04-20', current_date - 20, current_date + 40, 'active', 'Clean after classes.', 'USA', date '2026-04-20'),
+    ('ROOM-REC-01', 'EQ-MASSAGE-001', 'Massage Chair', 'Recovery', 'OSIM', 'uLove', date '2023-12-02', current_date - 90, current_date + 10, 'under_maintenance', 'Remote panel intermittently resets.', 'Singapore', date '2025-12-02')
+) as e(room_code, equipment_code, equipment_name, category, brand, model, purchase_date, last_maintenance_date, next_maintenance_date, status, notes, origin, warranty_expiry_date)
 join public.rooms r on r.room_code = e.room_code;
 
 insert into public.member_packages (
@@ -388,7 +398,7 @@ select
   case when x.status in ('active', 'expired', 'paused') then now() + (x.start_offset * interval '1 day') else null end
 from (
   values
-    ('MB-000', 'PT-3M', 'PT-001', 'active', -42, 48, 24, 8),
+    ('MB-000', 'PT-3M', 'PT-001', 'active', -42, 3, 24, 8),
     ('MB-001', 'PT-3M', 'PT-003', 'active', -70, 20, 24, 15),
     ('MB-002', 'GYM-6M', null, 'active', -110, 70, null, 0),
     ('MB-003', 'PT-1M', 'PT-005', 'active', -15, 15, 8, 2),
@@ -920,6 +930,13 @@ join public.trainers t on t.trainer_id = ta.trainer_id
 join public.meal_plans mpl on mpl.trainer_id = t.trainer_id
 where t.trainer_code in ('PT-001', 'PT-003', 'PT-004', 'PT-007');
 
+-- Historical fixtures intentionally include requests that would be rejected by
+-- the current business rule. Disable only the app-owned validation trigger.
+-- Do not use "disable trigger all": Supabase does not allow the SQL Editor role
+-- to disable PostgreSQL's RI_ConstraintTrigger_* foreign-key triggers.
+alter table public.package_change_requests
+  disable trigger check_package_change_request;
+
 insert into public.package_change_requests (
   member_id,
   current_member_package_id,
@@ -971,6 +988,10 @@ left join lateral (
   from public.employees
   where employee_code = 'EMP-STF-003'
 ) reviewer on true;
+
+alter table public.package_change_requests
+  enable trigger check_package_change_request;
+
 
 insert into public.service_feedback (
   member_id,
@@ -1116,31 +1137,47 @@ join public.employees e on e.employee_code = 'EMP-STF-004';
 
 insert into public.employee_schedules (
   employee_id,
-  room_id,
-  shift_date,
+  day_of_week,
+  shift_code,
   start_time,
   end_time,
-  shift_type,
-  status,
-  notes
+  status
 )
 select
   e.employee_id,
-  r.room_id,
-  current_date + (d.day_offset * interval '1 day'),
-  case when e.role = 'trainer' then time '14:00' else time '08:00' end,
-  case when e.role = 'trainer' then time '22:00' else time '16:00' end,
-  case when d.day_offset = 6 then 'overtime' else 'regular' end,
-  case when d.day_offset < 0 then 'completed' else 'scheduled' end,
-  'Seeded roster entry for staff and trainer scheduling.'
+  d.day_of_week,
+  s.shift_code,
+  case s.shift_code
+    when 'shift_1' then '08:00:00'::time
+    when 'shift_2' then '14:00:00'::time
+    when 'shift_3' then '16:00:00'::time
+    when 'shift_4' then '18:00:00'::time
+  end,
+  case s.shift_code
+    when 'shift_1' then '10:00:00'::time
+    when 'shift_2' then '16:00:00'::time
+    when 'shift_3' then '18:00:00'::time
+    when 'shift_4' then '20:00:00'::time
+  end,
+  'active'
 from public.employees e
-join public.rooms r on r.room_code = case
-  when e.role = 'trainer' then 'ROOM-PT-01'
-  when e.department = 'Operations' then 'ROOM-GYM-01'
-  else 'ROOM-LOCKER-01'
-end
-cross join generate_series(-3, 10) as d(day_offset)
-where e.role in ('staff', 'trainer');
+cross join (
+  values
+    ('monday'), ('tuesday'), ('wednesday'), ('thursday'), ('friday'), ('saturday'), ('sunday')
+) as d(day_of_week)
+cross join (
+  values
+    ('shift_1'), ('shift_2'), ('shift_3'), ('shift_4')
+) as s(shift_code)
+where e.role = 'staff'
+  and (
+    (e.employee_code = 'EMP-STF-001' and d.day_of_week in ('monday', 'tuesday', 'wednesday', 'thursday', 'friday') and s.shift_code in ('shift_1', 'shift_2')) or
+    (e.employee_code = 'EMP-STF-002' and d.day_of_week in ('monday', 'tuesday', 'wednesday', 'thursday', 'friday') and s.shift_code in ('shift_3', 'shift_4')) or
+    (e.employee_code = 'EMP-STF-003' and d.day_of_week in ('wednesday', 'thursday', 'friday', 'saturday') and s.shift_code in ('shift_1', 'shift_2')) or
+    (e.employee_code = 'EMP-STF-004' and d.day_of_week in ('monday', 'wednesday', 'friday', 'saturday', 'sunday') and s.shift_code in ('shift_3')) or
+    (e.employee_code = 'EMP-STF-005' and d.day_of_week in ('tuesday', 'thursday', 'saturday', 'sunday') and s.shift_code in ('shift_4'))
+  );
+
 
 insert into public.payroll_periods (period_name, period_start, period_end, status) values
   ('2026-03 Payroll', date '2026-03-01', date '2026-03-31', 'paid'),

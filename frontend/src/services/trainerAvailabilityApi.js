@@ -43,6 +43,31 @@ function defaultAvailabilityRows(trainerId) {
   );
 }
 
+function buildWeeklyAvailabilityData(availabilityRows, bookedRows = []) {
+  const bookedKeys = buildBookedKeys(bookedRows);
+
+  return weeklyTrainingDays.map((day) => {
+    const slots = weeklyTrainingSlots.map((slot) => {
+      const configured = availabilityRows.find((row) =>
+        row.day_of_week === day.key &&
+        normalizeTime(row.start_time) === slot.startTime &&
+        normalizeTime(row.end_time) === slot.endTime
+      );
+      const isConfiguredAvailable = configured ? configured.is_available !== false : true;
+      const isBooked = bookedKeys.has(`${day.key}|${slot.startTime}|${slot.endTime}`);
+
+      return {
+        ...slot,
+        dayKey: day.key,
+        available: isConfiguredAvailable && !isBooked,
+        booked: isBooked,
+      };
+    });
+
+    return { ...day, slots };
+  });
+}
+
 async function fetchAvailabilityRows(trainerId) {
   const { data, error } = await supabase
     .from("trainer_weekly_availability")
@@ -95,37 +120,19 @@ function buildDateBookedKeys(bookedRows, excludeSessionId = "") {
 
 export async function getTrainerWeeklyAvailability(trainerId) {
   if (!supabase || !trainerId) {
-    return { data: [], error: null };
+    return { data: buildWeeklyAvailabilityData(defaultAvailabilityRows(trainerId || "local-trainer")), error: null };
+  }
+
+  if (String(trainerId).startsWith("local-")) {
+    return { data: buildWeeklyAvailabilityData(defaultAvailabilityRows(trainerId)), error: null };
   }
 
   const [availabilityRows, bookedRows] = await Promise.all([
     fetchAvailabilityRows(trainerId),
     fetchBookedRows(trainerId),
   ]);
-  const bookedKeys = buildBookedKeys(bookedRows);
 
-  const data = weeklyTrainingDays.map((day) => {
-    const slots = weeklyTrainingSlots.map((slot) => {
-      const configured = availabilityRows.find((row) =>
-        row.day_of_week === day.key &&
-        normalizeTime(row.start_time) === slot.startTime &&
-        normalizeTime(row.end_time) === slot.endTime
-      );
-      const isConfiguredAvailable = configured ? configured.is_available !== false : true;
-      const isBooked = bookedKeys.has(`${day.key}|${slot.startTime}|${slot.endTime}`);
-
-      return {
-        ...slot,
-        dayKey: day.key,
-        available: isConfiguredAvailable && !isBooked,
-        booked: isBooked,
-      };
-    });
-
-    return { ...day, slots };
-  });
-
-  return { data, error: null };
+  return { data: buildWeeklyAvailabilityData(availabilityRows, bookedRows), error: null };
 }
 
 export async function getTrainerOpenScheduleSlots(trainerId, options = {}) {

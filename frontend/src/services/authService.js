@@ -5,6 +5,7 @@ const USERS_KEY = "gymster_test_data_users";
 const CURRENT_USER_KEY = "gymster_current_user";
 export const CURRENT_SESSION_KEY = "gymster_current_session";
 const OAUTH_REMEMBER_KEY = "gymster_oauth_remember";
+const LOCAL_PAYMENT_REQUESTS_KEY = "gymster_local_payment_requests";
 const LEGACY_PASSWORD_PREFIX = String.fromCharCode(100, 101, 109, 111, 45, 111, 110, 108, 121, 58);
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 const TWO_WEEKS_MS = 14 * ONE_DAY_MS;
@@ -73,6 +74,46 @@ const SEEDED_DEMO_USERS = [
     gender: "male",
     role: "pt",
     sourceRole: "trainer",
+    trainerId: "local-trainer-khoa",
+    trainer_id: "local-trainer-khoa",
+    accountStatus: "Active",
+    account_status: "active",
+  },
+  {
+    id: "local-user-trainer-lan",
+    userId: "local-user-trainer-lan",
+    username: "trainerlan",
+    email: "trainer.lan@gymster.local",
+    password: "Trainer@123",
+    fullName: "Lan Anh",
+    firstName: "Lan",
+    lastName: "Anh",
+    phone: "0903000101",
+    dob: "1992-04-18",
+    gender: "female",
+    role: "pt",
+    sourceRole: "trainer",
+    trainerId: "local-trainer-lan",
+    trainer_id: "local-trainer-lan",
+    accountStatus: "Active",
+    account_status: "active",
+  },
+  {
+    id: "local-user-trainer-minh",
+    userId: "local-user-trainer-minh",
+    username: "trainerminh",
+    email: "trainer.minh@gymster.local",
+    password: "Trainer@123",
+    fullName: "Minh Tuan",
+    firstName: "Minh",
+    lastName: "Tuan",
+    phone: "0903000102",
+    dob: "1991-08-12",
+    gender: "male",
+    role: "pt",
+    sourceRole: "trainer",
+    trainerId: "local-trainer-minh",
+    trainer_id: "local-trainer-minh",
     accountStatus: "Active",
     account_status: "active",
   },
@@ -91,6 +132,70 @@ const SEEDED_DEMO_USERS = [
     role: "member",
     accountStatus: "Active",
     account_status: "active",
+  },
+  {
+    id: "00000000-0000-4000-8000-000000000099",
+    userId: "00000000-0000-4000-8000-000000000099",
+    username: "newmember",
+    email: "newmember@gymster.local",
+    password: "Member@123",
+    fullName: "New Member",
+    firstName: "New",
+    lastName: "Member",
+    phone: "0910000099",
+    dob: "1999-09-09",
+    gender: "other",
+    role: "member",
+    accountStatus: "PendingOnboarding",
+    account_status: "pending_onboarding",
+  },
+  {
+    id: "00000000-0000-4000-8000-000000000098",
+    userId: "00000000-0000-4000-8000-000000000098",
+    username: "freshmember",
+    email: "freshmember@gymster.local",
+    password: "Member@123",
+    fullName: "Fresh Member",
+    firstName: "Fresh",
+    lastName: "Member",
+    phone: "0910000098",
+    dob: "2000-01-15",
+    gender: "other",
+    role: "member",
+    accountStatus: "PendingOnboarding",
+    account_status: "pending_onboarding",
+  },
+  {
+    id: "00000000-0000-4000-8000-000000000097",
+    userId: "00000000-0000-4000-8000-000000000097",
+    username: "trialmember",
+    email: "trialmember@gymster.local",
+    password: "Member@123",
+    fullName: "Trial Member",
+    firstName: "Trial",
+    lastName: "Member",
+    phone: "0910000097",
+    dob: "2001-02-10",
+    gender: "other",
+    role: "member",
+    accountStatus: "PendingOnboarding",
+    account_status: "pending_onboarding",
+  },
+  {
+    id: "00000000-0000-4000-8000-000000000096",
+    userId: "00000000-0000-4000-8000-000000000096",
+    username: "newmember02",
+    email: "newmember02@gymster.local",
+    password: "Member@123",
+    fullName: "New Member 02",
+    firstName: "New",
+    lastName: "Member 02",
+    phone: "0910000096",
+    dob: "2002-03-12",
+    gender: "other",
+    role: "member",
+    accountStatus: "PendingOnboarding",
+    account_status: "pending_onboarding",
   },
 ];
 
@@ -156,6 +261,7 @@ function toFrontendAccountStatus(status) {
     pending_onboarding: "PendingOnboarding",
     pending_pt_approval: "PendingPTApproval",
     pending_payment: "PendingPayment",
+    pending_verification: "PendingVerification",
     active: "Active",
     cancelled: "Cancelled",
     inactive: "Inactive",
@@ -365,6 +471,54 @@ function mergeUsers(defaultUsers, storedUsers) {
   return [...usersByIdentifier.values()];
 }
 
+function getApprovedLocalPaymentRequestForUser(user) {
+  if (!canUseStorage() || String(user?.role || "").toLowerCase() !== "member") return null;
+
+  try {
+    const rows = JSON.parse(window.localStorage.getItem(LOCAL_PAYMENT_REQUESTS_KEY) || "[]");
+    if (!Array.isArray(rows)) return null;
+
+    const userIds = [
+      user.id,
+      user.userId,
+      user.user_id,
+      user.memberId,
+      user.member_id,
+    ].filter(Boolean).map((value) => String(value).toLowerCase());
+    const email = String(user.email || "").toLowerCase();
+
+    return rows
+      .filter((request) => {
+        const status = String(request.status || "").toLowerCase();
+        const paymentStatus = String(request.paymentStatus || "").toLowerCase();
+        const requestMemberId = String(request.memberId || "").toLowerCase();
+        const requestEmail = String(request.memberEmail || "").toLowerCase();
+        const isApproved = status === "approved" || paymentStatus === "paid" || paymentStatus === "approved";
+        const isSameUser = (email && requestEmail === email) || (requestMemberId && userIds.includes(requestMemberId));
+        return isApproved && isSameUser;
+      })
+      .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())[0] || null;
+  } catch {
+    return null;
+  }
+}
+
+function applyLocalPaymentApproval(user) {
+  const approvedRequest = getApprovedLocalPaymentRequestForUser(user);
+  if (!approvedRequest) return user;
+
+  return {
+    ...user,
+    accountStatus: "Active",
+    account_status: "active",
+    currentPackageId: approvedRequest.packageId || user.currentPackageId,
+    currentMemberPackageId: approvedRequest.memberPackageId || user.currentMemberPackageId,
+    memberPackageId: approvedRequest.memberPackageId || user.memberPackageId,
+    trainerId: approvedRequest.trainerId || user.trainerId,
+    trainer_id: approvedRequest.trainerId || user.trainer_id,
+  };
+}
+
 export function getUsers() {
   const defaultUsers = getDefaultDemoUsers();
   if (!canUseStorage()) return defaultUsers;
@@ -401,7 +555,8 @@ function loginLocalUser(identifier, password, options = {}) {
     return { ok: false, message: "Username, email, or password is incorrect." };
   }
 
-  const { password: _password, ...safeUser } = user;
+  const { password: _password, ...safeUserBase } = user;
+  const safeUser = applyLocalPaymentApproval(safeUserBase);
   persistCurrentUser(safeUser, options);
 
   return { ok: true, user: safeUser };
@@ -448,30 +603,17 @@ async function findTrainerIdByUserId(userId) {
 async function findUserByIdentifier(identifier) {
   const rawIdentifier = identifier.trim();
   const normalizedIdentifier = rawIdentifier.toLowerCase();
-
-  const { data: emailRows, error: emailError } = await supabase
+  const column = rawIdentifier.includes("@") ? "email" : "username";
+  const lookupValue = column === "email" ? normalizedIdentifier : rawIdentifier;
+  const { data: rows, error } = await supabase
     .from("users")
     .select(USER_SELECT)
-    .ilike("email", normalizedIdentifier)
-    .limit(1);
-
-  if (emailError) {
-    return { data: null, error: emailError };
-  }
-
-  if (emailRows?.[0]) {
-    return { data: emailRows[0], error: null };
-  }
-
-  const { data: usernameRows, error: usernameError } = await supabase
-    .from("users")
-    .select(USER_SELECT)
-    .ilike("username", rawIdentifier)
+    .ilike(column, lookupValue)
     .limit(1);
 
   return {
-    data: usernameRows?.[0] || null,
-    error: usernameError,
+    data: rows?.[0] || null,
+    error,
   };
 }
 
@@ -703,6 +845,19 @@ async function loginSupabaseUser(identifier, password, options = {}) {
     const result = await response.json().catch(() => ({}));
 
     if (response.ok && result.ok && result.user) {
+      const authEmail = result.user.email || (String(identifier).includes("@") ? identifier : "");
+      if (authEmail) {
+        const authResult = await supabase.auth.signInWithPassword({
+          email: authEmail,
+          password,
+        });
+        if (authResult.error || !authResult.data?.session?.access_token) {
+          return {
+            ok: false,
+            message: authResult.error?.message || "Supabase session could not be created. Please try signing in again.",
+          };
+        }
+      }
       persistCurrentUser(result.user, options);
       return { ok: true, user: result.user };
     }
@@ -742,7 +897,10 @@ export async function loginUser(identifier, password, options = {}) {
   }
 
   const supabaseResult = await loginSupabaseUser(identifier, password, options);
-  return supabaseResult;
+  if (supabaseResult.ok) return supabaseResult;
+
+  const localResult = loginLocalUser(identifier, password, options);
+  return localResult.ok ? localResult : supabaseResult;
 }
 
 export async function signInWithOAuthProvider(provider, options = {}) {
@@ -902,6 +1060,32 @@ export async function completeOAuthProfile(profile) {
   }
 }
 
+export async function completeNewMemberSession(user, password, options = {}) {
+  if (!user?.email) {
+    return { ok: false, message: "A verified email is required to create a member session." };
+  }
+
+  if (!supabase) {
+    persistCurrentUser(user, options);
+    return { ok: true, user };
+  }
+
+  const authResult = await supabase.auth.signInWithPassword({
+    email: user.email,
+    password,
+  });
+
+  if (authResult.error || !authResult.data?.session?.access_token) {
+    return {
+      ok: false,
+      message: authResult.error?.message || "Account was created, but a Supabase session could not be created.",
+    };
+  }
+
+  persistCurrentUser(user, options);
+  return { ok: true, user };
+}
+
 export function setCurrentUser(user) {
   if (!canUseStorage()) return;
 
@@ -944,7 +1128,13 @@ export function refreshCurrentSession() {
   const sessionMeta = getCurrentSessionMeta() || createSessionMeta(false);
   persistCurrentSessionMeta(createSessionMeta(sessionMeta.rememberLogin));
 
-  return user;
+  const nextUser = applyLocalPaymentApproval(user);
+  if (nextUser !== user) {
+    window.localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(nextUser));
+    notifyCurrentUserChanged(nextUser);
+  }
+
+  return nextUser;
 }
 
 export function getRoleHome(role) {

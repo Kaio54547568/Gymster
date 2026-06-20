@@ -12,6 +12,7 @@ const USER_SELECT = `
   user_id,
   email,
   username,
+  auth_user_id,
   password_hash,
   first_name,
   last_name,
@@ -115,6 +116,15 @@ function normalizeUsername(username) {
   return String(username || "").trim();
 }
 
+export function getIdentifierLookupColumn(identifier) {
+  return String(identifier || "").includes("@") ? "email" : "username";
+}
+
+function normalizeOptionalText(value) {
+  const normalized = String(value || "").trim();
+  return normalized || "";
+}
+
 function isValidEmail(email) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
@@ -141,7 +151,7 @@ function isValidBirthDate(value) {
 }
 
 function validateRegistrationPayload(payload) {
-  const requiredFields = ["firstName", "lastName", "username", "email", "password", "phone", "dob", "gender"];
+  const requiredFields = ["firstName", "lastName", "username", "email", "password", "phone", "dob", "gender", "occupation", "address"];
   const missingField = requiredFields.find((field) => !String(payload?.[field] || "").trim());
 
   if (missingField) {
@@ -175,8 +185,44 @@ function validateRegistrationPayload(payload) {
   return "";
 }
 
+export async function registerAccount(payload) {
+  const client = getSupabaseClient();
+  if (!client) {
+    return { ok: false, message: "Backend Supabase service role is not configured." };
+  }
+
+  const validationError = validateRegistrationPayload(payload);
+  if (validationError) {
+    return { ok: false, message: validationError };
+  }
+
+  const registrationData = sanitizeRegistrationPayload(payload);
+  registrationData.passwordHash = await bcrypt.hash(payload.password, 10);
+
+  const availability = await ensureAccountIdentifiersAvailable(client, registrationData.email, registrationData.username, {
+    phone: registrationData.phone,
+    citizenId: registrationData.citizenId,
+    memberCode: registrationData.memberCode,
+  });
+  if (!availability.ok) return availability;
+
+  try {
+    const user = await createVerifiedMemberAccount(client, registrationData);
+    return {
+      ok: true,
+      user,
+      message: "Account created successfully.",
+    };
+  } catch (error) {
+    console.error("[Gymster auth] Failed to register account:", error);
+    return mapConstraintError(error, "Could not create account.");
+  }
+}
+
+export const registerMemberAccount = registerAccount;
+
 function validateStoredRegistrationPayload(payload) {
-  const requiredFields = ["firstName", "lastName", "username", "email", "passwordHash", "phone", "dob", "gender"];
+  const requiredFields = ["firstName", "lastName", "username", "email", "passwordHash", "phone", "dob", "gender", "occupation", "address"];
   const missingField = requiredFields.find((field) => !String(payload?.[field] || "").trim());
 
   if (missingField) {
@@ -212,10 +258,36 @@ function sanitizeRegistrationPayload(payload) {
     phone: String(payload.phone || "").trim(),
     dob: String(payload.dob || "").trim(),
     gender: String(payload.gender || "").trim(),
+    occupation: normalizeOptionalText(payload.occupation),
+    address: normalizeOptionalText(payload.address),
+    citizenId: normalizeOptionalText(payload.citizenId),
+    memberCode: normalizeOptionalText(payload.memberCode).toUpperCase(),
+    healthNotes: normalizeOptionalText(payload.healthNotes),
   };
 }
 
-async function ensureAccountIdentifiersAvailable(client, email, username) {
+function splitFullName(firstName, lastName) {
+  return [firstName, lastName].filter(Boolean).join(" ").trim();
+}
+
+async function ensureMemberCodeAvailable(client, memberCode) {
+  if (!memberCode) return { ok: true };
+
+  const { data, error } = await client
+    .from("members")
+    .select("member_id")
+    .ilike("member_code", memberCode)
+    .limit(1);
+
+  if (error) throw error;
+  if (data?.length) {
+    return { ok: false, status: 409, message: "Member code already exists." };
+  }
+
+  return { ok: true };
+}
+
+async function ensureAccountIdentifiersAvailable(client, email, username, options = {}) {
   const { data: emailRows, error: emailError } = await client
     .from("users")
     .select("user_id")
@@ -224,7 +296,7 @@ async function ensureAccountIdentifiersAvailable(client, email, username) {
 
   if (emailError) throw emailError;
   if (emailRows?.length) {
-    return { ok: false, message: "Email already exists." };
+    return { ok: false, status: 409, message: "Email already exists." };
   }
 
   const { data: usernameRows, error: usernameError } = await client
@@ -235,10 +307,38 @@ async function ensureAccountIdentifiersAvailable(client, email, username) {
 
   if (usernameError) throw usernameError;
   if (usernameRows?.length) {
-    return { ok: false, message: "Username already exists." };
+    return { ok: false, status: 409, message: "Username already exists." };
   }
 
-  return { ok: true };
+  const phone = String(options.phone || "").trim();
+  if (phone) {
+    const { data: phoneRows, error: phoneError } = await client
+      .from("users")
+      .select("user_id")
+      .eq("phone_number", phone)
+      .limit(1);
+
+    if (phoneError) throw phoneError;
+    if (phoneRows?.length) {
+      return { ok: false, status: 409, message: "Phone number already exists." };
+    }
+  }
+
+  const citizenId = String(options.citizenId || "").trim();
+  if (citizenId) {
+    const { data: citizenRows, error: citizenError } = await client
+      .from("members")
+      .select("member_id")
+      .eq("citizen_id", citizenId)
+      .limit(1);
+
+    if (citizenError) throw citizenError;
+    if (citizenRows?.length) {
+      return { ok: false, status: 409, message: "Citizen ID already exists." };
+    }
+  }
+
+  return ensureMemberCodeAvailable(client, String(options.memberCode || "").trim());
 }
 
 async function getLatestPendingRegistration(client, email) {
@@ -308,7 +408,7 @@ function getRegistrationRequestErrorMessage(error) {
 }
 
 function mapCreatedAccount(userRow, memberRow) {
-  const fullName = [userRow.first_name, userRow.last_name].filter(Boolean).join(" ").trim();
+  const fullName = splitFullName(userRow.first_name, userRow.last_name);
 
   return {
     id: userRow.user_id,
@@ -316,6 +416,8 @@ function mapCreatedAccount(userRow, memberRow) {
     user_id: userRow.user_id,
     memberId: memberRow?.member_id || null,
     member_id: memberRow?.member_id || null,
+    memberCode: memberRow?.member_code || null,
+    member_code: memberRow?.member_code || null,
     username: userRow.username,
     email: userRow.email,
     firstName: userRow.first_name || "",
@@ -326,23 +428,74 @@ function mapCreatedAccount(userRow, memberRow) {
     dob: userRow.date_of_birth,
     date_of_birth: userRow.date_of_birth,
     gender: userRow.gender,
+    occupation: memberRow?.occupation || "",
+    address: memberRow?.address || "",
     role: "member",
     accountStatus: "PendingOnboarding",
     account_status: userRow.account_status || "pending_onboarding",
   };
 }
 
-async function insertMemberProfile(client, userRow, registrationData) {
-  const fullName = [registrationData.firstName, registrationData.lastName].filter(Boolean).join(" ").trim();
+async function generateMemberCode(client) {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const candidate = `MB-${crypto.randomInt(0, 1_000_000).toString().padStart(6, "0")}`;
+    const availability = await ensureMemberCodeAvailable(client, candidate);
+    if (availability.ok) return candidate;
+  }
+
+  throw new Error("A unique member code could not be generated.");
+}
+
+function mapConstraintError(error, fallbackMessage = "Could not create account.") {
+  const code = String(error?.code || "");
+  const detail = `${error?.message || ""} ${error?.details || ""} ${error?.hint || ""}`.toLowerCase();
+  const constraint = String(error?.constraint || "").toLowerCase();
+
+  if (code !== "23505") {
+    return { ok: false, status: 500, message: fallbackMessage };
+  }
+
+  if (constraint.includes("email") || detail.includes("idx_users_email_lower") || detail.includes("users_email_key")) {
+    return { ok: false, status: 409, message: "Email already exists." };
+  }
+
+  if (constraint.includes("username") || detail.includes("idx_users_username_lower") || detail.includes("users_username_key")) {
+    return { ok: false, status: 409, message: "Username already exists." };
+  }
+
+  if (constraint.includes("phone") || detail.includes("idx_users_phone_number_unique") || detail.includes("phone_number")) {
+    return { ok: false, status: 409, message: "Phone number already exists." };
+  }
+
+  if (constraint.includes("citizen") || detail.includes("idx_members_citizen_id_unique") || detail.includes("citizen_id")) {
+    return { ok: false, status: 409, message: "Citizen ID already exists." };
+  }
+
+  if (constraint.includes("member_code") || detail.includes("idx_members_member_code_lower") || detail.includes("member code")) {
+    return { ok: false, status: 409, message: "Member code already exists." };
+  }
+
+  return { ok: false, status: 409, message: "A member account with the same unique information already exists." };
+}
+
+async function insertMemberProfile(client, userRow, registrationData, options = {}) {
+  const fullName = splitFullName(registrationData.firstName, registrationData.lastName);
+  const memberCode = registrationData.memberCode || (await generateMemberCode(client));
   const targetInsert = await client
     .from("members")
     .insert({
       user_id: userRow.user_id,
+      member_code: memberCode,
       full_name: fullName,
       phone_number: registrationData.phone,
       date_of_birth: registrationData.dob,
       gender: registrationData.gender,
-      status: "pending",
+      status: options.memberStatus || "pending",
+      join_date: options.joinDate || null,
+      occupation: registrationData.occupation || null,
+      address: registrationData.address || null,
+      citizen_id: registrationData.citizenId || null,
+      health_notes: registrationData.healthNotes || null,
     })
     .select("*")
     .single();
@@ -353,13 +506,23 @@ async function insertMemberProfile(client, userRow, registrationData) {
     .from("members")
     .insert({
       user_id: userRow.user_id,
-      status: "pending_onboarding",
+      member_code: memberCode,
+      full_name: fullName,
+      phone_number: registrationData.phone,
+      date_of_birth: registrationData.dob,
+      gender: registrationData.gender,
+      status: options.memberStatus || "pending_onboarding",
+      join_date: options.joinDate || null,
+      occupation: registrationData.occupation || null,
+      address: registrationData.address || null,
+      citizen_id: registrationData.citizenId || null,
+      health_notes: registrationData.healthNotes || null,
     })
     .select("*")
     .single();
 }
 
-async function createVerifiedMemberAccount(client, registrationData) {
+export async function createVerifiedMemberAccount(client, registrationData, options = {}) {
   const passwordHash = registrationData.passwordHash || (await bcrypt.hash(registrationData.password, BCRYPT_ROUNDS));
 
   const { data: userRow, error: userError } = await client
@@ -374,21 +537,105 @@ async function createVerifiedMemberAccount(client, registrationData) {
       date_of_birth: registrationData.dob,
       gender: registrationData.gender,
       role: "member",
-      account_status: "pending_onboarding",
+      account_status: options.accountStatus || "pending_onboarding",
     })
     .select("*")
     .single();
 
   if (userError) throw userError;
 
-  const { data: memberRow, error: memberError } = await insertMemberProfile(client, userRow, registrationData);
+  const { data: memberRow, error: memberError } = await insertMemberProfile(client, userRow, registrationData, options);
 
   if (memberError) {
     await client.from("users").delete().eq("user_id", userRow.user_id);
     throw memberError;
   }
 
+  await ensureSupabaseAuthIdentity(client, userRow, registrationData.password);
+
   return mapCreatedAccount(userRow, memberRow);
+}
+
+async function findAuthUserByEmail(client, email) {
+  let page = 1;
+  const target = normalizeEmail(email);
+
+  while (page <= 20) {
+    const { data, error } = await client.auth.admin.listUsers({ page, perPage: 200 });
+    if (error) throw error;
+
+    const found = (data?.users || []).find((user) => normalizeEmail(user.email) === target);
+    if (found) return found;
+
+    if (!data?.users?.length || data.users.length < 200) break;
+    page += 1;
+  }
+
+  return null;
+}
+
+export async function ensureSupabaseAuthIdentity(client, user, password) {
+  if (!user?.user_id || !user?.email || !password) {
+    return { ok: false, message: "User, email, and password are required to provision auth identity." };
+  }
+
+  const targetEmail = normalizeEmail(user.email);
+  const metadata = {
+    app_user_id: user.user_id,
+    username: user.username || "",
+    role: user.role || "member",
+  };
+
+  let authUser = null;
+  if (user.auth_user_id) {
+    const { data, error } = await client.auth.admin.updateUserById(user.auth_user_id, {
+      email: targetEmail,
+      password,
+      email_confirm: true,
+      user_metadata: metadata,
+      app_metadata: { provider: "email" },
+    });
+    if (error) throw error;
+    authUser = data.user || null;
+  } else {
+    authUser = await findAuthUserByEmail(client, targetEmail);
+    if (authUser?.id) {
+      const { data, error } = await client.auth.admin.updateUserById(authUser.id, {
+        email: targetEmail,
+        password,
+        email_confirm: true,
+        user_metadata: metadata,
+        app_metadata: { provider: "email" },
+      });
+      if (error) throw error;
+      authUser = data.user || authUser;
+    } else {
+      const { data, error } = await client.auth.admin.createUser({
+        email: targetEmail,
+        password,
+        email_confirm: true,
+        user_metadata: metadata,
+        app_metadata: { provider: "email" },
+      });
+      if (error) throw error;
+      authUser = data.user || null;
+    }
+  }
+
+  if (!authUser?.id) {
+    throw new Error("Supabase auth user could not be provisioned.");
+  }
+
+  const { error: updateError } = await client
+    .from("users")
+    .update({
+      auth_user_id: authUser.id,
+      auth_provider: "email",
+    })
+    .eq("user_id", user.user_id);
+  if (updateError) throw updateError;
+
+  return { ok: true, authUserId: authUser.id };
 }
 
 export async function requestRegistrationCode(payload) {
@@ -407,7 +654,11 @@ export async function requestRegistrationCode(payload) {
   }
 
   try {
-    const availability = await ensureAccountIdentifiersAvailable(client, registrationData.email, registrationData.username);
+    const availability = await ensureAccountIdentifiersAvailable(client, registrationData.email, registrationData.username, {
+      phone: registrationData.phone,
+      citizenId: registrationData.citizenId,
+      memberCode: registrationData.memberCode,
+    });
     if (!availability.ok) return availability;
 
     const latestPending = await getLatestPendingRegistration(client, registrationData.email);
@@ -534,10 +785,7 @@ export async function verifyRegistrationCode(payload) {
     };
   } catch (error) {
     console.error("[Gymster auth] Failed to verify registration code:", error);
-    return {
-      ok: false,
-      message: error.code === "23505" ? "Username or email already exists." : "Could not verify registration code.",
-    };
+    return mapConstraintError(error, "Could not verify registration code.");
   }
 }
 
@@ -580,25 +828,16 @@ async function isPasswordMatch(storedPassword, password) {
 
 async function findUserByIdentifier(client, identifier) {
   const rawIdentifier = String(identifier || "").trim();
-  const normalizedIdentifier = rawIdentifier.toLowerCase();
-
-  const { data: emailRows, error: emailError } = await client
+  const column = getIdentifierLookupColumn(rawIdentifier);
+  const lookupValue = column === "email" ? rawIdentifier.toLowerCase() : rawIdentifier;
+  const { data: rows, error } = await client
     .from("users")
     .select(USER_SELECT)
-    .ilike("email", normalizedIdentifier)
+    .ilike(column, lookupValue)
     .limit(1);
 
-  if (emailError) throw emailError;
-  if (emailRows?.[0]) return emailRows[0];
-
-  const { data: usernameRows, error: usernameError } = await client
-    .from("users")
-    .select(USER_SELECT)
-    .ilike("username", rawIdentifier)
-    .limit(1);
-
-  if (usernameError) throw usernameError;
-  return usernameRows?.[0] || null;
+  if (error) throw error;
+  return rows?.[0] || null;
 }
 
 async function findMemberIdByUserId(client, userId) {
@@ -692,6 +931,8 @@ export async function loginWithPassword(payload) {
     if (!user || !(await isPasswordMatch(user.password_hash, password))) {
       return { ok: false, message: "Username, email, or password is incorrect." };
     }
+
+    await ensureSupabaseAuthIdentity(client, user, password);
 
     const safeUser = await mapUserForSession(client, user);
     return { ok: true, user: safeUser };

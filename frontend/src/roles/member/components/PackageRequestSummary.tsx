@@ -51,8 +51,8 @@ export default function PackageRequestSummary({
       </div>
 
       {hasMoreThan5DaysLeft && (
-        <div className="rounded-xl border border-[#EF233C]/20 bg-[#EF233C]/10 p-3 text-sm font-bold text-[#EF233C]">
-          Gói hiện tại của bạn còn {daysRemaining} ngày. Bạn chỉ được gửi yêu cầu gia hạn / đổi gói khi gói hiện tại còn tối đa 5 ngày.
+        <div className="rounded-xl border border-amber-400/25 bg-amber-500/10 p-3 text-sm font-bold text-amber-200">
+          Your current package has {daysRemaining} days remaining. Your new package will start after your current package expires.
         </div>
       )}
 

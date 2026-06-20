@@ -12,6 +12,7 @@ function LoginPage() {
   const [form, setForm] = useState({ identifier: "", password: "", rememberLogin: false });
   const [showPassword, setShowPassword] = useState(false);
   const [status, setStatus] = useState({ type: "", message: "" });
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const updateField = (field) => (event) => {
     setForm((current) => ({ ...current, [field]: event.target.value }));
@@ -26,16 +27,25 @@ function LoginPage() {
       return;
     }
 
-    const result = await loginUser(form.identifier, form.password, {
-      rememberLogin: form.rememberLogin,
-    });
-    if (!result.ok) {
-      setStatus({ type: "error", message: result.message });
-      return;
-    }
+    setIsSubmitting(true);
+    setStatus({ type: "info", message: "Đang xác thực tài khoản..." });
 
-    setStatus({ type: "success", message: `Đăng nhập thành công với tài khoản ${result.user.username}.` });
-    navigate(getUserHome(result.user), { replace: true });
+    try {
+      const result = await loginUser(form.identifier, form.password, {
+        rememberLogin: form.rememberLogin,
+      });
+      if (!result.ok) {
+        setStatus({ type: "error", message: result.message });
+        return;
+      }
+
+      setStatus({ type: "success", message: `Đăng nhập thành công với tài khoản ${result.user.username}.` });
+      navigate(getUserHome(result.user), { replace: true });
+    } catch {
+      setStatus({ type: "error", message: "Không thể kết nối máy chủ. Vui lòng thử lại." });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleOAuthLogin = async (provider) => {
@@ -143,8 +153,8 @@ function LoginPage() {
                 <p className={`auth-message ${status.type}`}>{status.message}</p>
               )}
 
-              <button className="auth-submit" type="submit">
-                Đăng nhập
+              <button className="auth-submit" type="submit" disabled={isSubmitting}>
+                {isSubmitting ? "Đang đăng nhập..." : "Đăng nhập"}
               </button>
             </form>
 

@@ -79,8 +79,7 @@ import { vi } from "vitest";
 
 vi.mock("../services/authRegistrationService.js", () => ({
   loginWithPassword: vi.fn(),
-  requestRegistrationCode: vi.fn(),
-  verifyRegistrationCode: vi.fn(),
+  registerMemberAccount: vi.fn(),
 }));
 ```
 
@@ -145,4 +144,3 @@ npx vitest run backend --coverage
 > Chỉ số câu lệnh đạt ~53.64% do chúng ta đã sử dụng Mocking (giả lập) toàn bộ các dịch vụ DB và API bên ngoài. Điều này là hoàn toàn chính xác đối với mô hình API Integration test cô lập, giúp kiểm tra 100% các điều kiện lỗi và luồng định tuyến (routing) của Server mà không gây phụ thuộc database thực tế.
 
 ![Báo cáo độ bao phủ mã nguồn](coverage_report.png)
-

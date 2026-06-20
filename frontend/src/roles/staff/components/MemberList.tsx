@@ -307,9 +307,9 @@ export function MemberList() {
         ? {
             ...member,
             status: 'Active',
-            currentPackageId: renewalForm.packageId,
-            currentPackage: selectedPackage.name,
-            expirationDate: renewalForm.endDate,
+            currentPackageId: result.data?.package_status === 'active' ? renewalForm.packageId : member.currentPackageId,
+            currentPackage: result.data?.package_status === 'active' ? selectedPackage.name : member.currentPackage,
+            expirationDate: result.data?.package_status === 'active' ? result.data?.end_date || renewalForm.endDate : member.expirationDate,
           }
         : member
     )));

@@ -25,6 +25,9 @@ export default function MemberProfilePage() {
         phone={profile.phone}
         initials={profile.initials}
         avatarUrl={profile.avatarUrl}
+        memberCode={(profile as any).memberCode}
+        occupation={(profile as any).occupation}
+        address={(profile as any).address}
       />
     </>
   );

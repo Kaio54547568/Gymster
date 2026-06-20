@@ -1,21 +1,23 @@
 import { useEffect, useMemo, useState } from 'react';
+import { CheckCircle2, CreditCard, Dumbbell, LoaderCircle, Star, Users } from 'lucide-react';
+import { useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router';
-import { CreditCard, Dumbbell, Star, Users } from 'lucide-react';
-import { getCurrentUser, setCurrentUser } from '../../../services/authService';
-import { createMemberPackage, updateMemberPackageStatus, assignTrainerToMember } from '../../../services/memberPackageApi';
-import { createNotification } from '../../../services/notificationApi';
 import { fetchPackagesFromSupabase } from '../../../services/packageApi';
-import { createPayment } from '../../../services/paymentApi';
-import { fetchTrainersFromSupabase } from '../../../services/trainerApi';
+import { completeDemoPayment } from '../../../services/paymentRequestApi';
+import { fetchPackageQuote } from '../../../services/packageApi';
+import { fetchTrainersFromApi } from '../../../services/trainerApi';
 import { getTrainerWeeklyAvailability } from '../../../services/trainerAvailabilityApi';
-import { activateMemberAccount } from '../../../services/userApi';
-import { createWorkoutSessionsForSchedule } from '../../../services/workoutSessionApi';
 import Section from '../components/Section';
-import { addMonths, getPackageDurationMonths, toDateInputValue, withTimeout } from '../domain/packageHelpers';
+import { withTimeout } from '../domain/packageHelpers';
 
 export default function SelectPackageOnboarding({ onMemberActivated }: { onMemberActivated?: (user: any) => void }) {
   const navigate = useNavigate();
-  const currentUser = getCurrentUser();
+  const checkoutKeyRef = useRef(
+    typeof crypto !== 'undefined' && crypto.randomUUID
+      ? crypto.randomUUID()
+      : `checkout-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+  );
   const [packages, setPackages] = useState<any[]>([]);
   const [trainers, setTrainers] = useState<any[]>([]);
   const [availability, setAvailability] = useState<any[]>([]);
@@ -23,12 +25,17 @@ export default function SelectPackageOnboarding({ onMemberActivated }: { onMembe
   const [selectedTrainer, setSelectedTrainer] = useState<any | null>(null);
   const [selectedSlot, setSelectedSlot] = useState<any | null>(null);
   const [selectedSlots, setSelectedSlots] = useState<any[]>([]);
-  const [paymentMethod, setPaymentMethod] = useState('Bank Transfer');
+  const [purchasedSessions, setPurchasedSessions] = useState(1);
+  const [quoteDetails, setQuoteDetails] = useState<any | null>(null);
+  const [isQuoting, setIsQuoting] = useState(false);
+  const paymentMethod = 'Bank Transfer';
   const [step, setStep] = useState<'package' | 'trainer' | 'payment'>('package');
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingAvailability, setIsLoadingAvailability] = useState(false);
   const [message, setMessage] = useState('');
+  const [paymentError, setPaymentError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [checkoutState, setCheckoutState] = useState<'idle' | 'processing' | 'success'>('idle');
 
   const sessionsPerWeek = selectedPackage?.sessionsPerWeek || 1;
   const isScheduleValid = useMemo(() => {
@@ -60,13 +67,13 @@ export default function SelectPackageOnboarding({ onMemberActivated }: { onMembe
       setIsLoading(true);
       const [packageResult, trainerResult] = await Promise.all([
         fetchPackagesFromSupabase(),
-        fetchTrainersFromSupabase(),
+        fetchTrainersFromApi(),
       ]);
 
       if (!isMounted) return;
 
       setPackages(packageResult.error ? [] : packageResult.data.filter((item: any) => item.isActive !== false));
-      setTrainers(trainerResult.error ? [] : trainerResult.data.filter((item: any) => item.status === 'active'));
+      setTrainers(trainerResult.error ? [] : trainerResult.data.filter((item: any) => String(item.status || '').toLowerCase() === 'active'));
       setMessage(packageResult.error || trainerResult.error ? 'Some package or trainer data could not be loaded.' : '');
       setIsLoading(false);
     }
@@ -109,14 +116,54 @@ export default function SelectPackageOnboarding({ onMemberActivated }: { onMembe
     setSelectedTrainer(null);
     setSelectedSlot(null);
     setSelectedSlots([]);
+    setPurchasedSessions(pkg?.minPurchaseSessions || 1);
+    setQuoteDetails(null);
     setStep(pkg.hasPersonalTrainer ? 'trainer' : 'payment');
+    checkoutKeyRef.current = typeof crypto !== 'undefined' && crypto.randomUUID
+      ? crypto.randomUUID()
+      : `checkout-${Date.now()}-${Math.random().toString(16).slice(2)}`;
     setMessage('');
+    setPaymentError('');
   };
+
+  useEffect(() => {
+    let isMounted = true;
+    if (!selectedPackage) return;
+    
+    // For non session-based, just set the quote details locally
+    if (selectedPackage.packageType !== 'session_based') {
+      setQuoteDetails({
+        unitPrice: selectedPackage.originalPrice,
+        originalPrice: selectedPackage.originalPrice,
+        discountPercent: selectedPackage.discountPercent,
+        discountAmount: selectedPackage.discountAmount,
+        finalAmount: selectedPackage.discountedPrice || selectedPackage.price,
+      });
+      return;
+    }
+
+    // For session_based, fetch quote
+    setIsQuoting(true);
+    fetchPackageQuote({ packageId: selectedPackage.id, purchasedSessions }).then(({ data, error }) => {
+      if (!isMounted) return;
+      setIsQuoting(false);
+      if (!error && data) {
+        setQuoteDetails(data);
+        setPaymentError('');
+      } else {
+        setQuoteDetails(null);
+        setPaymentError(error?.message || 'Could not fetch package quote.');
+      }
+    });
+
+    return () => { isMounted = false; };
+  }, [selectedPackage, purchasedSessions]);
 
   const chooseTrainer = (trainer: any) => {
     setSelectedTrainer(trainer);
     setSelectedSlot(null);
     setSelectedSlots([]);
+    setStep('trainer');
     setMessage('');
   };
 
@@ -183,260 +230,79 @@ export default function SelectPackageOnboarding({ onMemberActivated }: { onMembe
     }
   };
 
-  const completePayment = async () => {
+  const submitDemoPayment = async () => {
     if (!selectedPackage) return;
     if (selectedPackage.hasPersonalTrainer && (!selectedTrainer || !selectedSlot)) {
       setMessage('Please choose a trainer and a weekly training slot.');
       return;
     }
 
-	    setIsSubmitting(true);
-	    setMessage('');
+    setIsSubmitting(true);
+    setCheckoutState('processing');
+    setMessage('');
+    setPaymentError('');
+    const sessionLimit = selectedPackage.sessionLimitValue ?? (selectedPackage.hasPersonalTrainer ? 4 : null);
 
-	    const sessionLimit = selectedPackage.sessionLimitValue ?? (selectedPackage.hasPersonalTrainer ? 4 : null);
+    try {
+      const { data, error } = await withTimeout(completeDemoPayment({
+        checkoutKey: checkoutKeyRef.current,
+        packageId: selectedPackage.id,
+        packageName: selectedPackage.name,
+        packageType: selectedPackage.packageType || selectedPackage.type,
+        packageDurationMonths: selectedPackage.durationMonths || selectedPackage.packageDurationMonths,
+        sessionLimit: selectedPackage.sessionLimitValue ?? selectedPackage.sessionLimit,
+        purchasedSessions: selectedPackage.packageType === 'session_based' ? purchasedSessions : undefined,
+        trainerId: selectedTrainer?.id || null,
+        trainerName: selectedTrainer?.name || '',
+        amount: quoteDetails?.finalAmount ?? selectedPackage.price,
+        paymentMethod,
+        remainingSessions: selectedPackage.packageType === 'session_based' ? purchasedSessions : sessionLimit,
+        selectedSlot,
+        selectedSlots,
+        selectedSchedule: selectedSlot?.label || '',
+      }), 15000, 'Thanh toán quá thời gian chờ. Bạn có thể thử lại an toàn.');
 
-	    try {
-	      const activationResult = await withTimeout(activateMemberAccount(currentUser), 10000, 'Account activation timed out.');
-	      if (!activationResult.ok) {
-	        setMessage(activationResult.message || 'Account could not be activated.');
-	        setIsSubmitting(false);
-	        return;
-	      }
-
-	      const activatedUser = activationResult.user || {
-	        ...currentUser,
-	        role: currentUser?.role || 'member',
-	        accountStatus: 'Active',
-	        account_status: 'active',
-	      };
-
-	      const createdPackage = await withTimeout(createMemberPackage({
-	        memberId: activatedUser?.memberId || activatedUser?.member_id,
-	        memberEmail: activatedUser?.email || '',
-	        packageId: selectedPackage.id,
-	        trainerId: selectedTrainer?.id || null,
-	        status: 'pending_payment',
-	        remainingSessions: sessionLimit,
-	      }), 10000, 'Package registration timed out.');
-
-	      if (createdPackage.error || !createdPackage.data?.memberPackageId) {
-	        setMessage('Demo payment failed because the package could not be registered.');
-	        setIsSubmitting(false);
-	        return;
-	      }
-
-	      const transactionCode = `GYMSTER-DEMO-${Date.now()}`;
-	      const paymentDate = new Date().toISOString();
-	      const paymentResult = await withTimeout(createPayment({
-	        memberId: activatedUser?.memberId || activatedUser?.member_id,
-	        memberEmail: activatedUser?.email || '',
-	        packageId: selectedPackage.id,
-	        memberPackageId: createdPackage.data.memberPackageId,
-	        amount: selectedPackage.price,
-	        paymentMethod,
-	        paymentDate,
-	        transactionCode,
-	        transferContent: `GYMSTER DEMO ${selectedPackage.code || selectedPackage.id}`,
-	      }), 10000, 'Payment save timed out.');
-
-	      if (paymentResult.error) {
-	        setMessage('Demo payment could not be saved.');
-	        setIsSubmitting(false);
-	        return;
-	      }
-
-	      const startDate = toDateInputValue(new Date(paymentDate));
-	      const endDate = toDateInputValue(addMonths(new Date(paymentDate), getPackageDurationMonths(selectedPackage)));
-	      const packageUpdate = await withTimeout(updateMemberPackageStatus(createdPackage.data.memberPackageId, 'active', {
-	        start_date: startDate,
-	        end_date: endDate,
-	        remaining_sessions: sessionLimit,
-	        used_sessions: 0,
-	        activated_at: paymentDate,
-	      }), 10000, 'Package activation timed out.');
-
-	      if (packageUpdate.error) {
-	        setMessage('Demo payment was saved, but the package could not be activated.');
-	        setIsSubmitting(false);
-	        return;
-	      }
-
-	      if (selectedPackage.hasPersonalTrainer && selectedTrainer && selectedSlot) {
-	        // Assign member to trainer
-	        await withTimeout(assignTrainerToMember(activatedUser?.memberId || activatedUser?.member_id, selectedTrainer.id, 'Assigned during package selection onboarding'), 5000, 'Trainer assignment timed out.');
-
-	        // Notify the trainer
-	        if (selectedTrainer.userId) {
-	          await createNotification({
-	            userId: selectedTrainer.userId,
-	            notificationType: 'info',
-	            title: 'Học viên mới đăng ký',
-	            message: `Học viên ${currentUser?.fullName || currentUser?.username || 'Thành viên mới'} đã đăng ký bạn làm huấn luyện viên cho gói tập ${selectedPackage.name}.`,
-	          });
-	        }
-
-	        await withTimeout(createWorkoutSessionsForSchedule({
-	          memberId: activatedUser?.memberId || activatedUser?.member_id,
-	          memberEmail: activatedUser?.email || '',
-	          trainerId: selectedTrainer.id,
-	          packageId: selectedPackage.id,
-	          memberPackageId: createdPackage.data.memberPackageId,
-	          selectedSchedule: selectedSlot.label,
-	          startDate,
-	          endDate,
-	        }), 8000, 'Workout session creation timed out.');
-
-	        await createNotification({
-	          notificationType: 'system',
-	          title: 'Your trainer information',
-	          message: [
-	            `PT: ${selectedTrainer.name}`,
-	            selectedTrainer.specialty ? `Specialty: ${selectedTrainer.specialty}` : '',
-	            selectedTrainer.rating ? `Rating: ${selectedTrainer.rating}/5` : '',
-	            selectedSlot.label ? `Schedule: ${selectedSlot.label}` : '',
-	          ].filter(Boolean).join(' | '),
-	        });
-	      }
-
-	      const activeUser = {
-	        ...activatedUser,
-	        role: activatedUser?.role || 'member',
-	        accountStatus: 'Active',
-	        account_status: 'active',
-	        memberPackageId: createdPackage.data.memberPackageId,
-	        currentPackage: packageUpdate.data,
-	      };
-	      setCurrentUser(activeUser);
-	      onMemberActivated?.(activeUser);
-	      setIsSubmitting(false);
-	      navigate('/member', { replace: true });
-	    } catch (error) {
-	      console.error('[Gymster system] Demo payment failed:', error);
-	      setMessage(error instanceof Error ? error.message : 'Demo payment could not be completed.');
-	      setIsSubmitting(false);
-	    }
-	    return;
-
-	    const activeUser = {
-      ...currentUser,
-      role: currentUser?.role || 'member',
-      accountStatus: 'Active',
-      account_status: 'active',
-    };
-    const flowData = {
-      currentUser,
-      selectedPackage,
-      selectedTrainer,
-      selectedSlot,
-      paymentMethod,
-      sessionLimit: selectedPackage.sessionLimitValue ?? (selectedPackage.hasPersonalTrainer ? 4 : null),
-    };
-
-    setCurrentUser(activeUser);
-    onMemberActivated?.(activeUser);
-    setIsSubmitting(false);
-    navigate('/member', { replace: true });
-
-    void (async () => {
-      try {
-        await withTimeout(activateMemberAccount(flowData.currentUser), 10000, 'Account activation timed out.');
-
-        const createdPackage = await withTimeout(createMemberPackage({
-          memberId: flowData.currentUser?.memberId || flowData.currentUser?.member_id,
-          memberEmail: flowData.currentUser?.email || '',
-          packageId: flowData.selectedPackage.id,
-          trainerId: flowData.selectedTrainer?.id || null,
-          status: 'pending_payment',
-          remainingSessions: flowData.sessionLimit,
-        }), 10000, 'Package registration timed out.');
-
-        if (createdPackage.error || !createdPackage.data?.memberPackageId) {
-          console.error('[Gymster hệ thống] Demo package registration could not be saved:', createdPackage.error);
-          return;
-        }
-
-        const transactionCode = `GYMSTER-DEMO-${Date.now()}`;
-        const paymentDate = new Date().toISOString();
-        const paymentResult = await withTimeout(createPayment({
-          memberId: flowData.currentUser?.memberId || flowData.currentUser?.member_id,
-          memberEmail: flowData.currentUser?.email || '',
-          packageId: flowData.selectedPackage.id,
-          memberPackageId: createdPackage.data.memberPackageId,
-          amount: flowData.selectedPackage.price,
-          paymentMethod: flowData.paymentMethod,
-          paymentDate,
-          transactionCode,
-          transferContent: `GYMSTER DEMO ${flowData.selectedPackage.code || flowData.selectedPackage.id}`,
-        }), 10000, 'Payment save timed out.');
-
-        if (paymentResult.error) {
-          console.error('[Gymster hệ thống] Demo payment could not be saved:', paymentResult.error);
-          return;
-        }
-
-        const startDate = toDateInputValue(new Date(paymentDate));
-        const endDate = toDateInputValue(addMonths(new Date(paymentDate), getPackageDurationMonths(flowData.selectedPackage)));
-        const packageUpdate = await withTimeout(updateMemberPackageStatus(createdPackage.data.memberPackageId, 'active', {
-          start_date: startDate,
-          end_date: endDate,
-          remaining_sessions: flowData.sessionLimit,
-          used_sessions: 0,
-          activated_at: paymentDate,
-        }), 10000, 'Package activation timed out.');
-
-        if (packageUpdate.error) {
-          console.error('[Gymster hệ thống] Demo member package could not be activated:', packageUpdate.error);
-          return;
-        }
-
-        if (flowData.selectedPackage.hasPersonalTrainer && flowData.selectedTrainer && flowData.selectedSlot) {
-          // Assign member to trainer
-          await withTimeout(assignTrainerToMember(flowData.currentUser?.memberId || flowData.currentUser?.member_id, flowData.selectedTrainer.id, 'Assigned during package selection onboarding (Demo)'), 5000, 'Trainer assignment timed out.');
-
-          // Notify the trainer
-          if (flowData.selectedTrainer.userId) {
-            await createNotification({
-              userId: flowData.selectedTrainer.userId,
-              notificationType: 'info',
-              title: 'Học viên mới đăng ký',
-              message: `Học viên ${flowData.currentUser?.fullName || flowData.currentUser?.username || 'Thành viên mới'} đã đăng ký bạn làm huấn luyện viên cho gói tập ${flowData.selectedPackage.name}.`,
-            });
-          }
-
-          await withTimeout(createWorkoutSessionsForSchedule({
-            memberId: flowData.currentUser?.memberId || flowData.currentUser?.member_id,
-            memberEmail: flowData.currentUser?.email || '',
-            trainerId: flowData.selectedTrainer.id,
-            packageId: flowData.selectedPackage.id,
-            memberPackageId: createdPackage.data.memberPackageId,
-            selectedSchedule: flowData.selectedSlot.label,
-            startDate,
-            endDate,
-          }), 8000, 'Workout session creation timed out.');
-
-          await createNotification({
-            notificationType: 'system',
-            title: 'Your trainer information',
-            message: [
-              `PT: ${flowData.selectedTrainer.name}`,
-              flowData.selectedTrainer.specialty ? `Specialty: ${flowData.selectedTrainer.specialty}` : '',
-              flowData.selectedTrainer.rating ? `Rating: ${flowData.selectedTrainer.rating}/5` : '',
-              flowData.selectedSlot.label ? `Schedule: ${flowData.selectedSlot.label}` : '',
-            ].filter(Boolean).join(' | '),
-          });
-        }
-      } catch (error) {
-        console.error('[Gymster hệ thống] Demo payment background sync failed:', error);
+      if (error) {
+        setCheckoutState('idle');
+        setPaymentError(error.message || 'Thanh toán demo không thể hoàn tất.');
+        return;
       }
-    })();
 
+      if (!data?.user || data.user.account_status !== 'active') {
+        throw new Error('Server did not return an active member session.');
+      }
+      onMemberActivated?.(data.user);
+      setCheckoutState('success');
+      window.setTimeout(() => navigate('/member', { replace: true }), 1500);
+    } catch (error) {
+      console.error('[Gymster system] Payment request failed:', error);
+      setCheckoutState('idle');
+      setPaymentError(error instanceof Error ? error.message : 'Thanh toán demo không thể hoàn tất.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
+  const requiresTrainer = Boolean(selectedPackage?.hasPersonalTrainer);
+  const requiresSchedule = requiresTrainer;
+  const canShowPayment = Boolean(
+    selectedPackage &&
+    (!requiresTrainer || selectedTrainer),
+  );
   const canPay = Boolean(
     selectedPackage &&
     paymentMethod &&
-    (!selectedPackage.hasPersonalTrainer || (selectedTrainer && selectedSlot)),
+    (!requiresTrainer || (selectedTrainer && (!requiresSchedule || (selectedSlot && isScheduleValid)))),
   );
+  const paymentDisabledReason = !selectedPackage
+    ? 'Please choose a package first.'
+    : requiresTrainer && !selectedTrainer
+      ? 'Please choose a PT before payment.'
+      : requiresSchedule && (!selectedSlot || !isScheduleValid)
+        ? sessionsPerWeek === 2
+          ? 'Please choose 2 valid weekly training slots before payment.'
+          : 'Please choose a weekly training slot before payment.'
+        : '';
 
   return (
     <div className="space-y-6 p-6">
@@ -453,11 +319,11 @@ export default function SelectPackageOnboarding({ onMemberActivated }: { onMembe
         </div>
       )}
 
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="mx-auto grid max-w-4xl w-full gap-4 md:grid-cols-3">
         {[
           ['Package', step === 'package' || selectedPackage, selectedPackage?.name || 'Choose package'],
           ['Trainer & Schedule', !selectedPackage?.hasPersonalTrainer || step === 'trainer' || selectedTrainer, selectedPackage?.hasPersonalTrainer ? selectedTrainer?.name || 'Choose trainer' : 'Not required'],
-          ['Payment', step === 'payment', paymentMethod],
+          ['Payment', step === 'payment' || canPay, paymentMethod],
         ].map(([label, active, value]) => (
           <div key={label as string} className={`rounded-2xl border p-4 ${active ? 'border-[#EF233C] bg-[#EF233C]/10' : 'border-white/8 bg-[#181818]'}`}>
             <div className="text-xs font-black uppercase tracking-[0.2em] text-white/35">{label}</div>
@@ -555,6 +421,10 @@ export default function SelectPackageOnboarding({ onMemberActivated }: { onMembe
                 <div className="rounded-xl border border-white/8 bg-black/20 p-6 text-center text-sm font-bold text-white/45">Choose a PT to see available slots.</div>
               ) : isLoadingAvailability ? (
                 <div className="rounded-xl border border-white/8 bg-black/20 p-6 text-center text-sm font-bold text-white/45">Loading PT schedule...</div>
+              ) : !availability.length ? (
+                <div className="rounded-xl border border-amber-400/25 bg-amber-500/10 p-6 text-center text-sm font-bold text-amber-200">
+                  No weekly slots are available for this PT. Please choose another PT.
+                </div>
               ) : (
                 <div className="grid gap-3 lg:grid-cols-7">
                   {availability.map((day) => (
@@ -594,49 +464,100 @@ export default function SelectPackageOnboarding({ onMemberActivated }: { onMembe
         </Section>
       )}
 
-      {selectedPackage && (!selectedPackage.hasPersonalTrainer || selectedSlot) && (
+      {canShowPayment && (
         <Section title="Payment">
           <div className="grid gap-5 lg:grid-cols-[1fr_420px]">
             <div className="rounded-2xl border border-white/8 bg-[#222] p-5">
               <h3 className="text-xl font-black text-white">{selectedPackage.name}</h3>
               <div className="mt-4 grid gap-3 text-sm text-white/65">
-                <div className="flex justify-between gap-3"><span>Amount</span><span className="font-black text-white">{Number(selectedPackage.price || 0).toLocaleString('vi-VN')} VND</span></div>
+                {selectedPackage.packageType === 'session_based' && (
+                  <div className="flex flex-col gap-2 rounded-xl bg-white/5 p-3">
+                    <label className="text-xs font-bold text-white/50">Purchased Sessions</label>
+                    <div className="flex items-center gap-3">
+                      <button 
+                        type="button"
+                        onClick={() => setPurchasedSessions(Math.max(1, purchasedSessions - 1))}
+                        className="flex h-8 w-8 items-center justify-center rounded bg-white/10 text-white hover:bg-white/20"
+                      >-</button>
+                      <span className="font-black text-white min-w-[2rem] text-center">{purchasedSessions}</span>
+                      <button 
+                        type="button"
+                        onClick={() => setPurchasedSessions(Math.min(30, purchasedSessions + 1))}
+                        className="flex h-8 w-8 items-center justify-center rounded bg-white/10 text-white hover:bg-white/20"
+                      >+</button>
+                    </div>
+                  </div>
+                )}
+                {isQuoting ? (
+                  <div className="flex justify-between gap-3 animate-pulse"><span>Calculating price...</span></div>
+                ) : (
+                  <>
+                    {quoteDetails?.discountAmount > 0 && (
+                      <div className="flex justify-between gap-3 text-white/40 line-through"><span>Original</span><span className="font-bold">{Number(quoteDetails.originalPrice).toLocaleString('vi-VN')} VND</span></div>
+                    )}
+                    <div className="flex justify-between gap-3"><span>Amount</span><span className="font-black text-white">{Number(quoteDetails?.finalAmount || selectedPackage.price || 0).toLocaleString('vi-VN')} VND</span></div>
+                  </>
+                )}
                 <div className="flex justify-between gap-3"><span>Trainer</span><span className="font-black text-white">{selectedTrainer?.name || 'Not required'}</span></div>
                 <div className="flex justify-between gap-3"><span>Schedule</span><span className="font-black text-white">{selectedSlot?.label || 'Not required'}</span></div>
               </div>
             </div>
 
-            <div className="space-y-3">
-              <button
-                type="button"
-                onClick={() => setPaymentMethod('Bank Transfer')}
-                className="flex w-full items-center gap-3 rounded-xl border border-[#EF233C] bg-[#EF233C]/10 px-4 py-3 text-left text-sm font-black text-white transition"
-              >
+            <div className="space-y-3 lg:sticky lg:top-6">
+              <div className="flex w-full items-center gap-3 rounded-xl border border-[#EF233C] bg-[#EF233C]/10 px-4 py-3 text-left text-sm font-black text-white">
                 <CreditCard className="h-4 w-4 text-[#EF233C]" />
-                Bank Transfer
-              </button>
+                Thanh toán demo
+              </div>
               <div className="rounded-xl border border-white/8 bg-[#222] p-4 text-sm leading-6 text-white/55">
-                Bank transfer QR payment will be connected later. Use demo skip to activate this member package while testing.
+                Thanh toán demo sẽ kích hoạt tài khoản, gói tập và lịch PT ngay khi giao dịch hoàn tất.
               </div>
               <button
                 type="button"
                 disabled={!canPay || isSubmitting}
-                className="w-full rounded-xl border border-white/10 bg-white/5 px-5 py-4 text-sm font-black text-white/35 disabled:cursor-not-allowed"
-              >
-                Continue to Bank Transfer (Coming Soon)
-              </button>
-              <button
-                type="button"
-                disabled={!canPay || isSubmitting}
-                onClick={completePayment}
+                onClick={submitDemoPayment}
+                title={paymentDisabledReason}
                 className="w-full rounded-xl bg-[#EF233C] px-5 py-4 text-sm font-black text-white transition hover:bg-[#c91930] disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-white/35"
               >
-	                {isSubmitting ? 'Activating...' : 'Demo payment success'}
+                {isSubmitting ? 'Đang xử lý thanh toán...' : 'Thanh toán demo'}
               </button>
+              {paymentError && (
+                <div className="rounded-xl border border-[#EF233C]/35 bg-[#EF233C]/10 p-4 text-sm font-bold leading-6 text-white" role="alert">
+                  {paymentError}
+                </div>
+              )}
             </div>
           </div>
         </Section>
       )}
+      {checkoutState !== 'idle' && typeof document !== 'undefined' ? createPortal(
+        <div
+          className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/85 p-4 backdrop-blur-md"
+          role="dialog"
+          aria-modal="true"
+          aria-live="assertive"
+        >
+          <div className="w-full max-w-md rounded-3xl border border-white/10 bg-[#171717] p-8 text-center shadow-[0_30px_120px_rgba(0,0,0,0.85)]">
+            {checkoutState === 'processing' ? (
+              <>
+                <LoaderCircle className="mx-auto h-16 w-16 animate-spin text-[#EF233C]" />
+                <h2 className="mt-6 text-2xl font-black text-white">Đang xử lý thanh toán</h2>
+                <p className="mt-3 text-sm leading-6 text-white/55">
+                  Hệ thống đang kích hoạt tài khoản, gói tập và lịch PT. Vui lòng không đóng trang.
+                </p>
+              </>
+            ) : (
+              <>
+                <CheckCircle2 className="mx-auto h-16 w-16 text-emerald-400" />
+                <h2 className="mt-6 text-2xl font-black text-white">Thanh toán thành công</h2>
+                <p className="mt-3 text-sm leading-6 text-white/55">
+                  Tài khoản đã được kích hoạt. Đang chuyển bạn tới Member Dashboard...
+                </p>
+              </>
+            )}
+          </div>
+        </div>,
+        document.body,
+      ) : null}
     </div>
   );
 }

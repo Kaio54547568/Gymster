@@ -1,94 +1,170 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import KPICard from '../components/KPICard';
-import { Dumbbell, Plus, Search, CheckCircle, AlertCircle, Wrench, MapPin, X } from 'lucide-react';
+import { AlertCircle, CheckCircle, Dumbbell, Edit, MapPin, Plus, Search, Trash2, Wrench, X } from 'lucide-react';
 import { motion } from 'motion/react';
-import { fetchEquipmentManagementData } from '../../../services/adminDataApi';
+import {
+  createEquipmentRecord,
+  deleteEquipmentRecord,
+  fetchEquipmentManagementData,
+  fetchEquipmentStats,
+  updateEquipmentRecord,
+  retireEquipmentRecord,
+} from '../../../services/adminDataApi';
+import { getCurrentUser } from '../../../services/authService';
+import { fetchRooms } from '../../../services/roomApi';
 
 type EquipmentRow = {
-  maThietBi: string;
-  tenThietBi: string;
-  soLuong: number;
-  ngayNhap: string;
-  baoHanh: string;
-  xuatXu: string;
-  trangThai: string;
-  maPhong: string;
-  tenPhong: string;
-  image: string;
+  id: string;
+  equipmentCode: string;
+  equipmentName: string;
+  category: string;
+  status: string;
+  purchaseDate: string;
+  location: string;
+  roomId?: string;
+  roomCode?: string;
+  roomName?: string;
+  roomStatus?: string;
+  description?: string;
+  notes: string;
+  brand?: string;
+  manufacturer?: string;
+  model?: string;
+  serialNumber?: string;
+  lastMaintenanceDate?: string;
+  origin: string;
+  warrantyExpiryDate: string;
+};
+
+type EquipmentStats = {
+  total: number;
+  active: number;
+  inUse: number;
+  maintenance: number;
 };
 
 type EquipmentForm = {
-  tenThietBi: string;
-  maThietBi: string;
-  loaiThietBi: string;
-  tenPhong: string;
-  trangThai: 'Active' | 'Under Maintenance' | 'Broken';
-  ngayNhap: string;
-  ghiChu: string;
+  equipmentName: string;
+  equipmentCode: string;
+  category: string;
+  roomId: string;
+  status: 'Available' | 'In Use' | 'Maintenance' | 'Broken' | 'Retired';
+  purchaseDate: string;
+  manufacturer: string;
+  serialNumber: string;
+  description: string;
+  lastMaintenanceDate: string;
+  notes: string;
+  origin: string;
+  warrantyExpiryDate: string;
 };
 
 const initialEquipmentForm: EquipmentForm = {
-  tenThietBi: '',
-  maThietBi: '',
-  loaiThietBi: '',
-  tenPhong: '',
-  trangThai: 'Active',
-  ngayNhap: '',
-  ghiChu: '',
+  equipmentName: '',
+  equipmentCode: '',
+  category: '',
+  roomId: '',
+  status: 'Available',
+  purchaseDate: '',
+  manufacturer: '',
+  serialNumber: '',
+  description: '',
+  lastMaintenanceDate: '',
+  notes: '',
+  origin: '',
+  warrantyExpiryDate: '',
 };
 
+function formFromEquipment(item: EquipmentRow): EquipmentForm {
+  return {
+    equipmentName: item.equipmentName || '',
+    equipmentCode: item.equipmentCode || '',
+    category: item.category || '',
+    roomId: item.roomId || '',
+    status: (['Available', 'Active', 'In Use', 'Maintenance', 'Broken', 'Retired'].includes(item.status) ? (item.status === 'Active' ? 'Available' : item.status) : 'Available') as EquipmentForm['status'],
+    purchaseDate: item.purchaseDate || '',
+    manufacturer: item.manufacturer || item.brand || '',
+    serialNumber: item.serialNumber || '',
+    description: item.description || '',
+    lastMaintenanceDate: item.lastMaintenanceDate || '',
+    notes: item.notes || '',
+    origin: item.origin || '',
+    warrantyExpiryDate: item.warrantyExpiryDate || '',
+  };
+}
+
 export default function EquipmentManagement() {
+  const currentUser = getCurrentUser();
+  const normalizedRole = String(currentUser?.role || '').toLowerCase();
+  const normalizedSourceRole = String(currentUser?.sourceRole || '').toLowerCase();
+  const canManageEquipment = Boolean(currentUser && (normalizedRole === 'owner' || normalizedSourceRole === 'owner'));
   const [selectedRoom, setSelectedRoom] = useState('all');
   const [selectedStatus, setSelectedStatus] = useState('all');
   const [query, setQuery] = useState('');
   const [equipmentData, setEquipmentData] = useState<EquipmentRow[]>([]);
-  const [showAddModal, setShowAddModal] = useState(false);
+  const [roomList, setRoomList] = useState<{ id: string; roomCode: string; roomName: string; status: string }[]>([]);
+  const [stats, setStats] = useState<EquipmentStats>({ total: 0, active: 0, inUse: 0, maintenance: 0 });
+  const [showFormModal, setShowFormModal] = useState(false);
+  const [editingEquipment, setEditingEquipment] = useState<EquipmentRow | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<EquipmentRow | null>(null);
+  const [retireTarget, setRetireTarget] = useState<EquipmentRow | null>(null);
   const [equipmentForm, setEquipmentForm] = useState<EquipmentForm>(initialEquipmentForm);
   const [formError, setFormError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [loadMessage, setLoadMessage] = useState('');
 
-  useEffect(() => {
-    let isMounted = true;
-    fetchEquipmentManagementData().then(({ data, error }) => {
-      if (!isMounted) return;
-      setEquipmentData(data);
-      setLoadMessage(error ? 'Equipment data could not be loaded.' : '');
+  const loadEquipment = useCallback(async () => {
+    if (!canManageEquipment) {
       setLoading(false);
-    });
-    return () => {
-      isMounted = false;
-    };
-  }, []);
+      return;
+    }
+    setLoading(true);
+    const [listResult, statsResult, roomsRes] = await Promise.all([
+      fetchEquipmentManagementData(),
+      fetchEquipmentStats(),
+      fetchRooms(),
+    ]);
+    setEquipmentData(listResult.data || []);
+    setStats(statsResult.data || { total: 0, active: 0, inUse: 0, maintenance: 0 });
+    setRoomList(roomsRes.data || []);
+    setLoadMessage(listResult.error || statsResult.error || roomsRes.error ? 'Equipment data could not be loaded.' : '');
+    setLoading(false);
+  }, [canManageEquipment]);
+
+  useEffect(() => {
+    void loadEquipment();
+  }, [loadEquipment]);
 
   const filteredEquipment = useMemo(() => {
     const search = query.trim().toLowerCase();
     return equipmentData.filter((item) => {
       const matchesSearch = !search
-        || item.tenThietBi.toLowerCase().includes(search)
-        || item.maThietBi.toLowerCase().includes(search)
-        || item.tenPhong.toLowerCase().includes(search)
-        || item.xuatXu.toLowerCase().includes(search);
-      const matchesRoom = selectedRoom === 'all' || item.tenPhong === selectedRoom;
-      const matchesStatus = selectedStatus === 'all' || item.trangThai === selectedStatus;
+        || item.equipmentName.toLowerCase().includes(search)
+        || item.equipmentCode.toLowerCase().includes(search)
+        || (item.roomName && item.roomName.toLowerCase().includes(search))
+        || item.category.toLowerCase().includes(search)
+        || (item.origin && item.origin.toLowerCase().includes(search));
+      const matchesRoom = selectedRoom === 'all' || item.roomId === selectedRoom;
+      const matchesStatus = selectedStatus === 'all' || item.status === selectedStatus;
       return matchesSearch && matchesRoom && matchesStatus;
     });
   }, [equipmentData, query, selectedRoom, selectedStatus]);
-  const rooms = Array.from(new Set(equipmentData.map((item) => item.tenPhong).filter(Boolean)));
-  const totalEquipment = equipmentData.reduce((sum, eq) => sum + eq.soLuong, 0);
-  const functioning = equipmentData.filter(eq => eq.trangThai === 'Active').reduce((sum, eq) => sum + eq.soLuong, 0);
-  const broken = equipmentData.filter(eq => eq.trangThai === 'Broken').reduce((sum, eq) => sum + eq.soLuong, 0);
-  const underMaintenance = equipmentData.filter(eq => eq.trangThai === 'Under Maintenance').reduce((sum, eq) => sum + eq.soLuong, 0);
 
   const getStatusColor = (status: string) => {
     switch (status) {
+      case 'Available':
       case 'Active':
         return { bg: 'bg-[#22C55E]/10', border: 'border-[#22C55E]/30', text: 'text-[#22C55E]' };
+      case 'In Use':
+        return { bg: 'bg-[#3B82F6]/10', border: 'border-[#3B82F6]/30', text: 'text-[#60A5FA]' };
       case 'Broken':
         return { bg: 'bg-[#EF233C]/10', border: 'border-[#EF233C]/30', text: 'text-[#EF233C]' };
-      case 'Under Maintenance':
+      case 'Maintenance':
         return { bg: 'bg-[#F97316]/10', border: 'border-[#F97316]/30', text: 'text-[#F97316]' };
+      case 'Retired':
+        return { bg: 'bg-[#A1A1AA]/10', border: 'border-[#A1A1AA]/30', text: 'text-[#A1A1AA]' };
       default:
         return { bg: 'bg-[#A1A1AA]/10', border: 'border-[#A1A1AA]/30', text: 'text-[#A1A1AA]' };
     }
@@ -96,25 +172,39 @@ export default function EquipmentManagement() {
 
   const getStatusIcon = (status: string) => {
     switch (status) {
+      case 'Available':
       case 'Active':
         return <CheckCircle className="w-5 h-5 text-[#22C55E]" />;
+      case 'In Use':
+        return <Dumbbell className="w-5 h-5 text-[#60A5FA]" />;
       case 'Broken':
         return <AlertCircle className="w-5 h-5 text-[#EF233C]" />;
-      case 'Under Maintenance':
+      case 'Maintenance':
         return <Wrench className="w-5 h-5 text-[#F97316]" />;
+      case 'Retired':
+        return <AlertCircle className="w-5 h-5 text-[#A1A1AA]" />;
       default:
         return null;
     }
   };
 
   const openAddModal = () => {
+    setEditingEquipment(null);
     setEquipmentForm(initialEquipmentForm);
     setFormError('');
-    setShowAddModal(true);
+    setShowFormModal(true);
   };
 
-  const closeAddModal = () => {
-    setShowAddModal(false);
+  const openEditModal = (item: EquipmentRow) => {
+    setEditingEquipment(item);
+    setEquipmentForm(formFromEquipment(item));
+    setFormError('');
+    setShowFormModal(true);
+  };
+
+  const closeFormModal = () => {
+    setShowFormModal(false);
+    setEditingEquipment(null);
     setFormError('');
   };
 
@@ -123,55 +213,100 @@ export default function EquipmentManagement() {
     setFormError('');
   };
 
-  const handleAddEquipment = () => {
-    const name = equipmentForm.tenThietBi.trim();
-    const code = equipmentForm.maThietBi.trim();
-    const type = equipmentForm.loaiThietBi.trim();
-    const room = equipmentForm.tenPhong.trim();
-    const purchaseDate = equipmentForm.ngayNhap.trim();
-    const note = equipmentForm.ghiChu.trim();
+  const validateForm = () => {
+    if (!equipmentForm.equipmentName.trim() || !equipmentForm.equipmentCode.trim() || !equipmentForm.category.trim() || !equipmentForm.roomId.trim() || !equipmentForm.purchaseDate.trim() || !equipmentForm.origin.trim() || !equipmentForm.warrantyExpiryDate.trim()) {
+      return 'Please fill in all required fields.';
+    }
+    const purchaseTime = new Date(equipmentForm.purchaseDate).getTime();
+    const expiryTime = new Date(equipmentForm.warrantyExpiryDate).getTime();
+    if (expiryTime < purchaseTime) {
+      return 'Warranty expiry date cannot be before purchase date.';
+    }
+    return '';
+  };
 
-    if (!name || !code || !type || !room || !equipmentForm.trangThai || !purchaseDate) {
-      setFormError('Vui lòng nhập đầy đủ các trường bắt buộc.');
+  const handleSaveEquipment = async () => {
+    const validationError = validateForm();
+    if (validationError) {
+      setFormError(validationError);
       return;
     }
 
-    const duplicateCode = equipmentData.some((item) => item.maThietBi.trim().toLowerCase() === code.toLowerCase());
-    if (duplicateCode) {
-      setFormError('Mã thiết bị đã tồn tại.');
+    setSaving(true);
+    const result = editingEquipment
+      ? await updateEquipmentRecord(editingEquipment.id, equipmentForm)
+      : await createEquipmentRecord(equipmentForm);
+    setSaving(false);
+
+    if (result.error) {
+      setFormError(result.error.message || 'Equipment could not be saved.');
       return;
     }
 
-    const newEquipment: EquipmentRow = {
-      maThietBi: code,
-      tenThietBi: name,
-      soLuong: 1,
-      ngayNhap: purchaseDate,
-      baoHanh: note || 'No notes',
-      xuatXu: type,
-      trangThai: equipmentForm.trangThai,
-      maPhong: room,
-      tenPhong: room,
-      image: '',
-    };
-
-    setEquipmentData((current) => [newEquipment, ...current]);
-    setShowAddModal(false);
-    setEquipmentForm(initialEquipmentForm);
-    setSuccessMessage(`Đã thêm thiết bị ${name} thành công.`);
+    closeFormModal();
+    setSuccessMessage(editingEquipment ? 'Equipment updated successfully.' : 'Equipment added successfully.');
+    await loadEquipment();
     window.setTimeout(() => setSuccessMessage(''), 3500);
   };
+
+  const handleDeleteEquipment = async () => {
+    if (!deleteTarget) return;
+    setSaving(true);
+    const result = await deleteEquipmentRecord(deleteTarget.id);
+    setSaving(false);
+
+    if (result.error) {
+      setLoadMessage(result.error.message || 'Equipment could not be deleted.');
+      setDeleteTarget(null);
+      return;
+    }
+
+    setDeleteTarget(null);
+    setSuccessMessage('Equipment deleted successfully.');
+    await loadEquipment();
+    window.setTimeout(() => setSuccessMessage(''), 3500);
+  };
+
+  const handleRetireEquipment = async () => {
+    if (!retireTarget) return;
+    setSaving(true);
+    const result = await retireEquipmentRecord(retireTarget.id);
+    setSaving(false);
+
+    if (result.error) {
+      setFormError(result.error.message || 'Equipment could not be retired.');
+      setRetireTarget(null);
+      return;
+    }
+
+    setRetireTarget(null);
+    closeFormModal();
+    setSuccessMessage('Equipment retired successfully.');
+    await loadEquipment();
+    window.setTimeout(() => setSuccessMessage(''), 3500);
+  };
+
+  if (!canManageEquipment) {
+    return (
+      <div className="p-8">
+        <div className="rounded-2xl border border-[#EF233C]/20 bg-[#0c1014] p-8">
+          <h1 className="bebas mb-3 text-5xl tracking-wider text-white">ACCESS DENIED</h1>
+          <p className="text-[#A1A1AA]">Equipment management is available only to Owner accounts.</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-8 space-y-8">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="bebas text-5xl text-white tracking-wider mb-2">EQUIPMENT MANAGEMENT</h1>
-          <p className="text-[#A1A1AA]">Danh sách thiết bị</p>
+          <p className="text-[#A1A1AA]">Database-backed equipment inventory and status.</p>
         </div>
         <button onClick={openAddModal} className="px-6 py-3 bg-[#EF233C] text-white rounded-xl hover:bg-[#990000] transition-colors font-semibold flex items-center gap-2">
           <Plus className="w-5 h-5" />
-          Thêm thiết bị
+          Add Equipment
         </button>
       </div>
 
@@ -185,13 +320,13 @@ export default function EquipmentManagement() {
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <KPICard title="Total Equipment" value={totalEquipment} icon={Dumbbell} iconColor="#EF233C" />
-        <KPICard title="Active" value={functioning} icon={CheckCircle} iconColor="#22C55E" />
-        <KPICard title="Broken" value={broken} icon={AlertCircle} iconColor="#EF233C" />
-        <KPICard title="Maintenance" value={underMaintenance} icon={Wrench} iconColor="#F97316" />
+        <KPICard title="Total Equipment" value={stats.total} icon={Dumbbell} iconColor="#EF233C" />
+        <KPICard title="Available" value={stats.active} icon={CheckCircle} iconColor="#22C55E" />
+        <KPICard title="In Use" value={stats.inUse} icon={Dumbbell} iconColor="#60A5FA" />
+        <KPICard title="Maintenance" value={stats.maintenance} icon={Wrench} iconColor="#F97316" />
       </div>
 
-      <div className="flex gap-4">
+      <div className="flex flex-col gap-4 xl:flex-row">
         <div className="flex-1 relative">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-[#A1A1AA]" />
           <input
@@ -202,43 +337,67 @@ export default function EquipmentManagement() {
             className="w-full bg-[#0c1014] border border-[#EF233C]/20 rounded-xl pl-12 pr-4 py-3 text-white placeholder-[#A1A1AA] focus:outline-none focus:border-[#EF233C]"
           />
         </div>
-        <select value={selectedRoom} onChange={(e) => setSelectedRoom(e.target.value)} className="bg-[#0c1014] border border-[#EF233C]/30 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-[#EF233C] cursor-pointer">
+        <select value={selectedRoom} onChange={(event) => setSelectedRoom(event.target.value)} className="bg-[#0c1014] border border-[#EF233C]/30 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-[#EF233C] cursor-pointer">
           <option value="all">All rooms</option>
-          {rooms.map((room) => <option key={room} value={room}>{room}</option>)}
+          {roomList.map((room) => <option key={room.id} value={room.id}>{room.roomName}</option>)}
         </select>
-        <select value={selectedStatus} onChange={(e) => setSelectedStatus(e.target.value)} className="bg-[#0c1014] border border-[#EF233C]/30 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-[#EF233C] cursor-pointer">
+        <select value={selectedStatus} onChange={(event) => setSelectedStatus(event.target.value)} className="bg-[#0c1014] border border-[#EF233C]/30 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-[#EF233C] cursor-pointer">
           <option value="all">All status</option>
-          <option value="Active">Active</option>
+          <option value="Available">Available</option>
+          <option value="In Use">In Use</option>
+          <option value="Maintenance">Maintenance</option>
           <option value="Broken">Broken</option>
-          <option value="Under Maintenance">Under Maintenance</option>
+          <option value="Retired">Retired</option>
         </select>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
         {filteredEquipment.map((equipment) => {
-          const statusColor = getStatusColor(equipment.trangThai);
+          const statusColor = getStatusColor(equipment.status);
           return (
-            <motion.div key={equipment.maThietBi} whileHover={{ scale: 1.02, y: -4 }} className="bg-[#0c1014] border border-[#EF233C]/20 rounded-2xl overflow-hidden hover:border-[#EF233C]/50 transition-all">
-              <div className="h-40 bg-black/40 flex items-center justify-center">
-                <Dumbbell className="h-16 w-16 text-[#EF233C]" />
+            <motion.div key={equipment.id} whileHover={{ scale: 1.02, y: -4 }} className="relative bg-[#0c1014] border border-[#EF233C]/20 rounded-2xl overflow-hidden hover:border-[#EF233C]/50 transition-all">
+              <button
+                type="button"
+                onClick={() => openEditModal(equipment)}
+                aria-label={`Edit ${equipment.equipmentName}`}
+                className="absolute right-4 top-4 z-10 rounded-xl border border-[#EF233C]/30 bg-black/70 p-2.5 text-[#EF233C] shadow-lg shadow-black/20 transition hover:border-[#EF233C] hover:bg-[#EF233C] hover:text-white hover:scale-105"
+              >
+                <Edit className="h-4 w-4" />
+              </button>
+              <div className="h-32 bg-black/40 flex items-center justify-center">
+                <Dumbbell className="h-14 w-14 text-[#EF233C]" />
               </div>
               <div className="p-6">
-                <div className="flex items-start justify-between mb-3">
-                  <div>
-                    <h3 className="text-xl font-bold text-white">{equipment.tenThietBi}</h3>
-                    <p className="text-[#A1A1AA]">{equipment.maThietBi}</p>
+                <div className="flex items-start justify-between gap-4 mb-3">
+                  <div className="min-w-0">
+                    <h3 className="text-xl font-bold text-white truncate">{equipment.equipmentName}</h3>
+                    <p className="text-[#A1A1AA]">{equipment.equipmentCode}</p>
                   </div>
-                  <span className={`flex items-center gap-1 px-3 py-1 border rounded-lg text-xs font-semibold ${statusColor.bg} ${statusColor.border} ${statusColor.text}`}>
-                    {getStatusIcon(equipment.trangThai)}
-                    {equipment.trangThai}
+                  <span className={`flex shrink-0 items-center gap-1 px-3 py-1 border rounded-lg text-xs font-semibold ${statusColor.bg} ${statusColor.border} ${statusColor.text}`}>
+                    {getStatusIcon(equipment.status)}
+                    {equipment.status}
                   </span>
                 </div>
                 <div className="space-y-2 text-sm">
-                  <div className="flex items-center gap-2 text-[#A1A1AA]"><MapPin className="w-4 h-4" />{equipment.tenPhong || 'Unassigned'}</div>
-                  <p className="text-[#A1A1AA]">Brand/model: <span className="text-white">{equipment.xuatXu || '-'}</span></p>
-                  <p className="text-[#A1A1AA]">Purchase date: <span className="text-white">{equipment.ngayNhap || '-'}</span></p>
-                  <p className="text-[#A1A1AA]">{equipment.baoHanh || 'No maintenance date configured'}</p>
+                  <p className="text-[#A1A1AA]">Type: <span className="text-white">{equipment.category || 'Not set'}</span></p>
+                  <div className="flex items-center gap-2 text-[#A1A1AA]"><MapPin className="w-4 h-4" />{equipment.roomName || 'Unassigned'}</div>
+                  <p className="text-[#A1A1AA]">Purchase date: <span className="text-white">{equipment.purchaseDate || 'Not set'}</span></p>
+                  <p className="text-[#A1A1AA]">Origin: <span className="text-white">{equipment.origin || 'Not set'}</span></p>
+                  <p className="text-[#A1A1AA]">Warranty expiry: <span className="text-white">{equipment.warrantyExpiryDate || 'Not set'}</span></p>
+                  {(equipment.manufacturer || equipment.brand) && <p className="text-[#A1A1AA]">Manufacturer: <span className="text-white">{equipment.manufacturer || equipment.brand}</span></p>}
+                  {equipment.serialNumber && <p className="text-[#A1A1AA]">Serial: <span className="text-white">{equipment.serialNumber}</span></p>}
+                  {equipment.description && <p className="text-[#A1A1AA]">Description: <span className="text-white">{equipment.description}</span></p>}
+                  {equipment.lastMaintenanceDate && <p className="text-[#A1A1AA]">Last maintenance: <span className="text-white">{equipment.lastMaintenanceDate}</span></p>}
+                  {equipment.notes && <p className="text-[#A1A1AA]">Notes: <span className="text-white">{equipment.notes}</span></p>}
                 </div>
+                {equipment.status !== 'Retired' && (
+                  <div className="mt-5 flex gap-3">
+                    <button onClick={() => setRetireTarget(equipment)} className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-white/10 bg-black/30 px-4 py-2 font-bold text-white transition hover:border-[#EF233C] hover:text-[#EF233C]">
+                      <Trash2 className="h-4 w-4" />
+                      Remove / Retire Equipment
+                    </button>
+                  </div>
+                )}
               </div>
             </motion.div>
           );
@@ -247,72 +406,172 @@ export default function EquipmentManagement() {
 
       {!loading && !filteredEquipment.length && <div className="rounded-2xl border border-[#EF233C]/20 bg-[#0c1014] p-8 text-center text-[#A1A1AA]">No equipment records found.</div>}
 
-      {showAddModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm" onClick={closeAddModal}>
-          <div className="w-full max-w-3xl rounded-2xl border border-[#EF233C]/30 bg-[#0c1014] p-8 shadow-2xl shadow-[#EF233C]/10" onClick={(event) => event.stopPropagation()}>
-            <div className="mb-6 flex items-start justify-between gap-4">
-              <div>
-                <h2 className="text-3xl font-bold text-white">Thêm thiết bị</h2>
-                <p className="mt-1 text-[#A1A1AA]">Tạo thiết bị mới cho danh sách quản lý hiện tại.</p>
+      {showFormModal && (() => {
+        const isReadOnly = Boolean(editingEquipment && editingEquipment.status === 'Retired');
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm" onClick={closeFormModal}>
+            <div className="w-full max-w-3xl max-h-[90vh] flex flex-col rounded-2xl border border-[#EF233C]/30 bg-[#0c1014] p-8 shadow-2xl shadow-[#EF233C]/10" onClick={(event) => event.stopPropagation()}>
+              <div className="mb-6 flex items-start justify-between gap-4">
+                <div>
+                  <h2 className="text-3xl font-bold text-white">
+                    {isReadOnly ? 'View Equipment Details' : editingEquipment ? 'Edit Equipment' : 'Add Equipment'}
+                  </h2>
+                  <p className="mt-1 text-[#A1A1AA]">
+                    {isReadOnly ? 'This retired equipment is read-only.' : 'Changes are saved directly to the database.'}
+                  </p>
+                </div>
+                <button onClick={closeFormModal} className="rounded-xl border border-[#EF233C]/30 bg-black/30 p-2 text-[#A1A1AA] transition hover:border-[#EF233C] hover:text-white">
+                  <X className="h-5 w-5" />
+                </button>
               </div>
-              <button onClick={closeAddModal} className="rounded-xl border border-[#EF233C]/30 bg-black/30 p-2 text-[#A1A1AA] transition hover:border-[#EF233C] hover:text-white">
-                <X className="h-5 w-5" />
+
+              <div className="flex-1 overflow-y-auto pr-2 space-y-4 min-h-0">
+                {formError && (
+                  <div className="mb-5 rounded-xl border border-[#EF233C]/30 bg-[#EF233C]/10 px-4 py-3 text-sm font-semibold text-white">
+                    {formError}
+                  </div>
+                )}
+
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <label className="space-y-2">
+                  <span className="text-sm font-semibold text-[#A1A1AA]">Equipment Code *</span>
+                  <input value={equipmentForm.equipmentCode} disabled={Boolean(editingEquipment) || isReadOnly} onChange={(event) => updateEquipmentForm('equipmentCode', event.target.value)} className="w-full rounded-xl border border-[#EF233C]/20 bg-[#050607] px-4 py-3 text-white outline-none focus:border-[#EF233C] disabled:cursor-not-allowed disabled:opacity-60" />
+                </label>
+                <label className="space-y-2">
+                  <span className="text-sm font-semibold text-[#A1A1AA]">Equipment Name *</span>
+                  <input value={equipmentForm.equipmentName} disabled={isReadOnly} onChange={(event) => updateEquipmentForm('equipmentName', event.target.value)} className="w-full rounded-xl border border-[#EF233C]/20 bg-[#050607] px-4 py-3 text-white outline-none focus:border-[#EF233C] disabled:cursor-not-allowed disabled:opacity-60" />
+                </label>
+                <label className="space-y-2">
+                  <span className="text-sm font-semibold text-[#A1A1AA]">Category / Type *</span>
+                  <input value={equipmentForm.category} disabled={isReadOnly} onChange={(event) => updateEquipmentForm('category', event.target.value)} className="w-full rounded-xl border border-[#EF233C]/20 bg-[#050607] px-4 py-3 text-white outline-none focus:border-[#EF233C] disabled:cursor-not-allowed disabled:opacity-60" />
+                </label>
+                <label className="space-y-2">
+                  <span className="text-sm font-semibold text-[#A1A1AA]">Status</span>
+                  <select value={equipmentForm.status} disabled={isReadOnly} onChange={(event) => updateEquipmentForm('status', event.target.value as EquipmentForm['status'])} className="w-full rounded-xl border border-[#EF233C]/20 bg-[#050607] px-4 py-3 text-white outline-none focus:border-[#EF233C] disabled:cursor-not-allowed disabled:opacity-60">
+                    <option value="Available">Available</option>
+                    <option value="In Use">In Use</option>
+                    <option value="Maintenance">Maintenance</option>
+                    <option value="Broken">Broken</option>
+                    {(equipmentForm.status === 'Retired' || isReadOnly) && <option value="Retired">Retired</option>}
+                  </select>
+                </label>
+                <label className="space-y-2">
+                  <span className="text-sm font-semibold text-[#A1A1AA]">Purchase Date *</span>
+                  <input type="date" value={equipmentForm.purchaseDate} disabled={isReadOnly} onChange={(event) => updateEquipmentForm('purchaseDate', event.target.value)} className="w-full rounded-xl border border-[#EF233C]/20 bg-[#050607] px-4 py-3 text-white outline-none focus:border-[#EF233C] disabled:cursor-not-allowed disabled:opacity-60" />
+                </label>
+                <label className="space-y-2">
+                  <span className="text-sm font-semibold text-[#A1A1AA]">Room *</span>
+                  <select
+                    value={equipmentForm.roomId}
+                    disabled={isReadOnly}
+                    onChange={(event) => updateEquipmentForm('roomId', event.target.value)}
+                    className="w-full rounded-xl border border-[#EF233C]/20 bg-[#050607] px-4 py-3 text-white outline-none focus:border-[#EF233C] disabled:cursor-not-allowed disabled:opacity-60 cursor-pointer"
+                  >
+                    <option value="">Select a room...</option>
+                    {roomList
+                      .filter((room) => {
+                        if (!editingEquipment) {
+                          return room.status === 'active';
+                        } else {
+                          return room.status === 'active' || room.id === editingEquipment.roomId;
+                        }
+                      })
+                      .map((room) => (
+                        <option key={room.id} value={room.id}>
+                          {room.roomName} ({room.roomCode}) {room.status !== 'active' ? `[${room.status.toUpperCase()}]` : ''}
+                        </option>
+                      ))}
+                  </select>
+                </label>
+                <label className="space-y-2">
+                  <span className="text-sm font-semibold text-[#A1A1AA]">Origin *</span>
+                  <input value={equipmentForm.origin} disabled={isReadOnly} onChange={(event) => updateEquipmentForm('origin', event.target.value)} className="w-full rounded-xl border border-[#EF233C]/20 bg-[#050607] px-4 py-3 text-white outline-none focus:border-[#EF233C] disabled:cursor-not-allowed disabled:opacity-60" />
+                </label>
+                <label className="space-y-2">
+                  <span className="text-sm font-semibold text-[#A1A1AA]">Warranty Expiry Date *</span>
+                  <input type="date" value={equipmentForm.warrantyExpiryDate} disabled={isReadOnly} onChange={(event) => updateEquipmentForm('warrantyExpiryDate', event.target.value)} className="w-full rounded-xl border border-[#EF233C]/20 bg-[#050607] px-4 py-3 text-white outline-none focus:border-[#EF233C] disabled:cursor-not-allowed disabled:opacity-60" />
+                </label>
+                <label className="space-y-2">
+                  <span className="text-sm font-semibold text-[#A1A1AA]">Manufacturer</span>
+                  <input value={equipmentForm.manufacturer} disabled={isReadOnly} onChange={(event) => updateEquipmentForm('manufacturer', event.target.value)} className="w-full rounded-xl border border-[#EF233C]/20 bg-[#050607] px-4 py-3 text-white outline-none focus:border-[#EF233C] disabled:cursor-not-allowed disabled:opacity-60" />
+                </label>
+                <label className="space-y-2">
+                  <span className="text-sm font-semibold text-[#A1A1AA]">Serial Number</span>
+                  <input value={equipmentForm.serialNumber} disabled={isReadOnly} onChange={(event) => updateEquipmentForm('serialNumber', event.target.value)} className="w-full rounded-xl border border-[#EF233C]/20 bg-[#050607] px-4 py-3 text-white outline-none focus:border-[#EF233C] disabled:cursor-not-allowed disabled:opacity-60" />
+                </label>
+                <label className="space-y-2 md:col-span-2">
+                  <span className="text-sm font-semibold text-[#A1A1AA]">Last Maintenance Date</span>
+                  <input type="date" value={equipmentForm.lastMaintenanceDate} disabled={isReadOnly} onChange={(event) => updateEquipmentForm('lastMaintenanceDate', event.target.value)} className="w-full rounded-xl border border-[#EF233C]/20 bg-[#050607] px-4 py-3 text-white outline-none focus:border-[#EF233C] disabled:cursor-not-allowed disabled:opacity-60" />
+                </label>
+                <label className="space-y-2 md:col-span-2">
+                  <span className="text-sm font-semibold text-[#A1A1AA]">Description</span>
+                  <textarea value={equipmentForm.description} disabled={isReadOnly} onChange={(event) => updateEquipmentForm('description', event.target.value)} rows={3} className="w-full resize-none rounded-xl border border-[#EF233C]/20 bg-[#050607] px-4 py-3 text-white outline-none focus:border-[#EF233C] disabled:cursor-not-allowed disabled:opacity-60" />
+                </label>
+                <label className="space-y-2 md:col-span-2">
+                  <span className="text-sm font-semibold text-[#A1A1AA]">Notes</span>
+                  <textarea value={equipmentForm.notes} disabled={isReadOnly} onChange={(event) => updateEquipmentForm('notes', event.target.value)} rows={4} className="w-full resize-none rounded-xl border border-[#EF233C]/20 bg-[#050607] px-4 py-3 text-white outline-none focus:border-[#EF233C] disabled:cursor-not-allowed disabled:opacity-60" />
+                </label>
+              </div>
+              </div>
+
+              <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:justify-between items-center w-full">
+                <div>
+                  {editingEquipment && !isReadOnly && (
+                    <button
+                      onClick={() => setRetireTarget(editingEquipment)}
+                      className="w-full sm:w-auto rounded-xl bg-[#EF233C] px-6 py-3 font-semibold text-white transition hover:bg-[#990000] flex items-center justify-center gap-2"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      Remove / Retire Equipment
+                    </button>
+                  )}
+                </div>
+                <div className="flex flex-col-reverse gap-3 w-full sm:w-auto sm:flex-row sm:justify-end">
+                  {isReadOnly ? (
+                    <button onClick={closeFormModal} className="w-full sm:w-auto rounded-xl border border-[#EF233C]/30 bg-black/30 px-6 py-3 font-semibold text-white transition hover:border-[#EF233C]">
+                      Close
+                    </button>
+                  ) : (
+                    <>
+                      <button onClick={closeFormModal} className="w-full sm:w-auto rounded-xl border border-[#EF233C]/30 bg-black/30 px-6 py-3 font-semibold text-white transition hover:border-[#EF233C]">
+                        Cancel
+                      </button>
+                      <button onClick={handleSaveEquipment} disabled={saving} className="w-full sm:w-auto rounded-xl bg-[#EF233C] px-6 py-3 font-semibold text-white transition hover:bg-[#990000] disabled:cursor-not-allowed disabled:opacity-60">
+                        {saving ? 'Saving...' : editingEquipment ? 'Save changes' : 'Add Equipment'}
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {retireTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm" onClick={() => setRetireTarget(null)}>
+          <div className="w-full max-w-md rounded-2xl border border-[#EF233C]/30 bg-[#0c1014] p-6 shadow-2xl shadow-[#EF233C]/10" onClick={(event) => event.stopPropagation()}>
+            <h2 className="text-2xl font-bold text-white">Retire equipment?</h2>
+            <p className="mt-3 text-sm text-[#A1A1AA]">Are you sure you want to retire {retireTarget.equipmentName}? This action cannot be undone.</p>
+            <div className="mt-6 flex justify-end gap-3">
+              <button onClick={() => setRetireTarget(null)} className="rounded-xl border border-[#EF233C]/30 bg-black/30 px-5 py-3 font-semibold text-white transition hover:border-[#EF233C]">Cancel</button>
+              <button onClick={handleRetireEquipment} disabled={saving} className="rounded-xl bg-[#EF233C] px-5 py-3 font-semibold text-white transition hover:bg-[#990000] disabled:cursor-not-allowed disabled:opacity-60">
+                {saving ? 'Retiring...' : 'Retire'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
 
-            {formError && (
-              <div className="mb-5 rounded-xl border border-[#EF233C]/30 bg-[#EF233C]/10 px-4 py-3 text-sm font-semibold text-white">
-                {formError}
-              </div>
-            )}
-
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <label className="space-y-2">
-                <span className="text-sm font-semibold text-[#A1A1AA]">Tên thiết bị</span>
-                <input value={equipmentForm.tenThietBi} onChange={(event) => updateEquipmentForm('tenThietBi', event.target.value)} className="w-full rounded-xl border border-[#EF233C]/20 bg-[#050607] px-4 py-3 text-white outline-none focus:border-[#EF233C]" />
-              </label>
-
-              <label className="space-y-2">
-                <span className="text-sm font-semibold text-[#A1A1AA]">Mã thiết bị</span>
-                <input value={equipmentForm.maThietBi} onChange={(event) => updateEquipmentForm('maThietBi', event.target.value)} className="w-full rounded-xl border border-[#EF233C]/20 bg-[#050607] px-4 py-3 text-white outline-none focus:border-[#EF233C]" />
-              </label>
-
-              <label className="space-y-2">
-                <span className="text-sm font-semibold text-[#A1A1AA]">Loại thiết bị</span>
-                <input value={equipmentForm.loaiThietBi} onChange={(event) => updateEquipmentForm('loaiThietBi', event.target.value)} className="w-full rounded-xl border border-[#EF233C]/20 bg-[#050607] px-4 py-3 text-white outline-none focus:border-[#EF233C]" />
-              </label>
-
-              <label className="space-y-2">
-                <span className="text-sm font-semibold text-[#A1A1AA]">Khu vực/phòng</span>
-                <input value={equipmentForm.tenPhong} onChange={(event) => updateEquipmentForm('tenPhong', event.target.value)} className="w-full rounded-xl border border-[#EF233C]/20 bg-[#050607] px-4 py-3 text-white outline-none focus:border-[#EF233C]" />
-              </label>
-
-              <label className="space-y-2">
-                <span className="text-sm font-semibold text-[#A1A1AA]">Trạng thái</span>
-                <select value={equipmentForm.trangThai} onChange={(event) => updateEquipmentForm('trangThai', event.target.value as EquipmentForm['trangThai'])} className="w-full rounded-xl border border-[#EF233C]/20 bg-[#050607] px-4 py-3 text-white outline-none focus:border-[#EF233C]">
-                  <option value="Active">Hoạt động</option>
-                  <option value="Under Maintenance">Bảo trì</option>
-                  <option value="Broken">Hỏng</option>
-                </select>
-              </label>
-
-              <label className="space-y-2">
-                <span className="text-sm font-semibold text-[#A1A1AA]">Ngày mua / đưa vào sử dụng</span>
-                <input type="date" value={equipmentForm.ngayNhap} onChange={(event) => updateEquipmentForm('ngayNhap', event.target.value)} className="w-full rounded-xl border border-[#EF233C]/20 bg-[#050607] px-4 py-3 text-white outline-none focus:border-[#EF233C]" />
-              </label>
-
-              <label className="space-y-2 md:col-span-2">
-                <span className="text-sm font-semibold text-[#A1A1AA]">Ghi chú</span>
-                <textarea value={equipmentForm.ghiChu} onChange={(event) => updateEquipmentForm('ghiChu', event.target.value)} rows={4} className="w-full resize-none rounded-xl border border-[#EF233C]/20 bg-[#050607] px-4 py-3 text-white outline-none focus:border-[#EF233C]" />
-              </label>
-            </div>
-
-            <div className="mt-8 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-              <button onClick={closeAddModal} className="rounded-xl border border-[#EF233C]/30 bg-black/30 px-6 py-3 font-semibold text-white transition hover:border-[#EF233C]">
-                Hủy
-              </button>
-              <button onClick={handleAddEquipment} className="rounded-xl bg-[#EF233C] px-6 py-3 font-semibold text-white transition hover:bg-[#990000]">
-                Thêm thiết bị
+      {deleteTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm" onClick={() => setDeleteTarget(null)}>
+          <div className="w-full max-w-md rounded-2xl border border-[#EF233C]/30 bg-[#0c1014] p-6 shadow-2xl shadow-[#EF233C]/10" onClick={(event) => event.stopPropagation()}>
+            <h2 className="text-2xl font-bold text-white">Delete equipment?</h2>
+            <p className="mt-3 text-sm text-[#A1A1AA]">This will remove {deleteTarget.equipmentName} from the database.</p>
+            <div className="mt-6 flex justify-end gap-3">
+              <button onClick={() => setDeleteTarget(null)} className="rounded-xl border border-[#EF233C]/30 bg-black/30 px-5 py-3 font-semibold text-white transition hover:border-[#EF233C]">Cancel</button>
+              <button onClick={handleDeleteEquipment} disabled={saving} className="rounded-xl bg-[#EF233C] px-5 py-3 font-semibold text-white transition hover:bg-[#990000] disabled:cursor-not-allowed disabled:opacity-60">
+                {saving ? 'Deleting...' : 'Delete'}
               </button>
             </div>
           </div>

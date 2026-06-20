@@ -30,7 +30,7 @@ const localMembers = [
       packageId: "local-pt-3m",
       packageName: "PT Progress 3 Months",
       startDate: "2026-06-01",
-      endDate: "2026-09-01",
+      endDate: "2026-06-20",
       status: "active",
       remainingSessions: 21,
       sessionsTotal: 24,

@@ -4,6 +4,8 @@ import { supabase } from "./supabaseClient";
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const LOCAL_NOTIFICATIONS_KEY = "gymster_local_notifications";
 const NOTIFICATION_CHANGE_EVENT = "gymster-role-notifications-change";
+const PT_PORTAL_CHANGE_EVENT = "gymster-pt-portal-data-change";
+const CLIENT_EVENT_STORAGE_PREFIX = "gymster-client-event";
 
 const notificationColumns = `
   notification_id,
@@ -92,7 +94,27 @@ function readLocalNotifications() {
 function writeLocalNotifications(rows) {
   if (!canUseStorage()) return;
   window.localStorage.setItem(LOCAL_NOTIFICATIONS_KEY, JSON.stringify(rows));
-  window.dispatchEvent(new Event(NOTIFICATION_CHANGE_EVENT));
+  notifyRoleNotificationsChanged();
+}
+
+function dispatchClientDataEvent(eventName, detail = {}) {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent(eventName, { detail }));
+
+  if (window.localStorage) {
+    window.localStorage.setItem(
+      `${CLIENT_EVENT_STORAGE_PREFIX}:${eventName}`,
+      JSON.stringify({ at: Date.now(), detail }),
+    );
+  }
+}
+
+export function notifyRoleNotificationsChanged(detail = {}) {
+  dispatchClientDataEvent(NOTIFICATION_CHANGE_EVENT, detail);
+}
+
+export function notifyPtPortalDataChanged(detail = {}) {
+  dispatchClientDataEvent(PT_PORTAL_CHANGE_EVENT, detail);
 }
 
 function mapLocalNotification(row) {
@@ -283,7 +305,10 @@ export async function markNotificationReadInSupabase(notificationId) {
 
     if (error) throw error;
 
-    return { data: mapNotificationRow(data), error: null };
+    const mapped = mapNotificationRow(data);
+    notifyRoleNotificationsChanged({ reason: "notification-read", notification: mapped });
+
+    return { data: mapped, error: null };
   } catch (error) {
     console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to mark notification read:", error);
     return { data: null, error };
@@ -375,7 +400,11 @@ export async function createNotification(notification) {
 
     if (error) throw error;
 
-    return { data: mapNotificationRow(data), error: null };
+    const mapped = mapNotificationRow(data);
+    notifyRoleNotificationsChanged({ reason: "notification-created", notification: mapped });
+    notifyPtPortalDataChanged({ reason: "notification-created", notification: mapped });
+
+    return { data: mapped, error: null };
   } catch (error) {
     console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to create notification:", error);
     return { data: null, error };

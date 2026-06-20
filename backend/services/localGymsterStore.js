@@ -153,7 +153,7 @@ export function getLocalMembership(memberId) {
     packageName: "PT Progress 3 Months",
     status: "active",
     startDate: toDateValue(new Date()),
-    endDate: toDateValue(new Date(Date.now() + 90 * ONE_DAY_MS)),
+    endDate: toDateValue(new Date(Date.now() + 3 * ONE_DAY_MS)),
     usedSessions: 3,
     remainingSessions: 21,
     sessionsTotal: 24,
