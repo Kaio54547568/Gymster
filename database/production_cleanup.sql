@@ -12,9 +12,6 @@ alter table public.employees add column if not exists certification text;
 alter table public.employees add column if not exists performance_score numeric(5, 2)
   check (performance_score is null or (performance_score >= 0 and performance_score <= 100));
 
-create index if not exists idx_employee_schedules_shift_date_employee
-on public.employee_schedules(shift_date, employee_id);
-
 create index if not exists idx_payments_status_date
 on public.payments(payment_status, payment_date);
 

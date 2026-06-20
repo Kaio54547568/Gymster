@@ -33,6 +33,7 @@ create table if not exists public.users (
       'pending_onboarding',
       'pending_pt_approval',
       'pending_payment',
+      'pending_verification',
       'active',
       'cancelled',
       'inactive',
@@ -121,20 +122,46 @@ set date_of_birth = case role
 end
 where date_of_birth is null;
 
-update public.users u
-set headline = coalesce(
-  nullif(u.headline, ''),
-  (select nullif(t.bio, '') from public.trainers t where t.user_id = u.user_id),
-  (select nullif(m.health_notes, '') from public.members m where m.user_id = u.user_id),
-  case
-    when u.role in ('admin', 'owner') then 'Managing gym operations, staff performance, memberships, and business growth.'
-    when u.role = 'staff' then 'Supporting daily gym operations, member services, payments, and equipment workflows.'
-    when u.role = 'trainer' then 'Helping members build strength, confidence, and sustainable training habits.'
-    when u.role = 'member' then 'Committed to building strength, healthy routines, and consistent training habits.'
-    else 'Gymster account profile.'
-  end
-)
-where u.headline is null or u.headline = '';
+do $$
+begin
+  if exists (
+    select 1 from information_schema.tables
+    where table_schema = 'public' and table_name = 'trainers'
+  ) and exists (
+    select 1 from information_schema.tables
+    where table_schema = 'public' and table_name = 'members'
+  ) then
+    update public.users u
+    set headline = coalesce(
+      nullif(u.headline, ''),
+      (select nullif(t.bio, '') from public.trainers t where t.user_id = u.user_id),
+      (select nullif(m.health_notes, '') from public.members m where m.user_id = u.user_id),
+      case
+        when u.role in ('admin', 'owner') then 'Managing gym operations, staff performance, memberships, and business growth.'
+        when u.role = 'staff' then 'Supporting daily gym operations, member services, payments, and equipment workflows.'
+        when u.role = 'trainer' then 'Helping members build strength, confidence, and sustainable training habits.'
+        when u.role = 'member' then 'Committed to building strength, healthy routines, and consistent training habits.'
+        else 'Gymster account profile.'
+      end
+    )
+    where u.headline is null or u.headline = '';
+  else
+    update public.users u
+    set headline = coalesce(
+      nullif(u.headline, ''),
+      case
+        when u.role in ('admin', 'owner') then 'Managing gym operations, staff performance, memberships, and business growth.'
+        when u.role = 'staff' then 'Supporting daily gym operations, member services, payments, and equipment workflows.'
+        when u.role = 'trainer' then 'Helping members build strength, confidence, and sustainable training habits.'
+        when u.role = 'member' then 'Committed to building strength, healthy routines, and consistent training habits.'
+        else 'Gymster account profile.'
+      end
+    )
+    where u.headline is null or u.headline = '';
+  end if;
+end;
+$$;
+
 
 alter table public.users alter column date_of_birth set not null;
 
@@ -168,7 +195,15 @@ create table if not exists public.members (
   health_notes text,
   join_date date,
   status text not null default 'pending_onboarding' check (
-    status in ('pending_onboarding', 'pending_payment', 'active', 'cancelled', 'inactive', 'suspended')
+    status in (
+      'pending_onboarding',
+      'pending_payment',
+      'pending_verification',
+      'active',
+      'cancelled',
+      'inactive',
+      'suspended'
+    )
   ),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -305,13 +340,66 @@ create table if not exists public.package_features (
   created_at timestamptz not null default now()
 );
 
+create table if not exists public.package_promotions (
+  promotion_id uuid primary key default gen_random_uuid(),
+  package_id uuid not null references public.packages(package_id) on delete cascade,
+  title text not null,
+  description text,
+  discount_percent numeric(5, 2) not null check (discount_percent > 0 and discount_percent <= 100),
+  start_date date not null,
+  end_date date not null,
+  status text not null default 'active' check (status in ('active', 'inactive')),
+  created_by uuid not null references public.users(user_id) on delete restrict,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  check (end_date >= start_date)
+);
+
+create or replace function public.prevent_overlapping_package_promotions()
+returns trigger
+language plpgsql
+as $$
+begin
+  if new.status = 'active' and exists (
+    select 1 from public.package_promotions p
+    where p.package_id = new.package_id
+      and p.status = 'active'
+      and p.promotion_id is distinct from new.promotion_id
+      and daterange(p.start_date, p.end_date, '[]') && daterange(new.start_date, new.end_date, '[]')
+  ) then
+    raise exception 'Active promotion periods cannot overlap for the same package' using errcode = '23P01';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists prevent_package_promotion_overlap on public.package_promotions;
+create trigger prevent_package_promotion_overlap
+before insert or update on public.package_promotions
+for each row execute function public.prevent_overlapping_package_promotions();
+
+drop trigger if exists set_package_promotions_updated_at on public.package_promotions;
+create trigger set_package_promotions_updated_at
+before update on public.package_promotions
+for each row execute function public.set_updated_at();
+
 create table if not exists public.member_packages (
   member_package_id uuid primary key default gen_random_uuid(),
   member_id uuid not null references public.members(member_id) on delete cascade,
   package_id uuid not null references public.packages(package_id) on delete restrict,
   trainer_id uuid references public.trainers(trainer_id) on delete set null,
   status text not null default 'pending_payment' check (
-    status in ('pending_payment', 'active', 'expired', 'cancelled', 'paused')
+    status in (
+      'pending_payment',
+      'pending_pt_approval',
+      'pending_renewal',
+      'pending_staff_approval',
+      'pending_activation',
+      'active',
+      'expired',
+      'cancelled',
+      'paused'
+    )
   ),
   start_date date,
   end_date date,
@@ -355,6 +443,24 @@ create table if not exists public.payments (
   ),
   transfer_content text,
   provider_reference text,
+  payment_date timestamptz,
+  transaction_code text,
+  proof_type text not null default 'demo' check (proof_type in ('demo', 'upload')),
+  proof_storage_path text,
+  proof_file_name text,
+  proof_mime_type text,
+  proof_submitted_at timestamptz,
+  package_name_snapshot text,
+  promotion_id uuid references public.package_promotions(promotion_id) on delete set null,
+  promotion_title_snapshot text,
+  original_price numeric(12, 2),
+  discount_percent numeric(5, 2) not null default 0,
+  discount_amount numeric(12, 2) not null default 0,
+  final_amount numeric(12, 2),
+  applied_at timestamptz,
+  rejection_reason text,
+  reviewed_by_employee_id uuid references public.employees(employee_id) on delete set null,
+  reviewed_at timestamptz,
   paid_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -428,11 +534,15 @@ create index if not exists idx_member_packages_member_id on public.member_packag
 create index if not exists idx_member_packages_package_id on public.member_packages(package_id);
 create index if not exists idx_member_packages_status on public.member_packages(status);
 create index if not exists idx_member_packages_selected_trainer on public.member_packages(trainer_id, status);
+create unique index if not exists uq_member_pending_activation on public.member_packages(member_id) where status = 'pending_activation';
+create index if not exists idx_package_promotions_active_period on public.package_promotions(package_id, status, start_date, end_date);
 create index if not exists idx_training_requests_member_id on public.training_requests(member_id);
 create index if not exists idx_training_requests_trainer_id on public.training_requests(trainer_id);
 create index if not exists idx_training_requests_status on public.training_requests(status);
 create index if not exists idx_payments_member_id on public.payments(member_id);
 create index if not exists idx_payments_status on public.payments(payment_status);
+create unique index if not exists uq_invoices_payment on public.invoices(payment_id) where payment_id is not null;
+create index if not exists idx_trainer_reservations_capacity on public.trainer_slot_reservations(trainer_id, status, start_date, end_date);
 create index if not exists idx_invoices_member_id on public.invoices(member_id);
 create index if not exists idx_workout_sessions_member_id on public.workout_sessions(member_id);
 create index if not exists idx_workout_sessions_trainer_id on public.workout_sessions(trainer_id);
@@ -580,8 +690,46 @@ create table if not exists public.equipment (
     status in ('active', 'in_use', 'broken', 'under_maintenance', 'retired')
   ),
   notes text,
+  origin text not null,
+  warranty_expiry_date date not null,
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  constraint check_warranty_expiry_after_purchase check (
+    purchase_date is null or warranty_expiry_date >= purchase_date
+  )
+);
+
+create table if not exists public.trainer_slot_reservations (
+  reservation_id uuid primary key default gen_random_uuid(),
+  member_id uuid not null references public.members(member_id) on delete cascade,
+  member_package_id uuid not null unique references public.member_packages(member_package_id) on delete cascade,
+  payment_id uuid not null unique references public.payments(payment_id) on delete cascade,
+  trainer_id uuid not null references public.trainers(trainer_id) on delete restrict,
+  selected_schedule text,
+  selected_slots jsonb not null default '[]'::jsonb,
+  start_date date not null,
+  end_date date not null,
+  status text not null default 'reserved' check (status in ('reserved', 'activated', 'released')),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  check (end_date >= start_date)
+);
+
+-- Keep schema.sql safe for databases created before the warranty fields existed.
+alter table public.equipment add column if not exists origin text;
+alter table public.equipment add column if not exists warranty_expiry_date date;
+
+update public.equipment
+set
+  origin = coalesce(origin, 'Unknown'),
+  warranty_expiry_date = coalesce(warranty_expiry_date, purchase_date, current_date)
+where origin is null or warranty_expiry_date is null;
+
+alter table public.equipment alter column origin set not null;
+alter table public.equipment alter column warranty_expiry_date set not null;
+alter table public.equipment drop constraint if exists check_warranty_expiry_after_purchase;
+alter table public.equipment add constraint check_warranty_expiry_after_purchase check (
+  purchase_date is null or warranty_expiry_date >= purchase_date
 );
 
 create table if not exists public.maintenance_reports (
@@ -589,6 +737,7 @@ create table if not exists public.maintenance_reports (
   equipment_id uuid references public.equipment(equipment_id) on delete set null,
   room_id uuid references public.rooms(room_id) on delete set null,
   reported_by_user_id uuid references public.users(user_id) on delete set null,
+  resolved_by_employee_id uuid references public.employees(employee_id) on delete set null,
   issue_title text not null,
   issue_description text,
   priority text not null default 'medium' check (priority in ('low', 'medium', 'high', 'urgent')),
@@ -640,6 +789,7 @@ create table if not exists public.complaints (
   complaint_id uuid primary key default gen_random_uuid(),
   member_id uuid references public.members(member_id) on delete set null,
   assigned_employee_id uuid references public.employees(employee_id) on delete set null,
+  resolved_by_employee_id uuid references public.employees(employee_id) on delete set null,
   complaint_type text not null default 'service' check (
     complaint_type in ('service', 'trainer', 'payment', 'equipment', 'facility', 'other')
   ),
@@ -655,22 +805,51 @@ create table if not exists public.complaints (
   updated_at timestamptz not null default now()
 );
 
+-- The old schedule model used shift_date/room_id. Recreate that table when an
+-- older database is upgraded so later indexes, seed data, and RPCs all see the
+-- weekly recurring shape.
+do $$
+begin
+  if to_regclass('public.employee_schedules') is not null
+    and (
+      not exists (
+        select 1
+        from information_schema.columns
+        where table_schema = 'public'
+          and table_name = 'employee_schedules'
+          and column_name = 'day_of_week'
+      )
+      or not exists (
+        select 1
+        from information_schema.columns
+        where table_schema = 'public'
+          and table_name = 'employee_schedules'
+          and column_name = 'shift_code'
+      )
+    )
+  then
+    drop table public.employee_schedules cascade;
+  end if;
+end;
+$$;
+
 create table if not exists public.employee_schedules (
   employee_schedule_id uuid primary key default gen_random_uuid(),
   employee_id uuid not null references public.employees(employee_id) on delete cascade,
-  room_id uuid references public.rooms(room_id) on delete set null,
-  shift_date date not null,
+  day_of_week text not null check (day_of_week in ('monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday')),
+  shift_code text not null check (shift_code in ('shift_1', 'shift_2', 'shift_3', 'shift_4')),
   start_time time not null,
   end_time time not null,
-  shift_type text not null default 'regular' check (
-    shift_type in ('regular', 'overtime', 'training', 'leave', 'replacement')
-  ),
-  status text not null default 'scheduled' check (
-    status in ('scheduled', 'completed', 'cancelled', 'missed')
-  ),
-  notes text,
+  status text not null default 'active' check (status in ('active', 'inactive')),
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  constraint uq_employee_schedule_slot unique (employee_id, day_of_week, shift_code),
+  constraint chk_employee_schedule_times check (
+    (shift_code = 'shift_1' and start_time = '08:00:00'::time and end_time = '10:00:00'::time) or
+    (shift_code = 'shift_2' and start_time = '14:00:00'::time and end_time = '16:00:00'::time) or
+    (shift_code = 'shift_3' and start_time = '16:00:00'::time and end_time = '18:00:00'::time) or
+    (shift_code = 'shift_4' and start_time = '18:00:00'::time and end_time = '20:00:00'::time)
+  )
 );
 
 create table if not exists public.payroll_periods (
@@ -713,6 +892,17 @@ create table if not exists public.performance_reviews (
   employee_id uuid not null references public.employees(employee_id) on delete cascade,
   reviewer_user_id uuid references public.users(user_id) on delete set null,
   review_period text,
+  review_type text check (review_type in ('staff', 'trainer')),
+  period_start date,
+  period_end date,
+  feedback_score numeric(5, 2) not null default 0 check (feedback_score between 0 and 100),
+  activity_score numeric(5, 2) not null default 0 check (activity_score between 0 and 100),
+  admin_score numeric(5, 2) not null default 0 check (admin_score between 0 and 100),
+  final_score numeric(5, 2) not null default 0 check (final_score between 0 and 100),
+  activity_breakdown jsonb not null default '{}'::jsonb,
+  feedback_breakdown jsonb,
+  comment text not null default '',
+  created_by uuid references public.users(user_id) on delete set null,
   score numeric(4, 2) check (score is null or (score >= 0 and score <= 100)),
   rating integer check (rating is null or (rating >= 1 and rating <= 5)),
   strengths text,
@@ -723,7 +913,9 @@ create table if not exists public.performance_reviews (
   ),
   reviewed_at timestamptz,
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  check (period_start is null or period_end is null or period_end >= period_start),
+  constraint uq_performance_review_employee_type_period unique (employee_id, review_type, period_start, period_end)
 );
 
 create table if not exists public.trainer_assignments (
@@ -895,6 +1087,14 @@ create table if not exists public.package_change_requests (
   requested_package_id uuid not null references public.packages(package_id) on delete restrict,
   request_type text not null check (request_type in ('buy', 'renew', 'upgrade')),
   amount numeric(12, 2) check (amount is null or amount >= 0),
+  package_name_snapshot text,
+  promotion_id uuid references public.package_promotions(promotion_id) on delete set null,
+  promotion_title_snapshot text,
+  original_price numeric(12, 2),
+  discount_percent numeric(5, 2) not null default 0,
+  discount_amount numeric(12, 2) not null default 0,
+  final_amount numeric(12, 2),
+  applied_at timestamptz,
   payment_method text check (payment_method is null or payment_method in ('cash', 'bank_transfer', 'credit_card', 'e_wallet')),
   status text not null default 'pending' check (
     status in ('pending', 'approved', 'denied', 'pending_payment', 'paid', 'cancelled')
@@ -916,6 +1116,8 @@ create table if not exists public.member_usage_history (
     usage_type in ('check_in', 'workout_session', 'package_use', 'manual_adjustment')
   ),
   usage_date timestamptz not null default now(),
+  check_in_date date,
+  checked_in_by_employee_id uuid references public.employees(employee_id) on delete set null,
   description text,
   created_at timestamptz not null default now()
 );
@@ -931,10 +1133,15 @@ create index if not exists idx_service_feedback_status on public.service_feedbac
 create index if not exists idx_complaints_member_id on public.complaints(member_id);
 create index if not exists idx_complaints_status on public.complaints(status);
 create index if not exists idx_employee_schedules_employee_id on public.employee_schedules(employee_id);
-create index if not exists idx_employee_schedules_shift_date on public.employee_schedules(shift_date);
 create index if not exists idx_payslips_employee_id on public.payslips(employee_id);
 create index if not exists idx_payslips_period_id on public.payslips(payroll_period_id);
 create index if not exists idx_performance_reviews_employee_id on public.performance_reviews(employee_id);
+create index if not exists idx_performance_reviews_period on public.performance_reviews(period_start, period_end);
+create index if not exists idx_complaints_resolved_by on public.complaints(resolved_by_employee_id, resolved_at);
+create index if not exists idx_maintenance_reports_resolved_by on public.maintenance_reports(resolved_by_employee_id, resolved_at);
+create index if not exists idx_payments_reviewed_by on public.payments(reviewed_by_employee_id, reviewed_at);
+create index if not exists idx_feedback_responded_by on public.service_feedback(responded_by_employee_id, responded_at);
+create index if not exists idx_maintenance_records_handled_by on public.maintenance_records(handled_by_employee_id, completed_at);
 create index if not exists idx_trainer_assignments_trainer_id on public.trainer_assignments(trainer_id);
 create index if not exists idx_trainer_assignments_member_id on public.trainer_assignments(member_id);
 create index if not exists idx_training_goals_member_id on public.training_goals(member_id);
@@ -950,6 +1157,12 @@ create index if not exists idx_meal_plan_assignments_member_id on public.meal_pl
 create index if not exists idx_package_change_requests_member_id on public.package_change_requests(member_id);
 create index if not exists idx_package_change_requests_status on public.package_change_requests(status);
 create index if not exists idx_member_usage_history_member_id on public.member_usage_history(member_id);
+create unique index if not exists uq_member_daily_check_in
+  on public.member_usage_history(member_id, check_in_date)
+  where usage_type = 'check_in';
+create index if not exists idx_member_check_in_history
+  on public.member_usage_history(member_id, check_in_date desc)
+  where usage_type = 'check_in';
 
 drop trigger if exists set_rooms_updated_at on public.rooms;
 create trigger set_rooms_updated_at before update on public.rooms
@@ -1035,70 +1248,35 @@ drop trigger if exists set_package_change_requests_updated_at on public.package_
 create trigger set_package_change_requests_updated_at before update on public.package_change_requests
 for each row execute function public.set_updated_at();
 
--- Create function to validate package change requests
 create or replace function public.validate_package_change_request()
 returns trigger
 language plpgsql
 as $$
-declare
-  active_pkg_end_date date;
-  active_pkg_days_remaining integer;
-  has_pending_req boolean;
-  has_queued_pkg boolean;
 begin
-  -- 1. Check if the member already has a pending package change request
-  select exists (
-    select 1
-    from public.package_change_requests
+  if exists (
+    select 1 from public.package_change_requests
     where member_id = new.member_id
       and status = 'pending'
       and package_change_request_id is distinct from new.package_change_request_id
-  ) into has_pending_req;
-
-  if has_pending_req then
-    raise exception 'Bạn đã có một yêu cầu đổi/gia hạn gói đang chờ xử lý.';
+  ) then
+    raise exception 'You already have a pending package request';
   end if;
 
-  -- 2. Check if the member has a queued future package (status = 'pending_payment' or active starting in the future)
-  select exists (
-    select 1
-    from public.member_packages
+  if exists (
+    select 1 from public.member_packages
     where member_id = new.member_id
-      and (
-        status = 'pending_payment'
-        or (status = 'active' and start_date > current_date)
-      )
-  ) into has_queued_pkg;
-
-  if has_queued_pkg then
-    raise exception 'Bạn đã có một gói tập đang chờ thanh toán hoặc gói tập tương lai đã được lên lịch.';
-  end if;
-
-  -- 3. Check if the member has an active package and if it has more than 5 days remaining
-  select end_date into active_pkg_end_date
-  from public.member_packages
-  where member_id = new.member_id
-    and status = 'active'
-    and (start_date is null or start_date <= current_date)
-    and (end_date is null or end_date >= current_date)
-  order by created_at desc
-  limit 1;
-
-  if active_pkg_end_date is not null then
-    active_pkg_days_remaining := active_pkg_end_date - current_date;
-    if active_pkg_days_remaining > 5 then
-      raise exception 'Gói hiện tại của bạn còn nhiều hơn 5 ngày (% ngày). Bạn chỉ được gửi yêu cầu gia hạn hoặc đổi gói khi gói hiện tại còn tối đa 5 ngày.', active_pkg_days_remaining;
-    end if;
+      and status in ('pending_payment', 'pending_activation')
+  ) then
+    raise exception 'PENDING_ACTIVATION_EXISTS';
   end if;
 
   return new;
 end;
 $$;
 
--- Drop trigger if exists and create it
 drop trigger if exists check_package_change_request on public.package_change_requests;
 create trigger check_package_change_request
-before insert on public.package_change_requests
+before insert or update on public.package_change_requests
 for each row execute function public.validate_package_change_request();
 
 -- Compatibility fixes for the current frontend service layer.
@@ -1132,6 +1310,7 @@ alter table public.members add constraint members_status_check check (
     'pending',
     'pending_onboarding',
     'pending_payment',
+    'pending_verification',
     'active',
     'cancelled',
     'inactive',
@@ -1184,6 +1363,7 @@ alter table public.member_packages add constraint member_packages_status_check c
     'pending_pt_approval',
     'pending_renewal',
     'pending_staff_approval',
+    'pending_activation',
     'active',
     'expired',
     'cancelled',
@@ -1323,6 +1503,7 @@ declare
     'trainer_weekly_availability',
     'packages',
     'package_features',
+    'package_promotions',
     'member_packages',
     'training_requests',
     'payments',
@@ -1340,6 +1521,7 @@ declare
     'payslips',
     'performance_reviews',
     'trainer_assignments',
+    'trainer_slot_reservations',
     'training_goals',
     'progress_records',
     'body_metrics',
@@ -1386,3 +1568,77 @@ begin
   end loop;
 end;
 $$;
+
+-- Database function to replace schedule atomically
+create or replace function public.replace_staff_schedule(
+  p_employee_id uuid,
+  p_selections jsonb
+) returns jsonb as $$
+declare
+  v_role text;
+  v_exists boolean;
+  v_item jsonb;
+  v_day text;
+  v_shift text;
+  v_start time;
+  v_end time;
+begin
+  select role, true into v_role, v_exists from public.employees where employee_id = p_employee_id;
+  if not coalesce(v_exists, false) then
+    return jsonb_build_object('ok', false, 'message', 'Employee not found.');
+  end if;
+  if v_role <> 'staff' then
+    return jsonb_build_object('ok', false, 'message', 'Working schedule only applies to staff.');
+  end if;
+
+  if jsonb_array_length(p_selections) = 0 then
+    return jsonb_build_object('ok', false, 'message', 'Staff must have at least one active shift.');
+  end if;
+
+  update public.employee_schedules
+  set status = 'inactive', updated_at = now()
+  where employee_id = p_employee_id;
+
+  for v_item in select * from jsonb_array_elements(p_selections) loop
+    v_day := lower(v_item->>'dayOfWeek');
+    v_shift := lower(v_item->>'shiftCode');
+
+    if v_day not in ('monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday') then
+      raise exception 'Invalid day of week: %', v_day;
+    end if;
+
+    if v_shift = 'shift_1' then
+      v_start := '08:00:00'::time; v_end := '10:00:00'::time;
+    elsif v_shift = 'shift_2' then
+      v_start := '14:00:00'::time; v_end := '16:00:00'::time;
+    elsif v_shift = 'shift_3' then
+      v_start := '16:00:00'::time; v_end := '18:00:00'::time;
+    elsif v_shift = 'shift_4' then
+      v_start := '18:00:00'::time; v_end := '20:00:00'::time;
+    else
+      raise exception 'Invalid shift code: %', v_shift;
+    end if;
+
+    insert into public.employee_schedules (employee_id, day_of_week, shift_code, start_time, end_time, status)
+    values (p_employee_id, v_day, v_shift, v_start, v_end, 'active')
+    on conflict (employee_id, day_of_week, shift_code)
+    do update set status = 'active', start_time = v_start, end_time = v_end, updated_at = now();
+  end loop;
+
+  return jsonb_build_object('ok', true);
+exception
+  when others then
+    return jsonb_build_object('ok', false, 'message', SQLERRM);
+end;
+$$ language plpgsql security definer;
+
+-- RLS policies do not grant table privileges by themselves. These grants keep
+-- the current frontend-only MVP usable after reset_demo_schema.sql recreates
+-- the public schema.
+grant usage on schema public to anon, authenticated, service_role;
+grant select, insert, update, delete
+  on all tables in schema public
+  to anon, authenticated, service_role;
+grant usage, select
+  on all sequences in schema public
+  to anon, authenticated, service_role;

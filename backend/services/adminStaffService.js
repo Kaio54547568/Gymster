@@ -1,5 +1,6 @@
 import bcrypt from "bcryptjs";
 import { createClient } from "@supabase/supabase-js";
+import { replaceStaffSchedule } from "./staffScheduleService.js";
 
 const BCRYPT_ROUNDS = 10;
 const DEFAULT_WORKER_PASSWORD = "Worker@123";
@@ -104,7 +105,7 @@ async function fetchUser(client, userId) {
   if (!userId) return {};
   const { data, error } = await client
     .from("users")
-    .select("user_id,email,first_name,last_name,phone_number,gender,date_of_birth,role,account_status,avatar_url")
+    .select("user_id,email,username,first_name,last_name,phone_number,gender,date_of_birth,role,account_status,avatar_url")
     .eq("user_id", userId)
     .maybeSingle();
   if (error) throw error;
@@ -186,6 +187,7 @@ function toDetailPayload({ employee, trainer, user, activeMembers }) {
     status: employee?.status || trainer?.status || user?.account_status || "",
     active_members: Number(activeMembers || 0),
     max_members: maxMembers,
+    username: user?.username || "",
   };
 }
 
@@ -295,15 +297,23 @@ export async function createAdminStaff(payload = {}) {
   const gender = normalizeGender(payload.gender);
   const dateOfBirth = payload.dateOfBirth || null;
   const password = String(payload.password || DEFAULT_WORKER_PASSWORD);
+  const specialty = payload.specialty !== undefined ? String(payload.specialty || "").trim() : "";
   let employeeCode = normalizeEmployeeCode(payload.employeeCode);
 
   if (!fullName || !email || !phone || !role) {
     return { ok: false, status: 400, message: "Please complete all required fields." };
   }
 
+  if (role === "staff") {
+    if (!payload.workingSchedule || !Array.isArray(payload.workingSchedule) || payload.workingSchedule.length === 0) {
+      return { ok: false, status: 400, message: "Staff must have at least one active shift." };
+    }
+  }
+
   if (payload.password && !isStrongPassword(password)) {
     return { ok: false, status: 400, message: "Password does not meet the required rules." };
   }
+
 
   try {
     const { data: existingUser, error: existingUserError } = await client
@@ -314,6 +324,48 @@ export async function createAdminStaff(payload = {}) {
     if (existingUserError) throw existingUserError;
     if (existingUser?.user_id) {
       return { ok: false, status: 409, code: "EMAIL_EXISTS", message: "Email already exists. Please enter another email." };
+    }
+
+    let username = String(payload.username || "").trim();
+    if (username) {
+      const usernameRegex = /^[A-Za-z0-9][A-Za-z0-9._-]{4,28}[A-Za-z0-9]$/;
+      if (!usernameRegex.test(username)) {
+        return { ok: false, status: 400, message: "Username must be 6-30 characters long, start and end with a letter or number, and only contain alphanumeric characters, dots, underscores, or hyphens." };
+      }
+
+      const { data: existingUserByUsername, error: existingUsernameError } = await client
+        .from("users")
+        .select("user_id")
+        .eq("username", username)
+        .maybeSingle();
+      if (existingUsernameError) throw existingUsernameError;
+      if (existingUserByUsername?.user_id) {
+        return { ok: false, status: 409, code: "USERNAME_EXISTS", message: "Username already exists. Please enter another username." };
+      }
+    } else {
+      const baseUsername = makeUsername(email, employeeCode);
+      username = baseUsername;
+      let counter = 0;
+      while (true) {
+        const checkUsername = counter === 0 ? username : `${username}${counter}`;
+        const usernameRegex = /^[A-Za-z0-9][A-Za-z0-9._-]{4,28}[A-Za-z0-9]$/;
+        if (!usernameRegex.test(checkUsername)) {
+          username = "user_" + checkUsername;
+          continue;
+        }
+
+        const { data: existingUserByUsername, error: existingUsernameError } = await client
+          .from("users")
+          .select("user_id")
+          .eq("username", checkUsername)
+          .maybeSingle();
+        if (existingUsernameError) throw existingUsernameError;
+        if (!existingUserByUsername?.user_id) {
+          username = checkUsername;
+          break;
+        }
+        counter++;
+      }
     }
 
     if (employeeCode) {
@@ -331,7 +383,7 @@ export async function createAdminStaff(payload = {}) {
       .from("users")
       .insert({
         email,
-        username: makeUsername(email, employeeCode),
+        username,
         password_hash: passwordHash,
         first_name: firstName,
         last_name: lastName,
@@ -358,7 +410,7 @@ export async function createAdminStaff(payload = {}) {
         gender,
         date_of_birth: dateOfBirth,
         role,
-        department: role === "trainer" ? "Personal Training" : "Staff",
+        department: specialty || "",
         base_salary: 0,
         status: "active",
         member_limit: STAFF_MEMBER_LIMIT,
@@ -378,7 +430,7 @@ export async function createAdminStaff(payload = {}) {
           employee_id: employee.employee_id,
           trainer_code: employeeCode,
           full_name: fullName,
-          specialty: "Personal Training",
+          specialty: specialty || "",
           bio: "",
           rating: 0,
           current_active_members: 0,
@@ -390,6 +442,15 @@ export async function createAdminStaff(payload = {}) {
 
       if (trainerError) throw trainerError;
       trainer = trainerRow;
+    }
+
+    if (role === "staff") {
+      const schedRes = await replaceStaffSchedule(employee.employee_id, payload.workingSchedule);
+      if (!schedRes.ok) {
+        await client.from("employees").delete().eq("employee_id", employee.employee_id);
+        await client.from("users").delete().eq("user_id", user.user_id);
+        return { ok: false, status: schedRes.status || 400, message: schedRes.message || "Failed to save staff schedule." };
+      }
     }
 
     return { ok: true, data: { user, employee, trainer } };
@@ -407,3 +468,107 @@ export async function createAdminStaff(payload = {}) {
     return { ok: false, status: 500, message: message || "Could not create staff record." };
   }
 }
+
+export async function updateAdminStaff(id, payload = {}) {
+  const client = getSupabaseClient();
+  if (!client) {
+    return { ok: false, status: 500, message: "Missing Supabase service configuration." };
+  }
+
+  try {
+    let employee = await fetchEmployeeByIdentifier(client, id);
+    let trainer = null;
+    if (!employee) {
+      trainer = await fetchTrainerByIdentifier(client, id);
+      if (trainer?.employee_id) {
+        employee = await fetchEmployeeByIdentifier(client, trainer.employee_id);
+      }
+    } else {
+      trainer = await fetchTrainerForEmployee(client, employee);
+    }
+
+    if (!employee) {
+      return { ok: false, status: 404, message: "Staff or trainer not found." };
+    }
+
+    const currentRole = employee.role;
+    const newRole = normalizeRole(payload.role);
+
+    if (currentRole !== newRole) {
+      return { ok: false, status: 400, message: "Role changes between Staff and Trainer are not allowed." };
+    }
+
+    const fullName = String(payload.fullName || "").trim();
+    const phone = String(payload.phone || "").trim();
+    const gender = normalizeGender(payload.gender);
+    const dateOfBirth = payload.dateOfBirth || null;
+    const specialty = payload.specialty !== undefined ? String(payload.specialty || "").trim() : "";
+    const status = payload.status || "active";
+
+    if (!fullName || !phone) {
+      return { ok: false, status: 400, message: "Please complete all required fields." };
+    }
+
+    if (newRole === "staff") {
+      if (!payload.workingSchedule || !Array.isArray(payload.workingSchedule) || payload.workingSchedule.length === 0) {
+        return { ok: false, status: 400, message: "Staff must have at least one active shift." };
+      }
+    }
+
+    const { firstName, lastName } = splitFullName(fullName);
+
+    const { error: userError } = await client
+      .from("users")
+      .update({
+        first_name: firstName,
+        last_name: lastName,
+        phone_number: phone,
+        date_of_birth: dateOfBirth,
+        gender,
+        account_status: status === "active" ? "active" : "inactive",
+      })
+      .eq("user_id", employee.user_id);
+
+    if (userError) throw userError;
+
+    const { error: employeeError } = await client
+      .from("employees")
+      .update({
+        full_name: fullName,
+        phone_number: phone,
+        gender,
+        date_of_birth: dateOfBirth,
+        department: specialty || "",
+        status,
+      })
+      .eq("employee_id", employee.employee_id);
+
+    if (employeeError) throw employeeError;
+
+    if (newRole === "trainer" && trainer) {
+      const { error: trainerError } = await client
+        .from("trainers")
+        .update({
+          full_name: fullName,
+          specialty: specialty || "",
+          status,
+        })
+        .eq("trainer_id", trainer.trainer_id);
+
+      if (trainerError) throw trainerError;
+    }
+
+    if (newRole === "staff") {
+      const schedRes = await replaceStaffSchedule(employee.employee_id, payload.workingSchedule);
+      if (!schedRes.ok) {
+        return { ok: false, status: schedRes.status || 400, message: schedRes.message || "Failed to update staff schedule." };
+      }
+    }
+
+    return { ok: true };
+  } catch (error) {
+    console.error("[Admin Staff] Failed to update staff:", error);
+    return { ok: false, status: 500, message: error.message || "Could not update staff record." };
+  }
+}
+

@@ -3,6 +3,7 @@ import { CalendarDays, CheckCircle, Dumbbell, History } from 'lucide-react';
 import { getCurrentUser } from '../../../services/authService';
 import { getCurrentMemberPackageForUser } from '../../../services/memberPackageApi';
 import { getWorkoutSessionStatusLabel, getWorkoutSessionsForMember } from '../../../services/workoutSessionApi';
+import { fetchPackagesFromSupabase } from '../../../services/packageApi';
 import Section from '../components/Section';
 import { member } from '../domain/memberConstants';
 
@@ -20,14 +21,16 @@ export default function MemberDashboard() {
   });
   const [workoutRows, setWorkoutRows] = useState<any[]>([]);
   const [dashboardMessage, setDashboardMessage] = useState('');
+  const [promotions, setPromotions] = useState<any[]>([]);
 
   useEffect(() => {
     let isMounted = true;
 
     async function loadDashboard() {
-      const [packageResult, workoutResult] = await Promise.all([
+      const [packageResult, workoutResult, availablePackagesResult] = await Promise.all([
         getCurrentMemberPackageForUser(currentUser),
         getWorkoutSessionsForMember(currentUser),
+        fetchPackagesFromSupabase(),
       ]);
 
       if (!isMounted) return;
@@ -51,7 +54,10 @@ export default function MemberDashboard() {
       }
 
       setWorkoutRows(workoutResult.error ? [] : workoutResult.data);
-      setDashboardMessage(packageResult.error || workoutResult.error ? 'Dashboard data could not be fully loaded.' : '');
+      setPromotions(availablePackagesResult.error
+        ? []
+        : availablePackagesResult.data.filter((pkg: any) => pkg.promotion && pkg.isActive !== false));
+      setDashboardMessage(packageResult.error || workoutResult.error || availablePackagesResult.error ? 'Dashboard data could not be fully loaded.' : '');
     }
 
     loadDashboard();
@@ -129,6 +135,32 @@ export default function MemberDashboard() {
         </Section>
 
       </div>
+
+      <Section title="Current Promotions">
+        {promotions.length ? (
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {promotions.map((pkg) => (
+              <article key={pkg.id} className="rounded-2xl border border-[#EF233C]/25 bg-[#EF233C]/8 p-5">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-black uppercase tracking-widest text-[#EF233C]">{pkg.promotion.title}</p>
+                    <h3 className="mt-1 text-lg font-black text-white">{pkg.name}</h3>
+                  </div>
+                  <span className="rounded-full bg-[#EF233C] px-3 py-1 text-xs font-black text-white">-{pkg.discountPercent}%</span>
+                </div>
+                <p className="mt-3 text-sm text-white/55">{pkg.promotion.description || 'Limited-time package promotion.'}</p>
+                <div className="mt-4 flex flex-wrap items-end gap-3">
+                  <span className="text-sm font-bold text-white/35 line-through">{Number(pkg.originalPrice).toLocaleString('vi-VN')} VND</span>
+                  <span className="text-xl font-black text-[#EF233C]">{Number(pkg.discountedPrice).toLocaleString('vi-VN')} VND</span>
+                </div>
+                <p className="mt-2 text-xs text-white/40">Valid {pkg.promotion.startDate} – {pkg.promotion.endDate}</p>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-xl border border-white/8 bg-[#222] p-5 text-sm font-bold text-white/45">No active promotions right now.</div>
+        )}
+      </Section>
     </div>
   );
 }

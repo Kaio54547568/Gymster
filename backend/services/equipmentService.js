@@ -72,8 +72,11 @@ function mapEquipment(row, roomsById = {}) {
     status: displayStatus(row.status),
     rawStatus: row.status,
     purchaseDate: row.purchase_date || "",
-    location: room.room_name || room.room_code || "",
+    location: room.room_name || room.room_code || "Unassigned",
     roomId: row.room_id || "",
+    roomCode: room.room_code || "",
+    roomName: room.room_name || "Unassigned",
+    roomStatus: room.status || "",
     notes: row.notes || "",
     brand: row.brand || "",
     manufacturer: row.brand || "",
@@ -82,6 +85,9 @@ function mapEquipment(row, roomsById = {}) {
     serial_number: row.serial_number || "",
     lastMaintenanceDate: row.last_maintenance_date || "",
     nextMaintenanceDate: row.next_maintenance_date || "",
+    origin: row.origin || "",
+    warrantyExpiryDate: row.warranty_expiry_date || "",
+    warranty_expiry_date: row.warranty_expiry_date || "",
   };
 }
 
@@ -138,6 +144,8 @@ function payloadFromForm(body, roomId) {
     serial_number: String(body.serial_number || body.serialNumber || "").trim(),
     last_maintenance_date: body.last_maintenance_date || body.lastMaintenanceDate || null,
     notes: String(body.notes || body.ghiChu || "").trim(),
+    origin: body.origin !== undefined ? String(body.origin).trim() : undefined,
+    warranty_expiry_date: body.warrantyExpiryDate || body.warranty_expiry_date || null,
   };
 }
 
@@ -187,10 +195,40 @@ export async function createEquipment(body = {}) {
   if (!ready.ok) return ready;
 
   try {
-    const roomId = await resolveRoomId(ready.client, body.location || body.tenPhong);
+    const roomId = body.roomId || body.room_id || null;
+    if (!roomId) {
+      return { ok: false, status: 400, message: "Room is required." };
+    }
+
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(roomId)) {
+      return { ok: false, status: 400, message: "Invalid room ID format." };
+    }
+
+    const { data: room, error: roomError } = await ready.client
+      .from("rooms")
+      .select("status")
+      .eq("room_id", roomId)
+      .maybeSingle();
+
+    if (roomError) throw roomError;
+    if (!room) {
+      return { ok: false, status: 400, message: "Selected room does not exist." };
+    }
+
+    if (room.status !== "active") {
+      return { ok: false, status: 400, message: "Equipment can only be assigned to an Active room." };
+    }
+
     const payload = payloadFromForm(body, roomId);
-    if (!payload.equipment_code || !payload.equipment_name || !payload.category || !payload.purchase_date) {
+    if (!payload.equipment_code || !payload.equipment_name || !payload.category || !payload.purchase_date || !payload.origin || !payload.warranty_expiry_date) {
       return { ok: false, status: 400, message: "Missing required equipment fields." };
+    }
+
+    const purchaseTime = new Date(payload.purchase_date).getTime();
+    const expiryTime = new Date(payload.warranty_expiry_date).getTime();
+    if (expiryTime < purchaseTime) {
+      return { ok: false, status: 400, message: "Warranty expiry date cannot be before purchase date." };
     }
 
     const { data, error } = await ready.client
@@ -216,9 +254,57 @@ export async function updateEquipment(id, body = {}) {
   if (!ready.ok) return ready;
 
   try {
-    const roomId = await resolveRoomId(ready.client, body.location || body.tenPhong);
+    const roomId = body.roomId || body.room_id || null;
+    if (!roomId) {
+      return { ok: false, status: 400, message: "Room is required." };
+    }
+
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(roomId)) {
+      return { ok: false, status: 400, message: "Invalid room ID format." };
+    }
+
+    const { data: currentEq, error: eqError } = await ready.client
+      .from("equipment")
+      .select("room_id")
+      .eq("equipment_id", id)
+      .maybeSingle();
+
+    if (eqError) throw eqError;
+    if (!currentEq) {
+      return { ok: false, status: 404, message: "Equipment not found." };
+    }
+
+    const { data: targetRoom, error: roomError } = await ready.client
+      .from("rooms")
+      .select("status")
+      .eq("room_id", roomId)
+      .maybeSingle();
+
+    if (roomError) throw roomError;
+    if (!targetRoom) {
+      return { ok: false, status: 400, message: "Selected room does not exist." };
+    }
+
+    if (currentEq.room_id !== roomId) {
+      if (targetRoom.status !== "active") {
+        return { ok: false, status: 400, message: "Equipment can only be reassigned to an Active room." };
+      }
+    }
+
     const payload = payloadFromForm(body, roomId);
     delete payload.equipment_code;
+
+    if (!payload.equipment_name || !payload.category || !payload.purchase_date || !payload.origin || !payload.warranty_expiry_date) {
+      return { ok: false, status: 400, message: "Missing required equipment fields." };
+    }
+
+    const purchaseTime = new Date(payload.purchase_date).getTime();
+    const expiryTime = new Date(payload.warranty_expiry_date).getTime();
+    if (expiryTime < purchaseTime) {
+      return { ok: false, status: 400, message: "Warranty expiry date cannot be before purchase date." };
+    }
+
     Object.keys(payload).forEach((key) => {
       if (payload[key] === "") payload[key] = null;
     });
@@ -249,5 +335,42 @@ export async function deleteEquipment(id) {
   } catch (error) {
     console.error("[Equipment] Failed to delete equipment:", error);
     return { ok: false, status: 500, message: error.message || "Could not delete equipment." };
+  }
+}
+
+export async function retireEquipment(id) {
+  const ready = requireClient();
+  if (!ready.ok) return ready;
+
+  try {
+    const { data: current, error: getError } = await ready.client
+      .from("equipment")
+      .select("*")
+      .eq("equipment_id", id)
+      .maybeSingle();
+
+    if (getError) throw getError;
+    if (!current) {
+      return { ok: false, status: 404, message: "Equipment not found." };
+    }
+
+    if (current.status === "retired") {
+      const roomsById = await fetchRoomsByIds(ready.client, [current.room_id]);
+      return { ok: true, success: true, data: mapEquipment(current, roomsById) };
+    }
+
+    const { data: updated, error: updateError } = await ready.client
+      .from("equipment")
+      .update({ status: "retired" })
+      .eq("equipment_id", id)
+      .select("*")
+      .single();
+
+    if (updateError) throw updateError;
+    const roomsById = await fetchRoomsByIds(ready.client, [updated.room_id]);
+    return { ok: true, success: true, data: mapEquipment(updated, roomsById) };
+  } catch (error) {
+    console.error("[Equipment] Failed to retire equipment:", error);
+    return { ok: false, status: 500, message: error.message || "Could not retire equipment." };
   }
 }

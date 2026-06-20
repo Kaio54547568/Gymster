@@ -6,7 +6,7 @@ import { MemberList } from './components/MemberList';
 import { MemberDetail } from './components/MemberDetail';
 import { DailyCheckIn } from './components/DailyCheckIn';
 import { RenewPackageUI } from './components/RenewPackageUI';
-import { PaymentRequests } from './components/PaymentRequests';
+import { PaymentHistory } from './components/PaymentHistory';
 import { ReceiptDetail } from './components/ReceiptDetail';
 import { ViewHistoryUI } from './components/ViewHistoryUI';
 import { FeedbackManagement } from './components/FeedbackManagement';
@@ -15,6 +15,7 @@ import { EquipmentStatus } from './components/EquipmentStatus';
 import { Notifications } from './components/Notifications';
 import { Settings } from './components/Settings';
 import { Profile } from './components/Profile';
+import { MyWorkSchedule } from './components/MyWorkSchedule';
 
 export default function App() {
   return (
@@ -29,12 +30,14 @@ export default function App() {
           <Route path="check-in" element={<DailyCheckIn />} />
           <Route path="renew-package" element={<RenewPackageUI />} />
           <Route path="renew-package/:memberId" element={<RenewPackageUI />} />
-          <Route path="payment-requests" element={<PaymentRequests />} />
+          <Route path="payment-history" element={<PaymentHistory />} />
+          <Route path="payment-requests" element={<Navigate to="/staff/payment-history" replace />} />
           <Route path="receipt/:id" element={<ReceiptDetail />} />
           <Route path="history" element={<ViewHistoryUI />} />
           <Route path="feedback" element={<FeedbackManagement />} />
           <Route path="feedback/:id" element={<FeedbackDetail />} />
           <Route path="equipment" element={<EquipmentStatus />} />
+          <Route path="work-schedule" element={<MyWorkSchedule />} />
           <Route path="notifications" element={<Notifications />} />
           <Route path="settings" element={<Settings />} />
           <Route path="profile" element={<Profile />} />

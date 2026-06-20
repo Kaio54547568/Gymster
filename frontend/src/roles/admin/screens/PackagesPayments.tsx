@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Check, CreditCard, Wallet, Smartphone, Building, Download, Printer, Mail, Pencil, Plus, Trash2, X } from 'lucide-react';
+import { Check, Pencil, Plus, Tags, Trash2, X } from 'lucide-react';
 import { motion } from 'motion/react';
-import { createPackageInSupabase, deletePackageInSupabase, fetchPackagesFromSupabase, updatePackageInSupabase } from '../../../services/packageApi';
+import { createPackageInSupabase, createPackagePromotion, deletePackageInSupabase, fetchPackagesFromSupabase, updatePackageInSupabase } from '../../../services/packageApi';
 
 type PackageStatus = 'Active' | 'Inactive';
 type PackageType = 'Basic' | 'PT' | 'VIP' | 'Session-based' | string;
@@ -61,6 +61,15 @@ const emptyPackageForm = {
   sessionsPerWeek: 1,
 };
 
+const emptyPromotionForm = {
+  title: '',
+  description: '',
+  discountPercent: '',
+  startDate: '',
+  endDate: '',
+  status: 'active',
+};
+
 function mapSupabasePackageToAdminPackage(pkg: SupabasePackage): GymPackage {
   const isActive = typeof pkg.isActive === 'boolean' ? pkg.isActive : String(pkg.status || '').toLowerCase() === 'active';
   const sessionLimit = pkg.sessionLimit || 'Session limit not configured';
@@ -96,10 +105,10 @@ export default function PackagesPayments() {
   const [packages, setPackages] = useState<GymPackage[]>([]);
   const [isLoadingPackages, setIsLoadingPackages] = useState(true);
   const [packageLoadMessage, setPackageLoadMessage] = useState('');
-  const [selectedPackage, setSelectedPackage] = useState<GymPackage | null>(null);
-  const [showPaymentModal, setShowPaymentModal] = useState(false);
-  const [paymentMethod, setPaymentMethod] = useState('bank');
-  const [showReceipt, setShowReceipt] = useState(false);
+  const [promotionPackage, setPromotionPackage] = useState<GymPackage | null>(null);
+  const [promotionForm, setPromotionForm] = useState(emptyPromotionForm);
+  const [promotionError, setPromotionError] = useState('');
+  const [isSavingPromotion, setIsSavingPromotion] = useState(false);
   const [showPackageModal, setShowPackageModal] = useState(false);
   const [packageForm, setPackageForm] = useState(emptyPackageForm);
   const [editingPackage, setEditingPackage] = useState<GymPackage | null>(null);
@@ -148,14 +157,50 @@ export default function PackagesPayments() {
     };
   }, [packages]);
 
-  const handleSelectPackage = (pkg: GymPackage) => {
-    setSelectedPackage(pkg);
-    setShowPaymentModal(true);
+  const openPromotionModal = (pkg: GymPackage) => {
+    setPromotionPackage(pkg);
+    setPromotionForm(emptyPromotionForm);
+    setPromotionError('');
   };
 
-  const handlePayment = () => {
-    setShowPaymentModal(false);
-    setShowReceipt(true);
+  const closePromotionModal = () => {
+    setPromotionPackage(null);
+    setPromotionForm(emptyPromotionForm);
+    setPromotionError('');
+  };
+
+  const handleSavePromotion = async () => {
+    if (!promotionPackage) return;
+    const discountPercent = Number(promotionForm.discountPercent);
+    if (!promotionForm.title.trim() || !promotionForm.startDate || !promotionForm.endDate) {
+      setPromotionError('Title, start date, and end date are required.');
+      return;
+    }
+    if (!(discountPercent > 0 && discountPercent <= 100)) {
+      setPromotionError('Discount percent must be greater than 0 and at most 100.');
+      return;
+    }
+    if (promotionForm.endDate < promotionForm.startDate) {
+      setPromotionError('End date must be on or after start date.');
+      return;
+    }
+    setIsSavingPromotion(true);
+    const { error } = await createPackagePromotion({
+      packageId: promotionPackage.id,
+      title: promotionForm.title,
+      description: promotionForm.description,
+      discountPercent,
+      startDate: promotionForm.startDate,
+      endDate: promotionForm.endDate,
+      status: promotionForm.status,
+    });
+    setIsSavingPromotion(false);
+    if (error) {
+      setPromotionError(error.message);
+      return;
+    }
+    closePromotionModal();
+    setPackageLoadMessage('Promotion created successfully.');
   };
 
   const openCreatePackageModal = () => {
@@ -234,8 +279,8 @@ export default function PackagesPayments() {
     <div className="space-y-8 p-8">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <h1 className="bebas mb-2 text-5xl tracking-wider text-white">PACKAGES & PAYMENTS</h1>
-          <p className="text-[#A1A1AA]">Manage membership packages, availability, and payment preview flows.</p>
+          <h1 className="bebas mb-2 text-5xl tracking-wider text-white">PACKAGE</h1>
+          <p className="text-[#A1A1AA]">Manage membership packages, availability, and promotions.</p>
         </div>
         <button
           onClick={openCreatePackageModal}
@@ -340,10 +385,10 @@ export default function PackagesPayments() {
             </ul>
 
             <button
-              onClick={() => handleSelectPackage(pkg)}
+              onClick={() => openPromotionModal(pkg)}
               className="w-full rounded-xl bg-[#EF233C] px-6 py-3 font-semibold text-white transition-colors hover:bg-[#990000]"
             >
-              Select Package
+              Add Discount
             </button>
           </motion.div>
           ))}
@@ -439,109 +484,29 @@ export default function PackagesPayments() {
         </div>
       )}
 
-      {showPaymentModal && selectedPackage && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-8 backdrop-blur-sm" onClick={() => setShowPaymentModal(false)}>
+      {promotionPackage && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-5 backdrop-blur-sm" onClick={closePromotionModal}>
           <div className="w-full max-w-2xl rounded-3xl border border-[#EF233C]/30 bg-[#0c1014] p-8" onClick={(event) => event.stopPropagation()}>
-            <h2 className="bebas mb-6 text-4xl tracking-wider text-white">PAYMENT</h2>
-
-            <div className="mb-6 rounded-xl border border-[#EF233C]/20 bg-[#050607] p-6">
-              <h3 className="mb-2 text-xl font-bold text-white">{selectedPackage.name}</h3>
-              <p className="text-3xl font-bold text-[#EF233C]">{selectedPackage.price} VND</p>
+            <div className="mb-6 flex items-start justify-between gap-4">
+              <div>
+                <h2 className="bebas flex items-center gap-3 text-4xl tracking-wider text-white"><Tags className="h-7 w-7 text-[#EF233C]" /> ADD DISCOUNT</h2>
+                <p className="mt-1 text-sm text-[#A1A1AA]">Create a promotion without changing the package base price.</p>
+              </div>
+              <button onClick={closePromotionModal} className="rounded-xl border border-[#EF233C]/30 p-2 text-white"><X className="h-5 w-5" /></button>
             </div>
-
-            <div className="mb-6">
-              <h4 className="mb-4 font-bold text-white">Select Payment Method</h4>
-              <div className="grid grid-cols-2 gap-4">
-                {[
-                  { id: 'cash', name: 'Cash', icon: Wallet },
-                  { id: 'bank', name: 'Bank Transfer', icon: Building },
-                  { id: 'card', name: 'Credit Card', icon: CreditCard },
-                  { id: 'wallet', name: 'E-Wallet', icon: Smartphone },
-                ].map(({ id, name, icon: Icon }) => (
-                  <button
-                    key={id}
-                    onClick={() => setPaymentMethod(id)}
-                    className={`flex items-center gap-3 rounded-xl border px-4 py-3 transition-all ${
-                      paymentMethod === id ? 'border-[#EF233C] bg-[#EF233C] text-white' : 'border-[#EF233C]/30 bg-[#050607] text-[#A1A1AA]'
-                    }`}
-                  >
-                    <Icon className="h-5 w-5" />
-                    <span className="font-semibold">{name}</span>
-                  </button>
-                ))}
-              </div>
+            {promotionError && <div className="mb-4 rounded-xl border border-[#EF233C]/30 bg-[#EF233C]/10 p-3 text-sm font-bold text-white">{promotionError}</div>}
+            <div className="grid gap-4 md:grid-cols-2">
+              <label className="md:col-span-2"><span className="mb-2 block text-xs font-bold uppercase tracking-wider text-[#A1A1AA]">Package name</span><input readOnly value={promotionPackage.name} className="w-full rounded-xl border border-white/10 bg-black/30 px-4 py-3 text-white/55" /></label>
+              <label className="md:col-span-2"><span className="mb-2 block text-xs font-bold uppercase tracking-wider text-[#A1A1AA]">Promotion title</span><input value={promotionForm.title} onChange={(event) => setPromotionForm((current) => ({ ...current, title: event.target.value }))} className="w-full rounded-xl border border-[#EF233C]/20 bg-[#050607] px-4 py-3 text-white outline-none focus:border-[#EF233C]" /></label>
+              <label className="md:col-span-2"><span className="mb-2 block text-xs font-bold uppercase tracking-wider text-[#A1A1AA]">Description</span><textarea rows={3} value={promotionForm.description} onChange={(event) => setPromotionForm((current) => ({ ...current, description: event.target.value }))} className="w-full resize-none rounded-xl border border-[#EF233C]/20 bg-[#050607] px-4 py-3 text-white outline-none focus:border-[#EF233C]" /></label>
+              <label><span className="mb-2 block text-xs font-bold uppercase tracking-wider text-[#A1A1AA]">Discount percent</span><input type="number" min="0.01" max="100" value={promotionForm.discountPercent} onChange={(event) => setPromotionForm((current) => ({ ...current, discountPercent: event.target.value }))} className="w-full rounded-xl border border-[#EF233C]/20 bg-[#050607] px-4 py-3 text-white outline-none focus:border-[#EF233C]" /></label>
+              <label><span className="mb-2 block text-xs font-bold uppercase tracking-wider text-[#A1A1AA]">Status</span><select value={promotionForm.status} onChange={(event) => setPromotionForm((current) => ({ ...current, status: event.target.value }))} className="w-full rounded-xl border border-[#EF233C]/20 bg-[#050607] px-4 py-3 text-white"><option value="active">Active</option><option value="inactive">Inactive</option></select></label>
+              <label><span className="mb-2 block text-xs font-bold uppercase tracking-wider text-[#A1A1AA]">Start date</span><input type="date" value={promotionForm.startDate} onChange={(event) => setPromotionForm((current) => ({ ...current, startDate: event.target.value }))} className="w-full rounded-xl border border-[#EF233C]/20 bg-[#050607] px-4 py-3 text-white" /></label>
+              <label><span className="mb-2 block text-xs font-bold uppercase tracking-wider text-[#A1A1AA]">End date</span><input type="date" value={promotionForm.endDate} onChange={(event) => setPromotionForm((current) => ({ ...current, endDate: event.target.value }))} className="w-full rounded-xl border border-[#EF233C]/20 bg-[#050607] px-4 py-3 text-white" /></label>
             </div>
-
-            {paymentMethod === 'bank' && (
-              <div className="mb-6 rounded-xl border border-[#EF233C]/20 bg-[#050607] p-6">
-                <div className="flex items-center gap-6">
-                  <div className="h-32 w-32 rounded-xl bg-white p-2">
-                    <div className="flex h-full w-full items-center justify-center bg-[#0c1014] text-xs text-white">QR CODE</div>
-                  </div>
-                  <div className="flex-1 space-y-2">
-                    <p className="text-white"><span className="text-[#A1A1AA]">Bank:</span> Vietcombank</p>
-                    <p className="text-white"><span className="text-[#A1A1AA]">Account number:</span> 0123456789</p>
-                    <p className="text-white"><span className="text-[#A1A1AA]">Account name:</span> GYMSTER FITNESS CENTER</p>
-                    <p className="text-white"><span className="text-[#A1A1AA]">Transfer note:</span> PAYMENT {selectedPackage.id}</p>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            <div className="flex gap-3">
-              <button onClick={handlePayment} className="flex-1 rounded-xl bg-[#EF233C] px-6 py-3 font-semibold text-white transition-colors hover:bg-[#990000]">
-                Confirm Payment
-              </button>
-              <button onClick={() => setShowPaymentModal(false)} className="rounded-xl bg-[#050607] px-6 py-3 font-semibold text-white transition-colors hover:bg-[#0c1014]">
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showReceipt && selectedPackage && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-8 backdrop-blur-sm" onClick={() => setShowReceipt(false)}>
-          <div className="w-full max-w-lg rounded-3xl border border-[#EF233C]/30 bg-[#0c1014] p-8" onClick={(event) => event.stopPropagation()}>
-            <div className="mb-6 text-center">
-              <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-full border border-[#22C55E]/30 bg-[#22C55E]/10">
-                <Check className="h-10 w-10 text-[#22C55E]" />
-              </div>
-              <h2 className="bebas mb-2 text-4xl tracking-wider text-white">PAYMENT SUCCESSFUL</h2>
-              <p className="text-[#A1A1AA]">Receipt code: #RC-2026-{Math.floor(Math.random() * 1000)}</p>
-            </div>
-
-            <div className="mb-6 space-y-3 rounded-xl border border-[#EF233C]/20 bg-[#050607] p-6">
-              <div className="flex justify-between">
-                <span className="text-[#A1A1AA]">Package:</span>
-                <span className="font-semibold text-white">{selectedPackage.name}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-[#A1A1AA]">Duration:</span>
-                <span className="font-semibold text-white">{selectedPackage.duration}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-[#A1A1AA]">Amount:</span>
-                <span className="text-xl font-bold text-[#EF233C]">{selectedPackage.price} VND</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-[#A1A1AA]">Payment date:</span>
-                <span className="font-semibold text-white">May 16, 2026</span>
-              </div>
-            </div>
-
-            <div className="flex gap-2">
-              <button className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-[#EF233C] px-4 py-3 font-semibold text-white transition-colors hover:bg-[#990000]">
-                <Printer className="h-4 w-4" />
-                Print Receipt
-              </button>
-              <button className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-[#EF233C]/30 bg-[#0c1014] px-4 py-3 font-semibold text-white transition-colors hover:bg-[#EF233C]/10">
-                <Download className="h-4 w-4" />
-                Download PDF
-              </button>
-              <button className="rounded-xl border border-[#EF233C]/30 bg-[#0c1014] px-4 py-3 text-white transition-colors hover:bg-[#EF233C]/10">
-                <Mail className="h-4 w-4" />
-              </button>
+            <div className="mt-6 flex justify-end gap-3">
+              <button onClick={closePromotionModal} className="rounded-xl border border-white/10 px-5 py-3 font-bold text-white">Cancel</button>
+              <button onClick={handleSavePromotion} disabled={isSavingPromotion} className="rounded-xl bg-[#EF233C] px-5 py-3 font-bold text-white disabled:opacity-50">{isSavingPromotion ? 'Saving...' : 'Create Promotion'}</button>
             </div>
           </div>
         </div>

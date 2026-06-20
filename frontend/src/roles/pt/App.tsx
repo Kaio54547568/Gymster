@@ -1,4 +1,4 @@
-﻿import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useMemo } from "react";
 import { createPortal } from "react-dom";
 import {
   LayoutDashboard, Users, CalendarDays, Dumbbell, BarChart2,
@@ -3393,7 +3393,7 @@ function Toast({ message, onDone }: { message: string; onDone: () => void }) {
 }
 
 function EquipmentReportScreen({ showToast }: { showToast: (msg: string) => void }) {
-  const [equipment, setEquipment] = useState<Array<{ equipmentUuid?: string; equipmentName: string; room: string }>>([]);
+  const [equipment, setEquipment] = useState<Array<{ equipmentUuid?: string; equipmentName: string; room: string; status?: string }>>([]);
   const [form, setForm] = useState({
     equipmentName: "",
     equipmentUuid: "",
@@ -3403,6 +3403,8 @@ function EquipmentReportScreen({ showToast }: { showToast: (msg: string) => void
     severity: "Medium",
   });
   const [message, setMessage] = useState("");
+
+  const activeEquipment = useMemo(() => equipment.filter((eq) => eq.status !== 'Retired'), [equipment]);
 
   useEffect(() => {
     let isMounted = true;
@@ -3419,7 +3421,7 @@ function EquipmentReportScreen({ showToast }: { showToast: (msg: string) => void
   }, []);
 
   const selectEquipment = (equipmentName: string) => {
-    const item = equipment.find((entry) => entry.equipmentName === equipmentName);
+    const item = activeEquipment.find((entry) => entry.equipmentName === equipmentName);
     setForm((current) => ({
       ...current,
       equipmentName,
@@ -3477,7 +3479,7 @@ function EquipmentReportScreen({ showToast }: { showToast: (msg: string) => void
               className="w-full bg-[#222] border border-white/10 text-white text-sm px-3 py-2.5 rounded-lg focus:outline-none focus:border-[#FF3B3B]/60 transition-colors"
             >
               <option value="">Select equipment...</option>
-              {equipment.map((item) => (
+              {activeEquipment.map((item) => (
                 <option key={`${item.equipmentUuid}-${item.equipmentName}`} value={item.equipmentName}>
                   {item.equipmentName}
                 </option>
@@ -3497,7 +3499,7 @@ function EquipmentReportScreen({ showToast }: { showToast: (msg: string) => void
 
       <SectionCard title="Equipment Directory">
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {equipment.slice(0, 9).map((item) => (
+          {activeEquipment.slice(0, 9).map((item) => (
             <button
               key={`${item.equipmentUuid}-${item.equipmentName}-card`}
               type="button"
@@ -3508,7 +3510,7 @@ function EquipmentReportScreen({ showToast }: { showToast: (msg: string) => void
               <div className="mt-1 text-xs text-[#777]">{item.room}</div>
             </button>
           ))}
-          {!equipment.length && <p className="text-sm text-[#777]">No equipment records available.</p>}
+          {!activeEquipment.length && <p className="text-sm text-[#777]">No equipment records available.</p>}
         </div>
       </SectionCard>
     </div>

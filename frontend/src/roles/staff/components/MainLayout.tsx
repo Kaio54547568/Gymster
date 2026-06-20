@@ -10,6 +10,7 @@ import {
   CreditCard,
   UserPlus,
   Users,
+  Calendar,
 } from 'lucide-react';
 import RoleShell, { type RoleShellItem } from '../../shared/RoleShell';
 import { useSupabaseUserProfile } from '../../shared/useSupabaseUserProfile';
@@ -21,10 +22,11 @@ const menuItems: RoleShellItem[] = [
   { id: 'members', path: '/staff/members', icon: Users, label: 'Member List' },
   { id: 'check-in', path: '/staff/check-in', icon: CalendarCheck, label: 'Daily Check-in' },
   { id: 'renew-package', path: '/staff/renew-package', icon: RefreshCw, label: 'Renew Package' },
-  { id: 'payment-requests', path: '/staff/payment-requests', icon: CreditCard, label: 'Payment Requests' },
+  { id: 'payment-history', path: '/staff/payment-history', icon: CreditCard, label: 'Payment History' },
   { id: 'history', path: '/staff/history', icon: History, label: 'Usage History' },
   { id: 'feedback', path: '/staff/feedback', icon: MessageSquare, label: 'Feedback Management' },
   { id: 'equipment', path: '/staff/equipment', icon: Dumbbell, label: 'Equipment Status' },
+  { id: 'work-schedule', path: '/staff/work-schedule', icon: Calendar, label: 'My Work Schedule' },
   { id: 'settings', path: '/staff/settings', icon: Settings, label: 'Settings' },
 ];
 

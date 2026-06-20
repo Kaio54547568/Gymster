@@ -1,4 +1,5 @@
 import { supabase } from "./supabaseClient";
+import { authenticatedJson } from "./authenticatedApi";
 
 const LOCAL_TRAINERS = [
   {
@@ -134,5 +135,13 @@ export async function fetchTrainersFromSupabase() {
   return {
     data: Array.isArray(data) ? data.map(mapTrainerRow) : [],
     error: null,
+  };
+}
+
+export async function fetchTrainersFromApi() {
+  const apiResult = await authenticatedJson("/api/trainers");
+  return {
+    data: Array.isArray(apiResult.data) ? apiResult.data : [],
+    error: apiResult.error || null,
   };
 }

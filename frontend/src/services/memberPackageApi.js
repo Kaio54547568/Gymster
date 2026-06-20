@@ -2,6 +2,7 @@ import { supabase } from "./supabaseClient";
 import { getAllowedLeaveDaysForPackage } from "./packageEntitlement";
 import { getCurrentUser } from "./authService";
 import { notifyPtPortalDataChanged } from "./notificationApi";
+import { authenticatedJson } from "./authenticatedApi";
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const LOCAL_PACKAGE_CHANGE_REQUESTS_KEY = "gymster_local_package_change_requests";
@@ -511,6 +512,8 @@ export async function getMemberPackagesForUser(user) {
     return { data: [], memberId: null, error: null };
   }
 
+  await supabase.rpc("gymster_sync_member_package_lifecycle", { target_member_id: memberId });
+
   const { data: rows, error } = await supabase
     .from("member_packages")
     .select(`
@@ -559,9 +562,14 @@ export async function getCurrentMemberPackageForUser(user) {
   }
 
   const activePackage = result.data.find((item) => item.status === "active");
-  const fallbackPackage = result.data[0] || null;
+  const pendingPackage = result.data.find((item) => item.status === "pending_activation");
 
-  return { data: activePackage || fallbackPackage, memberId: result.memberId, error: null };
+  return {
+    data: activePackage || null,
+    pendingPackage: pendingPackage || null,
+    memberId: result.memberId,
+    error: null,
+  };
 }
 
 export function createPendingRenewalRequest(request) {
@@ -652,16 +660,6 @@ export async function createPackageChangeRequest(request) {
         }
       }
 
-      // 2. Check days remaining on mock fallbackActivePackage
-      const endDate = fallbackActivePackage.endDate;
-      const diff = new Date(endDate).getTime() - Date.now();
-      const daysRemaining = Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)));
-      if (daysRemaining > 5) {
-        return {
-          data: null,
-          error: new Error(`Gói hiện tại của bạn còn nhiều hơn 5 ngày (${daysRemaining} ngày). Bạn chỉ được gửi yêu cầu gia hạn hoặc đổi gói khi gói hiện tại còn tối đa 5 ngày.`)
-        };
-      }
     }
 
     const row = {
@@ -687,6 +685,17 @@ export async function createPackageChangeRequest(request) {
 
     return { data: row, error: null };
   }
+
+  return authenticatedJson("/api/member/package-change-requests", {
+    method: "POST",
+    body: JSON.stringify({
+      memberId: request.memberId,
+      currentMemberPackageId: request.currentMemberPackageId || null,
+      packageId: request.packageId,
+      paymentMethod: request.paymentMethod || null,
+      requestType: request.requestType,
+    }),
+  });
 
   const memberId = await resolveCurrentMemberId({
     memberId: request.memberId,
@@ -719,38 +728,15 @@ export async function createPackageChangeRequest(request) {
       .from("member_packages")
       .select("member_package_id, status, start_date")
       .eq("member_id", memberId)
-      .or("status.eq.pending_payment,status.eq.active");
+      .in("status", ["pending_payment", "pending_activation"]);
 
     if (!queuedError && queuedPackages) {
-      const hasQueued = queuedPackages.some(pkg => 
-        pkg.status === "pending_payment" || 
-        (pkg.status === "active" && pkg.start_date && new Date(pkg.start_date) > new Date())
-      );
+      const hasQueued = queuedPackages.length > 0;
       if (hasQueued) {
-        return { data: null, error: new Error("Bạn đã có một gói tập đang chờ thanh toán hoặc gói tập tương lai đã được lên lịch.") };
+        return { data: null, error: new Error("You already have a package waiting for payment or activation. You cannot buy another package yet.") };
       }
     }
 
-    // Check active package days remaining
-    const { data: activePackages, error: activeError } = await supabase
-      .from("member_packages")
-      .select("end_date")
-      .eq("member_id", memberId)
-      .eq("status", "active");
-
-    if (!activeError && activePackages && activePackages.length > 0) {
-      const activePkg = activePackages.find(pkg => !pkg.start_date || new Date(pkg.start_date) <= new Date());
-      if (activePkg && activePkg.end_date) {
-        const diff = new Date(activePkg.end_date).getTime() - Date.now();
-        const daysRemaining = Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)));
-        if (daysRemaining > 5) {
-          return {
-            data: null,
-            error: new Error(`Gói hiện tại của bạn còn nhiều hơn 5 ngày (${daysRemaining} ngày). Bạn chỉ được gửi yêu cầu gia hạn hoặc đổi gói khi gói hiện tại còn tối đa 5 ngày.`)
-          };
-        }
-      }
-    }
   }
 
   const payload = {

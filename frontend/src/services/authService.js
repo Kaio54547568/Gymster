@@ -261,6 +261,7 @@ function toFrontendAccountStatus(status) {
     pending_onboarding: "PendingOnboarding",
     pending_pt_approval: "PendingPTApproval",
     pending_payment: "PendingPayment",
+    pending_verification: "PendingVerification",
     active: "Active",
     cancelled: "Cancelled",
     inactive: "Inactive",
@@ -602,30 +603,17 @@ async function findTrainerIdByUserId(userId) {
 async function findUserByIdentifier(identifier) {
   const rawIdentifier = identifier.trim();
   const normalizedIdentifier = rawIdentifier.toLowerCase();
-
-  const { data: emailRows, error: emailError } = await supabase
+  const column = rawIdentifier.includes("@") ? "email" : "username";
+  const lookupValue = column === "email" ? normalizedIdentifier : rawIdentifier;
+  const { data: rows, error } = await supabase
     .from("users")
     .select(USER_SELECT)
-    .ilike("email", normalizedIdentifier)
-    .limit(1);
-
-  if (emailError) {
-    return { data: null, error: emailError };
-  }
-
-  if (emailRows?.[0]) {
-    return { data: emailRows[0], error: null };
-  }
-
-  const { data: usernameRows, error: usernameError } = await supabase
-    .from("users")
-    .select(USER_SELECT)
-    .ilike("username", rawIdentifier)
+    .ilike(column, lookupValue)
     .limit(1);
 
   return {
-    data: usernameRows?.[0] || null,
-    error: usernameError,
+    data: rows?.[0] || null,
+    error,
   };
 }
 
@@ -857,6 +845,19 @@ async function loginSupabaseUser(identifier, password, options = {}) {
     const result = await response.json().catch(() => ({}));
 
     if (response.ok && result.ok && result.user) {
+      const authEmail = result.user.email || (String(identifier).includes("@") ? identifier : "");
+      if (authEmail) {
+        const authResult = await supabase.auth.signInWithPassword({
+          email: authEmail,
+          password,
+        });
+        if (authResult.error || !authResult.data?.session?.access_token) {
+          return {
+            ok: false,
+            message: authResult.error?.message || "Supabase session could not be created. Please try signing in again.",
+          };
+        }
+      }
       persistCurrentUser(result.user, options);
       return { ok: true, user: result.user };
     }
@@ -1057,6 +1058,32 @@ export async function completeOAuthProfile(profile) {
     console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to complete OAuth profile:", oauthError);
     return { ok: false, message: "Could not complete social registration." };
   }
+}
+
+export async function completeNewMemberSession(user, password, options = {}) {
+  if (!user?.email) {
+    return { ok: false, message: "A verified email is required to create a member session." };
+  }
+
+  if (!supabase) {
+    persistCurrentUser(user, options);
+    return { ok: true, user };
+  }
+
+  const authResult = await supabase.auth.signInWithPassword({
+    email: user.email,
+    password,
+  });
+
+  if (authResult.error || !authResult.data?.session?.access_token) {
+    return {
+      ok: false,
+      message: authResult.error?.message || "Account was created, but a Supabase session could not be created.",
+    };
+  }
+
+  persistCurrentUser(user, options);
+  return { ok: true, user };
 }
 
 export function setCurrentUser(user) {

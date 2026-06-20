@@ -75,11 +75,11 @@ export default function StaffManagement() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="bebas text-5xl text-white tracking-wider mb-2">STAFF & TRAINER MANAGEMENT</h1>
-          <p className="text-[#A1A1AA]">Quản lý nhân viên và huấn luyện viên</p>
+          <p className="text-[#A1A1AA]">Manage staff and trainers</p>
         </div>
         <button className="px-6 py-3 bg-[#EF233C] text-white rounded-xl hover:bg-[#990000] transition-colors font-semibold flex items-center gap-2">
           <Plus className="w-5 h-5" />
-          Thêm Nhân Viên
+          Add Staff
         </button>
       </div>
 

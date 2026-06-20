@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { AlertCircle, CalendarCheck, CheckCircle, ChevronLeft, ChevronRight, Clock, RefreshCw, Search, Users } from 'lucide-react';
-import { checkInStaffMember, getStaffCheckInsForDate, getStaffMembers } from '../../../services/staffOperationsApi';
+import { getStaffCheckInList, recordStaffCheckIn } from '../../../services/checkInApi';
 import { useLanguage, type AppLanguage } from '../../shared/LanguageContext';
 
 type MemberStatus = 'Active' | 'Expired' | 'Disabled';
@@ -164,17 +164,17 @@ export function DailyCheckIn() {
   const loadData = async () => {
     setLoading(true);
     setMessage('');
-    const [memberResult, checkInResult] = await Promise.all([
-      getStaffMembers(),
-      getStaffCheckInsForDate(selectedDate),
-    ]);
-
-    if (memberResult.error || checkInResult.error) {
+    const result = await getStaffCheckInList(selectedDate);
+    if (result.error) {
       setMessage(copy.loadError);
     }
-
-    setMembers(memberResult.error ? [] : memberResult.data);
-    setCheckIns(checkInResult.error ? [] : checkInResult.data);
+    const rows = result.error ? [] : (result.data || []);
+    setMembers(rows.map((row: any) => ({ ...row, status: 'Active' })));
+    setCheckIns(rows.filter((row: any) => row.checkedIn).map((row: any) => ({
+      id: `${row.memberUuid}-${selectedDate}`,
+      memberId: row.memberUuid,
+      usageDate: row.checkedInAt,
+    })));
     setLoading(false);
   };
 
@@ -216,8 +216,9 @@ export function DailyCheckIn() {
   const handleCheckIn = async (member: Member) => {
     setCheckingMemberId(member.memberUuid);
     setMessage('');
-    const result = await checkInStaffMember(member.memberUuid, selectedDate);
-    setMessage(getResultMessage(result as CheckInResult));
+    const { data, error } = await recordStaffCheckIn(member.memberUuid, selectedDate);
+    if (error) setMessage(error.message || copy.messages.check_in_failed);
+    else setMessage(copy.messages.check_in_success);
     setCheckingMemberId(null);
     await loadData();
   };
@@ -339,6 +340,7 @@ export function DailyCheckIn() {
                 {filteredMembers.map((member) => {
                   const record = checkedByMemberId.get(member.memberUuid);
                   const isActive = member.status === 'Active';
+                  const isToday = selectedDate === toDateInputValue(new Date());
                   return (
                     <tr key={member.memberUuid} className="border-b border-border/70 transition hover:bg-primary/5">
                       <td className="px-5 py-4 font-mono text-sm font-black text-primary">{member.memberId}</td>
@@ -361,10 +363,10 @@ export function DailyCheckIn() {
                         <button
                           type="button"
                           onClick={() => handleCheckIn(member)}
-                          disabled={!isActive || Boolean(record) || checkingMemberId === member.memberUuid}
+                          disabled={!isToday || !isActive || Boolean(record) || checkingMemberId === member.memberUuid}
                           className="inline-flex items-center justify-center whitespace-nowrap rounded-xl bg-primary/15 px-4 py-2 text-sm font-black text-primary transition hover:bg-primary/25 disabled:cursor-not-allowed disabled:opacity-40"
                         >
-                          {checkingMemberId === member.memberUuid ? copy.recording : record ? copy.checkedButton : isActive ? copy.checkInButton : copy.invalidPackage}
+                          {checkingMemberId === member.memberUuid ? copy.recording : record ? copy.checkedButton : isToday && isActive ? copy.checkInButton : copy.invalidPackage}
                         </button>
                       </td>
                     </tr>

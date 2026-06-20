@@ -2,7 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 
 let supabaseClient;
 
-const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i;
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function isConfiguredSupabaseUrl(value) {
   try {
@@ -113,7 +113,7 @@ async function fetchUsersByIds(client, userIds) {
   if (!ids.length) return {};
   const { data, error } = await client
     .from("users")
-    .select("user_id,first_name,last_name,full_name,username,email,phone_number")
+    .select("user_id,first_name,last_name,username,email,phone_number")
     .in("user_id", ids);
   if (error) throw error;
   return Object.fromEntries((data || []).map((row) => [row.user_id, row]));

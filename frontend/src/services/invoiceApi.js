@@ -41,6 +41,7 @@ export function mapInvoiceRow(row) {
     invoiceId: row.invoice_id,
     invoiceNumber: row.invoice_number,
     paymentId: row.payment_id,
+    packageId: row.packageId || row.package_id || null,
     memberId: row.member_id,
     employeeId: row.employee_id,
     amount: Number(row.amount ?? row.total_amount ?? row.subtotal_amount ?? 0),
@@ -101,7 +102,7 @@ async function getPaymentDetailsById(paymentIds) {
 
   const { data: payments, error } = await supabase
     .from("payments")
-    .select("payment_id, package_id, payment_method, payment_status, amount, provider_reference, paid_at, created_at")
+    .select("payment_id, package_id, payment_method, payment_status, amount, provider_reference, transaction_code, payment_date, paid_at, created_at")
     .in("payment_id", ids);
 
   if (error || !Array.isArray(payments)) return {};
@@ -124,11 +125,12 @@ async function getPaymentDetailsById(paymentIds) {
     payments.map((payment) => [
       payment.payment_id,
       {
+        packageId: payment.package_id || null,
         packageName: packageNamesById[payment.package_id] || "Membership package",
         paymentMethod: payment.payment_method || "",
         paymentStatus: payment.payment_status || "",
-        transactionCode: payment.provider_reference || payment.payment_id,
-        paidAt: payment.paid_at || payment.created_at,
+        transactionCode: payment.transaction_code || payment.provider_reference || payment.payment_id,
+        paidAt: payment.payment_date || payment.paid_at || payment.created_at,
       },
     ])
   );
@@ -146,6 +148,7 @@ async function enrichInvoiceRows(rows) {
     return mapInvoiceRow({
       ...row,
       memberName: memberNamesById[row.member_id] || "Member",
+      packageId: paymentDetails.packageId || null,
       packageName: paymentDetails.packageName || "Membership package",
       paymentMethod: paymentDetails.paymentMethod || "",
       transactionCode: paymentDetails.transactionCode || row.payment_id || row.invoice_id,

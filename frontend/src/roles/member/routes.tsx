@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router';
-import { CalendarDays, LayoutDashboard, MessageSquare, ReceiptText, Settings, Users } from 'lucide-react';
+import { CalendarCheck, CalendarDays, LayoutDashboard, MessageSquare, ReceiptText, Settings, Users } from 'lucide-react';
 import RoleShell, { type RoleShellItem } from '../shared/RoleShell';
 import RoleNotificationsPage from '../shared/RoleNotificationsPage';
 import { useSupabaseUserProfile } from '../shared/useSupabaseUserProfile';
@@ -16,6 +16,7 @@ import MemberProfilePage from './screens/MemberProfilePage';
 import MemberSettingsPage from './screens/MemberSettingsPage';
 import SelectPackageOnboarding from './screens/SelectPackageOnboarding';
 import MedicalHistoryModal from './components/MedicalHistoryModal';
+import CheckInHistoryPage from './screens/CheckInHistoryPage';
 
 export default function MemberRoutes() {
   const navigate = useNavigate();
@@ -38,6 +39,7 @@ export default function MemberRoutes() {
     { id: 'dashboard', path: '/member', icon: LayoutDashboard, label: 'Dashboard' },
     { id: 'package', path: '/member/my-package', icon: ReceiptText, label: 'My Package' },
     { id: 'schedule', path: '/member/my-schedule', icon: CalendarDays, label: 'My Schedule' },
+    { id: 'check-in-history', path: '/member/check-in-history', icon: CalendarCheck, label: 'Check-in History' },
     { id: 'trainers', path: '/member/trainers', icon: Users, label: 'Trainers' },
     { id: 'rate-service', path: '/member/rate-service', icon: MessageSquare, label: 'Rate Service' },
     { id: 'settings', path: '/member/settings', icon: Settings, label: 'Settings' },
@@ -114,6 +116,7 @@ export default function MemberRoutes() {
               <Route index element={<MemberDashboard />} />
               <Route path="my-package" element={<MyPackagePage />} />
               <Route path="my-schedule" element={<MySchedulePage />} />
+              <Route path="check-in-history" element={<CheckInHistoryPage />} />
               <Route path="trainers" element={<TrainerListPage />} />
               <Route path="rate-service" element={<RateServicePage />} />
               <Route path="notifications" element={<RoleNotificationsPage />} />

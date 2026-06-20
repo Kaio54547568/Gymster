@@ -1011,6 +1011,39 @@ export async function cancelWorkoutSessionForMember(session, currentUser = null)
   return { data: mapped, error: null, makeupSummary };
 }
 
+export async function addSessionBasedWorkout(payload, currentUser) {
+  if (!supabase) {
+    return { data: null, error: new Error("Missing system configuration.") };
+  }
+
+  const memberId = await resolveCurrentMemberId(currentUser);
+  if (!memberId) {
+    return { data: null, error: new Error("Member account was not found.") };
+  }
+
+  const { data, error } = await supabase.rpc('gymster_add_workout_rpc', {
+    p_member_id: memberId,
+    p_session_date: payload.sessionDate,
+    p_shift_code: payload.shiftCode,
+    p_title: payload.title || "Personal workout",
+    p_notes: payload.notes || ""
+  });
+
+  if (error) {
+    return { data: null, error: new Error(error.message || "Failed to add workout.") };
+  }
+
+  if (data?.ok && data?.workout_session_id) {
+    const { data: sessRow } = await supabase.from('workout_sessions').select('*').eq('workout_session_id', data.workout_session_id).single();
+    if (sessRow) {
+       const enriched = await enrichWorkoutSessions([sessRow]);
+       return { data: enriched[0], error: null };
+    }
+  }
+
+  return { data, error: null };
+}
+
 function formatPlanContent(plan, exercises) {
   const lines = [];
   if (plan.plan_goal) lines.push(`Goal: ${plan.plan_goal}`);

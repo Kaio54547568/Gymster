@@ -4,9 +4,9 @@ import AuthHero from "../../components/auth/AuthHero";
 import ThemeToggle from "../../components/theme/ThemeToggle";
 import LanguageToggle from "../../components/theme/LanguageToggle";
 import { useRoleTranslationEffect } from "../../roles/shared/LanguageContext";
-import { setCurrentUser, signInWithOAuthProvider } from "../../services/authService";
+import { completeNewMemberSession, signInWithOAuthProvider } from "../../services/authService";
 import { resetOnboardingState } from "../../services/onboardingService";
-import { requestMemberRegistrationCode, verifyMemberRegistrationCode } from "../../services/userApi";
+import { registerMemberAccount } from "../../services/userApi";
 import "./Auth.css";
 
 const initialForm = {
@@ -19,6 +19,8 @@ const initialForm = {
   phone: "",
   dob: "",
   gender: "",
+  occupation: "",
+  address: "",
 };
 
 function isStrongPassword(password) {
@@ -55,14 +57,21 @@ function RegisterPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [status, setStatus] = useState({ type: "", message: "" });
+  const [fieldErrors, setFieldErrors] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [registrationStep, setRegistrationStep] = useState("form");
-  const [verificationCode, setVerificationCode] = useState("");
-  const [pendingEmail, setPendingEmail] = useState("");
 
   const updateField = (field) => (event) => {
     setForm((current) => ({ ...current, [field]: event.target.value }));
     setStatus({ type: "", message: "" });
+    setFieldErrors((current) => ({ ...current, [field]: "" }));
+  };
+
+  const mapApiErrorToField = (message) => {
+    const normalized = String(message || "").toLowerCase();
+    if (normalized.includes("phone number")) return { phone: message };
+    if (normalized.includes("email")) return { email: message };
+    if (normalized.includes("username")) return { username: message };
+    return {};
   };
 
   const validateForm = () => {
@@ -111,8 +120,7 @@ function RegisterPage() {
     }
 
     setIsSubmitting(true);
-
-    const requestResult = await requestMemberRegistrationCode({
+    const result = await registerMemberAccount({
       firstName: form.firstName.trim(),
       lastName: form.lastName.trim(),
       username: form.username.trim(),
@@ -121,92 +129,26 @@ function RegisterPage() {
       phone: form.phone.trim(),
       dob: form.dob,
       gender: form.gender,
-    });
-
-    setIsSubmitting(false);
-
-    if (!requestResult.ok) {
-      setStatus({ type: "error", message: requestResult.message });
-      return;
-    }
-
-    setPendingEmail(requestResult.email || form.email.trim().toLowerCase());
-    setVerificationCode("");
-    setRegistrationStep("verify");
-    setStatus({
-      type: "success",
-      message: requestResult.devCode
-        ? `Verification code created for local development: ${requestResult.devCode}`
-        : "Verification code sent. Please check your email.",
-    });
-  };
-
-  const handleVerifyCode = async (event) => {
-    event.preventDefault();
-
-    if (!/^\d{6}$/.test(verificationCode.trim())) {
-      setStatus({ type: "error", message: "Please enter the 6-digit verification code." });
-      return;
-    }
-
-    setIsSubmitting(true);
-    const verifyResult = await verifyMemberRegistrationCode({
-      email: pendingEmail || form.email.trim(),
-      code: verificationCode.trim(),
+      occupation: form.occupation.trim(),
+      address: form.address.trim(),
     });
     setIsSubmitting(false);
 
-    if (!verifyResult.ok) {
-      setStatus({ type: "error", message: verifyResult.message });
+    if (!result.ok) {
+      setFieldErrors(mapApiErrorToField(result.message));
+      setStatus({ type: "error", message: result.message });
       return;
     }
 
-    setCurrentUser(verifyResult.user);
+    const sessionResult = await completeNewMemberSession(result.user, form.password, { rememberLogin: true });
+    if (!sessionResult.ok) {
+      setStatus({ type: "error", message: sessionResult.message });
+      return;
+    }
+
     resetOnboardingState();
-    setStatus({ type: "success", message: "Account verified. Opening member setup..." });
+    setStatus({ type: "success", message: "Account created. Opening member setup..." });
     window.setTimeout(() => navigate("/member", { replace: true }), 700);
-  };
-
-  const handleResendCode = async () => {
-    const error = validateForm();
-    if (error) {
-      setRegistrationStep("form");
-      setStatus({ type: "error", message: error });
-      return;
-    }
-
-    setIsSubmitting(true);
-    const requestResult = await requestMemberRegistrationCode({
-      firstName: form.firstName.trim(),
-      lastName: form.lastName.trim(),
-      username: form.username.trim(),
-      email: form.email.trim(),
-      password: form.password,
-      phone: form.phone.trim(),
-      dob: form.dob,
-      gender: form.gender,
-    });
-    setIsSubmitting(false);
-
-    if (!requestResult.ok) {
-      setStatus({ type: "error", message: requestResult.message });
-      return;
-    }
-
-    setPendingEmail(requestResult.email || form.email.trim().toLowerCase());
-    setVerificationCode("");
-    setStatus({
-      type: "success",
-      message: requestResult.devCode
-        ? `Verification code created for local development: ${requestResult.devCode}`
-        : "A new verification code was sent.",
-    });
-  };
-
-  const handleBackToForm = () => {
-    setRegistrationStep("form");
-    setVerificationCode("");
-    setStatus({ type: "", message: "" });
   };
 
   const handleOAuthRegister = async (provider) => {
@@ -247,10 +189,8 @@ function RegisterPage() {
               <p>Create your Gymster account first, then complete package, trainer, and payment setup in onboarding.</p>
             </div>
 
-            {registrationStep === "form" ? (
-              <>
-                <p className="form-section-title">Account Information</p>
-                <form className="auth-form" onSubmit={handleSubmit}>
+            <p className="form-section-title">Account Information</p>
+            <form className="auth-form" onSubmit={handleSubmit}>
               <div className="form-grid">
                 <div className="form-field">
                   <label htmlFor="firstName">First name</label>
@@ -297,6 +237,7 @@ function RegisterPage() {
                       maxLength={30}
                     />
                   </div>
+                  {fieldErrors.username ? <p className="auth-message error">{fieldErrors.username}</p> : null}
                 </div>
               </div>
 
@@ -306,6 +247,7 @@ function RegisterPage() {
                   <span className="field-icon">@</span>
                   <input id="email" type="email" placeholder="member@example.com" value={form.email} onChange={updateField("email")} autoComplete="email" />
                 </div>
+                {fieldErrors.email ? <p className="auth-message error">{fieldErrors.email}</p> : null}
               </div>
 
               <div className="form-grid">
@@ -352,6 +294,7 @@ function RegisterPage() {
                     <span className="field-icon">T</span>
                     <input id="phone" type="tel" placeholder="0901234567" value={form.phone} onChange={updateField("phone")} autoComplete="tel" />
                   </div>
+                  {fieldErrors.phone ? <p className="auth-message error">{fieldErrors.phone}</p> : null}
                 </div>
                 <div className="form-field">
                   <label htmlFor="dob">Date of birth</label>
@@ -362,18 +305,33 @@ function RegisterPage() {
                 </div>
               </div>
 
+              <div className="form-grid">
+                <div className="form-field">
+                  <label htmlFor="occupation">Occupation</label>
+                  <div className="field-with-icon">
+                    <span className="field-icon">O</span>
+                    <input id="occupation" type="text" placeholder="Engineer" value={form.occupation} onChange={updateField("occupation")} />
+                  </div>
+                </div>
+                <div className="form-field">
+                  <label htmlFor="gender">Gender</label>
+                  <div className="field-with-icon">
+                    <span className="field-icon">G</span>
+                    <select id="gender" value={form.gender} onChange={updateField("gender")}>
+                      <option value="" disabled>Select gender</option>
+                      <option value="male">Male</option>
+                      <option value="female">Female</option>
+                      <option value="other">Other</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
               <div className="form-field">
-                <label htmlFor="gender">Gender</label>
+                <label htmlFor="address">Address</label>
                 <div className="field-with-icon">
-                  <span className="field-icon">G</span>
-                  <select id="gender" value={form.gender} onChange={updateField("gender")}>
-                    <option value="" disabled>
-                      Select gender
-                    </option>
-                    <option value="male">Male</option>
-                    <option value="female">Female</option>
-                    <option value="other">Other</option>
-                  </select>
+                  <span className="field-icon">A</span>
+                  <input id="address" type="text" placeholder="123 Example Street" value={form.address} onChange={updateField("address")} />
                 </div>
               </div>
 
@@ -417,56 +375,7 @@ function RegisterPage() {
                   </Link>
                 </p>
               </div>
-                </form>
-              </>
-            ) : (
-              <form className="auth-form verification-panel" onSubmit={handleVerifyCode}>
-                <p className="form-section-title">Email Verification</p>
-                <div className="verification-copy">
-                  <strong>Enter the 6-digit code sent to {pendingEmail || form.email}.</strong>
-                  <span>Your account will only be created after this code is confirmed.</span>
-                </div>
-
-                <div className="form-field">
-                  <label htmlFor="verificationCode">Verification code</label>
-                  <div className="field-with-icon">
-                    <span className="field-icon">#</span>
-                    <input
-                      id="verificationCode"
-                      className="verification-code-input"
-                      type="text"
-                      inputMode="numeric"
-                      pattern="[0-9]{6}"
-                      maxLength={6}
-                      placeholder="000000"
-                      value={verificationCode}
-                      onChange={(event) => {
-                        setVerificationCode(event.target.value.replace(/\D/g, "").slice(0, 6));
-                        setStatus({ type: "", message: "" });
-                      }}
-                      autoComplete="one-time-code"
-                    />
-                  </div>
-                </div>
-
-                {status.message && (
-                  <p className={`auth-message ${status.type}`}>{status.message}</p>
-                )}
-
-                <button className="auth-submit" type="submit" disabled={isSubmitting}>
-                  {isSubmitting ? "Verifying..." : "Verify and Create Account"}
-                </button>
-
-                <div className="verification-actions">
-                  <button className="text-link" type="button" onClick={handleResendCode} disabled={isSubmitting}>
-                    Resend code
-                  </button>
-                  <button className="text-link" type="button" onClick={handleBackToForm} disabled={isSubmitting}>
-                    Edit registration info
-                  </button>
-                </div>
-              </form>
-            )}
+            </form>
           </div>
 
           <button className="back-home" type="button" onClick={() => navigate("/")}>

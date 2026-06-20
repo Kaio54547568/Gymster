@@ -119,6 +119,7 @@ function getLocalAdminStaffDetail(id, role) {
     status: row.chungChi || row.status || "Active",
     active_members: Number(row.currentActiveMembers || 0),
     max_members: Number(row.maxActiveMembers || STAFF_MEMBER_LIMIT),
+    username: row.username || "",
   };
 }
 
@@ -411,6 +412,7 @@ export async function fetchAdminStaffData() {
           maxActiveMembers: employee.role === "staff" ? STAFF_MEMBER_LIMIT : Number(employee.member_limit || STAFF_MEMBER_LIMIT),
           performance: 0,
           avatar: user.avatar_url || "",
+          username: user.username || "",
         };
       }),
       trainers: [...trainerRows, ...trainerFallbackRows],
@@ -453,10 +455,36 @@ export async function createAdminStaffRecord(form) {
     dateOfBirth: form.ngaySinh,
     role: form.chucVu,
     password: form.matKhau,
+    specialty: form.chuyenMon,
+    workingSchedule: form.workingSchedule || [],
+    username: form.username || "",
   };
 
   return adminStaffJson("/api/admin/staff", {
     method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateAdminStaffRecord(id, form) {
+  const payload = {
+    employeeCode: form.maNV,
+    fullName: form.hoTen,
+    email: form.email,
+    phone: form.sdt,
+    gender: form.gioiTinh,
+    dateOfBirth: form.ngaySinh,
+    role: form.chucVu,
+    specialty: form.chuyenMon,
+    status: form.status || "active",
+    workingSchedule: form.workingSchedule || [],
+  };
+
+  return adminStaffJson(`/api/admin/staff/${encodeURIComponent(id)}`, {
+    method: "PUT",
     headers: {
       "Content-Type": "application/json",
     },
@@ -475,37 +503,6 @@ export async function fetchAdminStaffDetail(id, role) {
   return { data: null, error };
 }
 
-
-export async function fetchPayrollData() {
-  const { data, error } = await payrollJson("/api/payroll");
-  return { data: data?.data || [], employees: data?.employees || [], error };
-}
-
-async function payrollJson(path, options = {}) {
-  try {
-    const response = await fetch(path, options);
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok || data.ok === false) {
-      return { data: null, error: new Error(data.message || data.error || "Payroll API request failed.") };
-    }
-    return { data, error: null };
-  } catch (error) {
-    return { data: null, error };
-  }
-}
-
-export async function createPayrollRecord(form) {
-  return payrollJson("/api/payroll", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(form),
-  });
-}
-
-export async function fetchPayrollRecordDetail(payslipId) {
-  const { data, error } = await payrollJson(`/api/payroll/${encodeURIComponent(payslipId)}`);
-  return { data: data?.data || null, error };
-}
 
 
 export async function fetchEquipmentManagementData() {
@@ -550,6 +547,12 @@ export async function updateEquipmentRecord(id, form) {
 export async function deleteEquipmentRecord(id) {
   return equipmentJson(`/api/equipments/${encodeURIComponent(id)}`, {
     method: "DELETE",
+  });
+}
+
+export async function retireEquipmentRecord(id) {
+  return equipmentJson(`/api/equipments/${encodeURIComponent(id)}/retire`, {
+    method: "POST",
   });
 }
 

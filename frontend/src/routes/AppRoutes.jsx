@@ -1,15 +1,11 @@
 import { Navigate, Route, Routes, useLocation } from "react-router";
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import LandingPage from "../pages/Landing/LandingPage";
 import LoginPage from "../pages/Auth/LoginPage";
 import RegisterPage from "../pages/Auth/RegisterPage";
 import ForgotPasswordPage from "../pages/Auth/ForgotPasswordPage";
 import AuthCallbackPage from "../pages/Auth/AuthCallbackPage";
 import SocialProfilePage from "../pages/Auth/SocialProfilePage";
-import AdminApp from "../roles/admin/App";
-import StaffApp from "../roles/staff/App";
-import PtApp from "../roles/pt/App";
-import MemberApp from "../roles/member/App";
 import {
   CURRENT_SESSION_KEY,
   getCurrentUser,
@@ -18,12 +14,35 @@ import {
 } from "../services/authService";
 import {
   MemberOnboardingRoute,
-  OnboardingPaymentPage,
-  OnboardingSuccessPage,
-  PackageSelectionPage,
-  RegistrationStatusPage,
-  TrainerSelectionPage,
 } from "../pages/Onboarding/OnboardingPages";
+
+const AdminApp = lazy(() => import("../roles/admin/App"));
+const StaffApp = lazy(() => import("../roles/staff/App"));
+const PtApp = lazy(() => import("../roles/pt/App"));
+const MemberApp = lazy(() => import("../roles/member/App"));
+
+function PortalLoadingFallback() {
+  return (
+    <main
+      role="status"
+      aria-live="polite"
+      style={{
+        minHeight: "100vh",
+        display: "grid",
+        placeItems: "center",
+        background: "#0b0b0b",
+        color: "#ffffff",
+        fontFamily: '"Segoe UI", sans-serif',
+      }}
+    >
+      Đang tải trang quản lý...
+    </main>
+  );
+}
+
+function LazyPortal({ children }) {
+  return <Suspense fallback={<PortalLoadingFallback />}>{children}</Suspense>;
+}
 
 function getRouteRole(role) {
   const normalizedRole = String(role || "").toLowerCase();
@@ -155,7 +174,7 @@ function AppRoutes() {
         path="/onboarding/status"
         element={
           <MemberOnboardingRoute>
-            <RegistrationStatusPage />
+            <Navigate to="/member/select-package" replace />
           </MemberOnboardingRoute>
         }
       />
@@ -163,7 +182,7 @@ function AppRoutes() {
         path="/onboarding/packages"
         element={
           <MemberOnboardingRoute>
-            <PackageSelectionPage />
+            <Navigate to="/member/select-package" replace />
           </MemberOnboardingRoute>
         }
       />
@@ -171,7 +190,7 @@ function AppRoutes() {
         path="/onboarding/trainers"
         element={
           <MemberOnboardingRoute>
-            <TrainerSelectionPage />
+            <Navigate to="/member/select-package" replace />
           </MemberOnboardingRoute>
         }
       />
@@ -179,7 +198,7 @@ function AppRoutes() {
         path="/onboarding/payment"
         element={
           <MemberOnboardingRoute>
-            <OnboardingPaymentPage />
+            <Navigate to="/member/select-package" replace />
           </MemberOnboardingRoute>
         }
       />
@@ -187,7 +206,7 @@ function AppRoutes() {
         path="/onboarding/success"
         element={
           <MemberOnboardingRoute>
-            <OnboardingSuccessPage />
+            <Navigate to="/member/select-package" replace />
           </MemberOnboardingRoute>
         }
       />
@@ -195,7 +214,7 @@ function AppRoutes() {
         path="/admin/*"
         element={
           <RoleRoute role="admin" currentUser={currentUser}>
-            <AdminApp />
+            <LazyPortal><AdminApp /></LazyPortal>
           </RoleRoute>
         }
       />
@@ -203,7 +222,7 @@ function AppRoutes() {
         path="/staff/*"
         element={
           <RoleRoute role="staff" currentUser={currentUser}>
-            <StaffApp />
+            <LazyPortal><StaffApp /></LazyPortal>
           </RoleRoute>
         }
       />
@@ -211,7 +230,7 @@ function AppRoutes() {
         path="/pt/*"
         element={
           <RoleRoute role="pt" currentUser={currentUser}>
-            <PtApp />
+            <LazyPortal><PtApp /></LazyPortal>
           </RoleRoute>
         }
       />
@@ -219,7 +238,7 @@ function AppRoutes() {
         path="/member/*"
         element={
           <RoleRoute role="member" currentUser={currentUser}>
-            <MemberApp />
+            <LazyPortal><MemberApp /></LazyPortal>
           </RoleRoute>
         }
       />

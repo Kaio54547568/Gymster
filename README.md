@@ -105,33 +105,31 @@ npm run preview
 npm run lint
 ```
 
-## Email Verification For Registration
+## Member Registration
 
-Member email/password registration now uses a backend verification-code flow:
+Member email/password registration creates the account directly through the backend. It does not send or require an email verification code.
 
-1. Run `database/email_registration_verification.sql` in Supabase SQL Editor.
-2. Add backend environment variables in `backend/.env`:
+Configure the backend Supabase credentials in `backend/.env`:
 
 ```env
 SUPABASE_URL=your_supabase_project_url
 SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
-REGISTRATION_CODE_SECRET=change_this_to_a_long_random_secret
-SMTP_HOST=smtp.example.com
-SMTP_PORT=587
-SMTP_SECURE=false
-SMTP_USER=your_smtp_username
-SMTP_PASS=your_smtp_password
-MAIL_FROM="Gymster <no-reply@gymster.vn>"
 ```
 
-3. Start both servers while developing:
+Start both servers while developing:
 
 ```bash
 npm run dev:backend
 npm run dev
 ```
 
-Google/Facebook OAuth registration still uses the existing Supabase OAuth flow and does not require this email-code step.
+Alternatively, start the backend from its own package:
+
+```bash
+npm --prefix backend run dev
+```
+
+Google/Facebook OAuth registration continues to use the existing Supabase OAuth flow.
 
 ### Production deploy on Vercel
 
@@ -146,9 +144,9 @@ In Vercel Project Settings, set:
 - Build Command: `npm run build`
 - Output Directory: `frontend/dist`
 
-Add the same backend environment variables in Vercel Project Settings -> Environment Variables.
+Add `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` in Vercel Project Settings -> Environment Variables.
 
-For a production mail provider, Resend SMTP works with this app's Nodemailer setup:
+SMTP variables are only needed if the password-reset email-code feature is enabled:
 
 ```env
 SMTP_HOST=smtp.resend.com
@@ -157,6 +155,7 @@ SMTP_SECURE=false
 SMTP_USER=resend
 SMTP_PASS=your_resend_api_key
 MAIL_FROM="Gymster <no-reply@your-verified-domain.com>"
+AUTH_CODE_SECRET=change_this_to_a_long_random_secret
 ```
 
 Verify your sending domain in the email provider before using it in `MAIL_FROM`.
@@ -171,18 +170,19 @@ Thư mục `database/` chứa các file SQL chính:
 - `storage_pics_policies.sql`: policy cho bucket/avatar `pics`.
 - `production_cleanup.sql`: script dọn dẹp/production hardening tham khảo.
 
-Thứ tự chạy SQL trong Supabase SQL Editor:
+Với database demo mới, chạy SQL trong Supabase SQL Editor theo đúng thứ tự:
 
-1. Chạy `database/schema.sql`.
-2. Chạy `database/member_care_upgrade.sql` nếu database đã tồn tại từ bản cũ.
-3. Chạy `database/ai_makeup_booking_upgrade.sql` nếu database đã tồn tại từ bản cũ.
-4. Chạy `database/workout_plan_crud_upgrade.sql` nếu database đã tồn tại từ bản cũ.
-5. Chạy `database/member_manual_workout_upgrade.sql` nếu database đã tồn tại từ bản cũ.
-6. Chạy `database/training_request_cancel_reschedule_upgrade.sql` nếu database đã tồn tại từ bản cũ.
-7. Chạy `database/production_cleanup.sql` nếu cần các cột hỗ trợ production như `address`, `citizen_id`, `certification`, `performance_score`.
-8. Chạy `database/seed.sql` để reset và dựng lại bộ data demo đầy đủ.
-9. Chạy `database/email_registration_verification.sql` nếu dùng luồng đăng ký bằng mã email.
-10. Nếu cần upload avatar/hình ảnh, tạo bucket `pics` và chạy `database/storage_pics_policies.sql`.
+1. `database/reset_demo_schema.sql` (xóa toàn bộ dữ liệu trong schema `public`)
+2. `database/schema.sql`
+3. `database/member_payment_verification_upgrade.sql`
+4. `database/seed.sql`
+5. `database/demo_payment_checkout_upgrade.sql`
+6. `database/verify_demo_setup.sql` (kiểm tra chỉ đọc, không thay đổi dữ liệu)
+
+Không chạy `database/employee_schedules_weekly_upgrade.sql` sau `schema.sql`
+trên database mới vì cấu trúc lịch tuần đã có sẵn trong schema chính. Các file
+upgrade khác chỉ dùng khi nâng cấp database cũ; xem thứ tự chi tiết trong
+`database/README.md`.
 
 Chi tiết mapping bảng theo từng portal nằm trong `database/README.md`.
 

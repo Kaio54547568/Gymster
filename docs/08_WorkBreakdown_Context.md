@@ -139,7 +139,7 @@ Database task nen co trong plan:
 - Chay `database/schema.sql`.
 - Chay upgrade scripts neu can: `member_care_upgrade.sql`, `ai_makeup_booking_upgrade.sql`, `workout_plan_crud_upgrade.sql`, `member_manual_workout_upgrade.sql`, `training_request_cancel_reschedule_upgrade.sql`, `vip_packages_sessions_upgrade.sql`.
 - Chay `database/seed.sql` cho demo data.
-- Chay `email_registration_verification.sql` neu dung email code.
+- Chay `password_reset_verification.sql` neu dung password reset bang email code.
 - Tao bucket `pics` va chay `storage_pics_policies.sql` neu can avatar/image upload.
 - Kiem tra RLS/policy cho MVP va ghi note production hardening.
 
@@ -199,8 +199,7 @@ Database task nen co trong plan:
   - `POST /api/ai/chat`.
   - `POST /api/staff/ai/chat`.
   - `POST /api/auth/login`.
-  - `POST /api/auth/register/request-code`.
-  - `POST /api/auth/register/verify-code`.
+  - `POST /api/auth/register`.
   - `POST /api/training-requests`.
   - `POST /api/training-requests/status`.
 - Vercel handlers trong `api/` mirror mot so endpoint backend.
@@ -312,4 +311,3 @@ Goi y format:
 ```
 
 Nen yeu cau GPT tao du so dong de dung cho spreadsheet, nhung khong can qua chi tiet den muc tung button CSS. Muc do tot la 80-150 dong cho toan bo MVP.
-

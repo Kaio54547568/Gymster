@@ -1,6 +1,7 @@
 import { supabase } from "./supabaseClient";
 import { getCurrentUser, isPasswordMatch } from "./authService";
 import { createPayment } from "./paymentApi";
+import { authenticatedJson } from "./authenticatedApi";
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const usernamePattern = /^[A-Za-z0-9][A-Za-z0-9._-]{4,28}[A-Za-z0-9]$/;
@@ -225,96 +226,24 @@ async function fetchPackageById(packageId) {
 }
 
 export async function renewStaffMemberPackage(form) {
-  if (!supabase) return { ok: false, message: "Hệ thống chưa được cấu hình." };
-
-  try {
-    const memberId = form.memberId;
-    const packageId = form.packageId;
-    const durationMonths = Number(form.durationMonths || 0);
-    const startDate = form.startDate;
-    const endDate = form.endDate || addMonthsToDate(startDate, durationMonths);
-    const amount = Number(form.amount || 0);
-    const paymentMethod = form.paymentMethod || "cash";
-
-    if (!memberId || !uuidPattern.test(String(memberId))) {
-      return { ok: false, message: "Không xác định được hội viên." };
-    }
-    if (!packageId || !uuidPattern.test(String(packageId))) {
-      return { ok: false, message: "Vui lòng chọn gói tập hợp lệ." };
-    }
-    if (!durationMonths || !startDate || !endDate || amount < 0 || !paymentMethod) {
-      return { ok: false, message: "Vui lòng nhập đầy đủ thông tin gia hạn." };
-    }
-
-    const pkg = await fetchPackageById(packageId);
-    const latestPackage = await fetchLatestActivePackage(memberId);
-    const memberPackagePayload = {
-      member_id: memberId,
-      package_id: packageId,
-      status: "active",
-      start_date: startDate,
-      end_date: endDate,
-      sessions_total: pkg?.session_limit ?? latestPackage?.sessions_total ?? null,
-      activated_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
-
-    let memberPackageId = latestPackage?.member_package_id || "";
-    let packageError = null;
-
-    if (memberPackageId) {
-      const { error } = await supabase
-        .from("member_packages")
-        .update(memberPackagePayload)
-        .eq("member_package_id", memberPackageId);
-      packageError = error;
-    } else {
-      const { data, error } = await supabase
-        .from("member_packages")
-        .insert(memberPackagePayload)
-        .select("member_package_id")
-        .single();
-      packageError = error;
-      memberPackageId = data?.member_package_id || "";
-    }
-
-    if (packageError) throw packageError;
-
-    const paymentResult = await createPayment({
-      memberId,
-      packageId,
-      memberPackageId,
-      amount,
-      paymentMethod,
-      paymentDate: new Date().toISOString(),
-      transactionCode: `RENEW-${Date.now()}`,
-      transferContent: form.note || "Staff package renewal",
-    });
-
-    if (paymentResult.error) {
-      console.warn("[Gymster hệ thống] Package renewed but payment history could not be created:", paymentResult.error);
-    }
-
-    await supabase
-      .from("members")
-      .update({ status: "active" })
-      .eq("member_id", memberId);
-
-    return {
-      ok: true,
-      message: "Gia hạn gói thành công.",
-      data: {
-        memberPackageId,
-        packageId,
-        packageName: pkg?.package_name || form.packageName || "Membership package",
-        endDate,
-        amount,
-      },
-    };
-  } catch (error) {
-    console.error("[Gymster hệ thống] Failed to renew staff member package:", error);
-    return { ok: false, message: "Không thể gia hạn gói tập. Vui lòng thử lại." };
-  }
+  const { data, error } = await authenticatedJson("/api/staff/package-purchases", {
+    method: "POST",
+    body: JSON.stringify({
+      memberId: form.memberId,
+      packageId: form.packageId,
+      paymentMethod: form.paymentMethod || "cash",
+      checkoutKey: `staff-renewal-${Date.now()}`,
+    }),
+  });
+  return error
+    ? { ok: false, message: error.message }
+    : {
+        ok: true,
+        message: data?.package_status === "pending_activation"
+          ? "Package paid and queued for activation."
+          : "Package activated successfully.",
+        data,
+      };
 }
 
 async function fetchLatestActivePackage(memberId) {
@@ -442,70 +371,14 @@ export async function checkInStaffMember(memberId, dateValue = new Date()) {
 }
 
 export async function createStaffMember(form) {
-  if (!supabase) return { ok: false, message: "h\u1ec7 th\u1ed1ng is not configured." };
+  const { data, error } = await authenticatedJson("/api/staff/members", {
+    method: "POST",
+    body: JSON.stringify(form),
+  });
 
-  try {
-    const nameParts = splitName(form.fullName);
-    const email = form.email || `${String(form.phoneNumber || Date.now()).replace(/\D/g, "")}@gymster.local`;
-    const username = String(form.username || `member_${String(form.phoneNumber || Date.now()).replace(/\D/g, "")}`).trim();
-
-    if (!usernamePattern.test(username)) {
-      return {
-        ok: false,
-        message: "Username must be 6-30 characters, use only A-Z, a-z, 0-9, _, ., -, and cannot start or end with _, ., or -.",
-      };
-    }
-
-    const { data: user, error: userError } = await supabase
-      .from("users")
-      .insert({
-        email,
-        username,
-        password_hash: form.password || "",
-        first_name: nameParts.firstName || form.fullName,
-        last_name: nameParts.lastName || "",
-        phone_number: form.phoneNumber || "",
-        date_of_birth: form.dateOfBirth || null,
-        gender: form.gender || "unspecified",
-        role: "member",
-        account_status: "pending_payment",
-        headline: form.note || "",
-      })
-      .select("user_id")
-      .single();
-    if (userError) throw userError;
-
-    const { data: member, error: memberError } = await supabase
-      .from("members")
-      .insert({
-        user_id: user.user_id,
-        member_code: form.idCard || `MB-${Date.now()}`,
-        full_name: form.fullName,
-        phone_number: form.phoneNumber || "",
-        date_of_birth: form.dateOfBirth || null,
-        gender: form.gender || "unspecified",
-        health_notes: form.note || "",
-        join_date: new Date().toISOString().slice(0, 10),
-        status: "pending_payment",
-      })
-      .select("member_id")
-      .single();
-    if (memberError) throw memberError;
-
-    if (form.trainerId && uuidPattern.test(String(form.trainerId))) {
-      await supabase.from("trainer_assignments").insert({
-        trainer_id: form.trainerId,
-        member_id: member.member_id,
-        status: "active",
-        notes: "Assigned by staff during member creation.",
-      });
-    }
-
-    return { ok: true, message: "Member created in h\u1ec7 th\u1ed1ng.", memberId: member.member_id };
-  } catch (error) {
-    console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to create staff member:", error);
-    return { ok: false, message: "Member could not be created in h\u1ec7 th\u1ed1ng." };
-  }
+  return error
+    ? { ok: false, message: error.message }
+    : { ok: true, message: "Member created successfully.", data };
 }
 
 export async function getStaffUsageHistory() {

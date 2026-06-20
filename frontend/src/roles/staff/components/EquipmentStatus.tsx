@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, CheckCircle, Dumbbell, Plus, Wrench } from 'lucide-react';
 import { createStaffMaintenanceReport, getStaffEquipmentStatus, markStaffEquipmentMaintained } from '../../../services/staffOperationsApi';
 
-type EquipmentStatusValue = 'Active' | 'Broken' | 'Under Maintenance' | 'Replaced';
+type EquipmentStatusValue = 'Active' | 'Broken' | 'Under Maintenance' | 'Retired';
 
 interface Equipment {
   equipmentUuid?: string;
@@ -71,13 +71,13 @@ export function EquipmentStatus() {
       Active: 'bg-primary/20 text-primary border-primary/30',
       Broken: 'bg-destructive/20 text-destructive border-destructive/30',
       'Under Maintenance': 'bg-yellow-500/20 text-yellow-500 border-yellow-500/30',
-      Replaced: 'bg-muted text-muted-foreground border-muted',
+      Retired: 'bg-muted text-muted-foreground border-muted',
     };
-    const icons = { Active: CheckCircle, Broken: AlertTriangle, 'Under Maintenance': Wrench, Replaced: CheckCircle };
-    const Icon = icons[status as keyof typeof icons];
+    const icons = { Active: CheckCircle, Broken: AlertTriangle, 'Under Maintenance': Wrench, Retired: CheckCircle };
+    const Icon = icons[status as keyof typeof icons] || CheckCircle;
 
     return (
-      <span className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-medium ${styles[status as keyof typeof styles]}`}>
+      <span className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-medium ${styles[status as keyof typeof styles] || styles.Retired}`}>
         <Icon className="h-3 w-3" />
         {status}
       </span>
@@ -183,7 +183,7 @@ export function EquipmentStatus() {
           <div className="rounded-2xl border border-border/50 bg-card/80 p-6 shadow-[0_8px_32px_rgba(0,0,0,0.3)] backdrop-blur-xl">
             <h3 className="mb-3 font-medium">Filter by Status</h3>
             <div className="flex flex-wrap gap-2">
-              {['all', 'Active', 'Broken', 'Under Maintenance', 'Replaced'].map((status) => (
+              {['all', 'Active', 'Broken', 'Under Maintenance', 'Retired'].map((status) => (
                 <button
                   key={status}
                   onClick={() => setStatusFilter(status)}
@@ -220,10 +220,12 @@ export function EquipmentStatus() {
                       <td className="px-6 py-4 text-muted-foreground">{eq.lastMaintenance ? new Date(eq.lastMaintenance).toLocaleDateString('en-US') : '-'}</td>
                       <td className="px-6 py-4">
                         <div className="flex flex-wrap gap-2">
-                          <button onClick={() => openReportModal(eq)} className="rounded-lg bg-destructive/20 px-3 py-1.5 text-sm text-destructive transition-colors hover:bg-destructive/30">
-                            Report Issue
-                          </button>
-                          {eq.status !== 'Active' && (
+                          {eq.status !== 'Retired' && (
+                            <button onClick={() => openReportModal(eq)} className="rounded-lg bg-destructive/20 px-3 py-1.5 text-sm text-destructive transition-colors hover:bg-destructive/30">
+                              Report Issue
+                            </button>
+                          )}
+                          {eq.status !== 'Active' && eq.status !== 'Retired' && (
                             <button onClick={() => handleMarkMaintained({ equipmentUuid: eq.equipmentUuid })} className="rounded-lg bg-primary/20 px-3 py-1.5 text-sm text-primary transition-colors hover:bg-primary/30">
                               Mark Maintained
                             </button>
@@ -292,7 +294,7 @@ export function EquipmentStatus() {
                   className="w-full rounded-xl border-2 border-border bg-input px-4 py-4 font-medium outline-none focus:border-primary"
                 >
                   <option value="">Select equipment...</option>
-                  {equipment.map((eq) => <option key={eq.equipmentId} value={eq.equipmentName}>{eq.equipmentName}</option>)}
+                  {equipment.filter((eq) => eq.status !== 'Retired').map((eq) => <option key={eq.equipmentId} value={eq.equipmentName}>{eq.equipmentName}</option>)}
                 </select>
               </div>
 

@@ -2,12 +2,11 @@ import type { DisplayTransaction } from '../domain/packageTransactionMappers';
 
 type PackageTransactionTableProps = {
   getBadgeClass: (status: string) => string;
-  onDownloadReceipt?: (transaction: DisplayTransaction) => void;
   onViewReceipt?: (transaction: DisplayTransaction) => void;
   transactions: DisplayTransaction[];
 };
 
-export default function PackageTransactionTable({ getBadgeClass, onDownloadReceipt, onViewReceipt, transactions }: PackageTransactionTableProps) {
+export default function PackageTransactionTable({ getBadgeClass, onViewReceipt, transactions }: PackageTransactionTableProps) {
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-left text-sm">
@@ -41,12 +40,6 @@ export default function PackageTransactionTable({ getBadgeClass, onDownloadRecei
                       className="rounded-lg border border-[#EF233C]/30 px-3 py-1.5 text-xs font-bold text-[#EF233C] transition hover:bg-[#EF233C] hover:text-white"
                     >
                       View Receipt
-                    </button>
-                    <button
-                      onClick={() => onDownloadReceipt?.(item)}
-                      className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs font-bold text-white transition hover:border-[#EF233C] hover:text-[#EF233C]"
-                    >
-                      Download PDF
                     </button>
                   </div>
                 </td>

@@ -113,6 +113,9 @@ function mapUserProfile(userRow, extra = {}) {
     gender: userRow?.gender || "unspecified",
     role,
     roleLabel: roleLabel(role),
+    memberCode: extra.memberCode || "",
+    occupation: extra.occupation || "",
+    address: extra.address || "",
     accountStatus: userRow?.account_status || "",
     preferredLanguage: userRow?.preferred_language || "en",
     avatarUrl: userRow?.avatar_url || "",
@@ -247,13 +250,16 @@ async function getMemberExtra(userId) {
 
   const { data } = await supabase
     .from("members")
-    .select("member_code, status, health_notes")
+    .select("member_code, status, health_notes, occupation, address")
     .eq("user_id", userId)
     .maybeSingle();
 
   return {
     headline: data?.health_notes || "",
     status: data?.status || "",
+    memberCode: data?.member_code || "",
+    occupation: data?.occupation || "",
+    address: data?.address || "",
   };
 }
 
@@ -304,6 +310,9 @@ export function createEmptyUserProfile(role) {
     gender: "unspecified",
     role: normalized,
     roleLabel: roleLabel(normalized),
+    memberCode: "",
+    occupation: "",
+    address: "",
     accountStatus: "",
     preferredLanguage: "en",
     avatarUrl: "",
@@ -418,6 +427,8 @@ export async function updateCurrentUserProfile(currentUser, profileData) {
       .update({
         health_notes: profileData.headline || "",
         date_of_birth: profileData.dob || null,
+        occupation: profileData.occupation !== undefined ? profileData.occupation : undefined,
+        address: profileData.address !== undefined ? profileData.address : undefined,
       })
       .eq("user_id", userRow.user_id);
   }

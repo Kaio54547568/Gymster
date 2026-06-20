@@ -23,6 +23,11 @@ Tai lieu nay gom context hien tai cua du an Gymster de phuc vu cac folder bai ta
 - `06_GoodDesign_Context.md`: context danh gia coupling/cohesion/SOLID va cac diem thiet ke tot.
 - `07_Project_Summary_Context.md`: ban tong hop ngan de dua vao file tong hop BTL.
 - `08_WorkBreakdown_Context.md`: context va prompt de GPT sinh bang phan chia cong viec/WBS theo sprint.
+- `09_User_Logic_Flows.md`: luong hoat dong logic cua nguoi dung trong 4 portal.
+- `10_User_Stories.md`: danh sach User Stories cho 4 vai tro trong du an (bao gom ca cac tinh nang chua implement).
+- `11_Project_Dashboard.md`: bang theo doi tien do cac nhiem vu (Dashboard Báo cáo Dự án), ngan sach va pending items.
+- `12_UML_Diagrams.md`: so do UML (Class Diagram & Sequence Diagram) cho 4 doi tuong nguoi dung.
+
 
 ## Cau truc source can biet
 
@@ -65,6 +70,11 @@ Gymster/
 | `06 - GoodDesign` | `06_GoodDesign_Context.md` |
 | `07 - Tong hop ket qua BTL` | `07_Project_Summary_Context.md` |
 | `Phan chia cong viec / Project plan` | `08_WorkBreakdown_Context.md` |
+| `09 - Luong hoat dong` | `09_User_Logic_Flows.md` |
+| `10 - User Stories` | `10_User_Stories.md` |
+| `11 - Dashboard Báo cáo` | `11_Project_Dashboard.md` |
+| `12 - So do UML` | `12_UML_Diagrams.md` |
+
 
 ## Ghi chu hien trang
 
