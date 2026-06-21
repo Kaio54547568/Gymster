@@ -1,5 +1,6 @@
 import { supabase } from "./supabaseClient";
 import { getUsers } from "./authService";
+import { authenticatedJson } from "./authenticatedApi";
 
 const EMPTY_RESULT = { data: null, error: null };
 const STAFF_MEMBER_LIMIT = 10;
@@ -691,4 +692,27 @@ export async function fetchRevenueBreakdowns() {
     console.error("[Gymster h\u1ec7 th\u1ed1ng] Failed to load revenue breakdowns:", error);
     return { data: null, error };
   }
+}
+
+export async function fetchPayrollData() {
+  const result = await authenticatedJson("/api/payroll");
+  if (result.error) return { data: [], employees: [], error: result.error };
+  return {
+    data: result.data || [],
+    employees: result.data?.employees || result.employees || [],
+    error: null,
+  };
+}
+
+export async function createPayrollRecord(form) {
+  const result = await authenticatedJson("/api/payroll", {
+    method: "POST",
+    body: JSON.stringify(form),
+  });
+  return result;
+}
+
+export async function fetchPayrollRecordDetail(id) {
+  const result = await authenticatedJson(`/api/payroll/${id}`);
+  return result;
 }

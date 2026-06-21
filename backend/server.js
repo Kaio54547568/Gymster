@@ -296,7 +296,63 @@ async function handleStaffAiChatRequest(request, response) {
 }
 
 const server = http.createServer(async (request, response) => {
-  const url = new URL(request.url, `http://${request.headers.host}`);
+  response.setHeader("Access-Control-Allow-Origin", "*");
+  response.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+  response.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+
+  if (request.method === "OPTIONS") {
+    response.writeHead(204);
+    response.end();
+    return;
+  }
+
+  const url = new URL(request.url || "/", `http://${request.headers.host}`);
+
+  if (url.pathname.startsWith("/api/proxy/")) {
+    try {
+      if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+        sendJson(response, 500, {
+          ok: false,
+          message: "Backend Supabase service role is not configured. Please set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in backend/.env.",
+        });
+        return;
+      }
+
+      const targetPath = url.pathname.replace("/api/proxy", "");
+      const targetUrl = `${process.env.SUPABASE_URL}${targetPath}${url.search}`;
+      
+      let body = null;
+      if (["POST", "PUT", "PATCH", "DELETE"].includes(request.method)) {
+        body = await readJsonBody(request);
+      }
+
+      const fetchHeaders = { ...request.headers };
+      delete fetchHeaders.host;
+      delete fetchHeaders.origin;
+      delete fetchHeaders.referer;
+      delete fetchHeaders["content-length"];
+      fetchHeaders["apikey"] = process.env.SUPABASE_SERVICE_ROLE_KEY;
+      fetchHeaders["Authorization"] = `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`;
+
+      const fetchOptions = {
+        method: request.method,
+        headers: fetchHeaders,
+      };
+      if (body && Object.keys(body).length > 0) fetchOptions.body = JSON.stringify(body);
+
+      const proxyRes = await fetch(targetUrl, fetchOptions);
+      const data = await proxyRes.text();
+      
+      response.writeHead(proxyRes.status, {
+        "Content-Type": proxyRes.headers.get("content-type") || "application/json",
+      });
+      response.end(data);
+    } catch (e) {
+      sendJson(response, 500, { error: e.message });
+    }
+    return;
+  }
+
 
   if (request.method === "GET" && url.pathname === "/api/health") {
     sendJson(response, 200, { ok: true });
