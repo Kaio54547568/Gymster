@@ -6,6 +6,7 @@ import { useLanguage, type AppLanguage } from '../../shared/LanguageContext';
 type MemberStatus = 'Active' | 'Expired' | 'Disabled';
 
 interface Member {
+  workoutSessionId: string;
   memberUuid: string;
   memberId: string;
   fullName: string;
@@ -13,6 +14,8 @@ interface Member {
   status: MemberStatus;
   currentPackage: string;
   expirationDate: string;
+  sessionTitle: string;
+  sessionTime: string;
 }
 
 interface CheckInRecord {
@@ -21,7 +24,7 @@ interface CheckInRecord {
   usageDate: string;
 }
 
-type CheckInMessageCode = 'system_not_configured' | 'no_active_package' | 'already_checked' | 'check_in_success' | 'check_in_failed';
+type CheckInMessageCode = 'system_not_configured' | 'no_active_package' | 'no_booked_session' | 'already_checked' | 'check_in_success' | 'check_in_failed';
 
 type CheckInResult = {
   ok: boolean;
@@ -53,6 +56,7 @@ const COPY = {
       member: 'Member',
       phone: 'Phone number',
       package: 'Package',
+      session: 'Session',
       expiration: 'Expires',
       checkIn: 'Check-in',
       actions: 'Actions',
@@ -65,11 +69,12 @@ const COPY = {
     invalidPackage: 'Invalid package',
     loading: 'Loading check-in data...',
     emptyTitle: 'No members found',
-    emptyDescription: 'Try changing the search keyword or selected date.',
+    emptyDescription: 'Only booked workout sessions for the selected day are shown here.',
     loadError: 'Could not load complete check-in data. Please try again.',
     messages: {
       system_not_configured: 'The system is not configured.',
       no_active_package: 'This member does not have an active package for check-in.',
+      no_booked_session: 'This member does not have a booked workout session for this day.',
       already_checked: 'This member has already checked in for this day.',
       check_in_success: 'Check-in completed. Usage history and training session count were updated.',
       check_in_failed: 'Could not check in this member.',
@@ -97,6 +102,7 @@ const COPY = {
       member: 'Hội viên',
       phone: 'Số điện thoại',
       package: 'Gói tập',
+      session: 'Lịch tập',
       expiration: 'Hạn gói',
       checkIn: 'Check-in',
       actions: 'Thao tác',
@@ -109,11 +115,12 @@ const COPY = {
     invalidPackage: 'Gói không hợp lệ',
     loading: 'Đang tải dữ liệu check-in...',
     emptyTitle: 'Không tìm thấy hội viên',
-    emptyDescription: 'Thử đổi từ khóa tìm kiếm hoặc chọn ngày khác.',
+    emptyDescription: 'Chỉ hiển thị các lịch tập đã đặt trong ngày đang chọn.',
     loadError: 'Không thể tải đầy đủ dữ liệu check-in. Vui lòng thử lại.',
     messages: {
       system_not_configured: 'Hệ thống chưa được cấu hình.',
       no_active_package: 'Hội viên chưa có gói tập còn hiệu lực để check-in.',
+      no_booked_session: 'Hội viên không có lịch tập đã đặt trong ngày này.',
       already_checked: 'Hội viên đã được check-in trong ngày này.',
       check_in_success: 'Check-in thành công. Lịch sử và số buổi tập đã được cập nhật.',
       check_in_failed: 'Không thể check-in hội viên.',
@@ -216,9 +223,14 @@ export function DailyCheckIn() {
   const handleCheckIn = async (member: Member) => {
     setCheckingMemberId(member.memberUuid);
     setMessage('');
-    const { data, error } = await recordStaffCheckIn(member.memberUuid, selectedDate);
-    if (error) setMessage(error.message || copy.messages.check_in_failed);
-    else setMessage(copy.messages.check_in_success);
+    const { error } = await recordStaffCheckIn(member.memberUuid, selectedDate, member.workoutSessionId);
+    if (error) {
+      const messageCode = String((error as any).code || '').toLowerCase() as CheckInMessageCode;
+      setMessage(copy.messages[messageCode] || error.message || copy.messages.check_in_failed);
+    } else {
+      window.dispatchEvent(new CustomEvent('gymster:check-in-updated'));
+      setMessage(copy.messages.check_in_success);
+    }
     setCheckingMemberId(null);
     await loadData();
   };
@@ -324,13 +336,14 @@ export function DailyCheckIn() {
           </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[980px]">
+            <table className="w-full min-w-[1080px]">
               <thead>
                 <tr className="border-b border-border text-left text-xs font-black uppercase tracking-wider text-muted-foreground">
                   <th className="px-5 py-4">{copy.table.memberId}</th>
                   <th className="px-5 py-4">{copy.table.member}</th>
                   <th className="px-5 py-4">{copy.table.phone}</th>
                   <th className="px-5 py-4">{copy.table.package}</th>
+                  <th className="px-5 py-4">{copy.table.session}</th>
                   <th className="px-5 py-4">{copy.table.expiration}</th>
                   <th className="px-5 py-4">{copy.table.checkIn}</th>
                   <th className="px-5 py-4 text-right">{copy.table.actions}</th>
@@ -347,6 +360,10 @@ export function DailyCheckIn() {
                       <td className="px-5 py-4 font-black">{member.fullName}</td>
                       <td className="px-5 py-4 text-sm font-semibold text-muted-foreground">{member.phoneNum || '-'}</td>
                       <td className="px-5 py-4 text-sm font-semibold">{member.currentPackage}</td>
+                      <td className="px-5 py-4 text-sm font-semibold">
+                        <div className="max-w-[180px] truncate text-foreground">{member.sessionTitle || 'Workout session'}</div>
+                        <div className="mt-1 text-xs text-muted-foreground">{member.sessionTime || selectedDate}</div>
+                      </td>
                       <td className="px-5 py-4 text-sm font-semibold text-muted-foreground whitespace-nowrap">{member.expirationDate || '-'}</td>
                       <td className="px-5 py-4">
                         {record ? (

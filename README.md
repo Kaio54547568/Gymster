@@ -1,240 +1,253 @@
-# Gymster
+# Gymster - Hệ Thống Quản Lý Phòng Gym Đa Cổng Portal
 
-Gymster là ứng dụng quản lý phòng gym được xây dựng theo mô hình nhiều cổng portal: khách/landing, đăng nhập, hội viên, nhân viên, PT/trainer và admin/owner. Project hiện tại tập trung vào frontend React/Vite và đang migrate dần các luồng dữ liệu từ mock/localStorage sang Supabase.
+Gymster là một giải pháp quản lý phòng gym toàn diện, hiện đại, hoạt động theo mô hình phân quyền nhiều cổng (multi-portal) bao gồm: khách hàng vãng lai (Landing page), quy trình Onboarding hội viên mới, cổng dành riêng cho Hội viên (Member), Nhân viên (Staff), Huấn luyện viên cá nhân (PT/Trainer) và Quản trị viên/Chủ phòng gym (Admin/Owner). 
 
-Link web deployed: https://gymster-vert.vercel.app/
-## Tổng Quan
+Hệ thống được thiết kế tối ưu, kết hợp giữa frontend React 19 mượt mà, backend Node.js hiệu năng cao, cơ sở dữ liệu Supabase mạnh mẽ và dịch vụ nhận diện giọng nói (Speech-to-Text) thông minh bằng AI.
 
-Gymster hỗ trợ các nghiệp vụ chính của phòng gym:
+* **Link Web đã deploy (Production):** [https://gymster-vert.vercel.app/](https://gymster-vert.vercel.app/)
 
-- Quản lý hội viên, gói tập, gia hạn gói và lịch sử sử dụng.
-- Onboarding hội viên mới: chọn gói, chọn PT, thanh toán và kích hoạt tài khoản.
-- Quản lý lịch tập, buổi PT, yêu cầu training và thông báo.
-- Vận hành quầy lễ tân: thêm hội viên, check-in, thu phí, hóa đơn, feedback, thiết bị.
-- Portal PT: danh sách học viên, lịch tập, tiến độ, định hướng tập luyện và kế hoạch dinh dưỡng.
-- Portal admin/owner: dashboard điều hành, doanh thu, hội viên, nhân sự, payroll, thiết bị, bảo trì và mức độ hài lòng.
+---
 
-## Tech Stack
+## 📌 Các Phân Hệ & Cổng Portal Chính
 
-- React 19
-- Vite 8
-- React Router 7
-- Tailwind CSS 4
-- Supabase JS
-- Recharts
-- Lucide React
-- Motion
+### 1. Landing Page & Quy trình Onboarding
+* **Landing Page:** Giới thiệu dịch vụ phòng gym, bảng giá gói tập, danh sách huấn luyện viên nổi bật và công cụ tương tác.
+* **Đăng ký & Onboarding:** Hội viên mới có thể tự chọn gói tập (tiêu chuẩn hoặc VIP), chọn Huấn luyện viên cá nhân (PT), điền thông tin cá nhân, thực hiện thanh toán trực tuyến (có đính kèm minh chứng thanh toán) và nhận kích hoạt tài khoản tự động.
 
-## Cấu Trúc Thư Mục
+### 2. Cổng Hội Viên (Member Portal)
+* **Dashboard cá nhân:** Xem trạng thái gói tập, số buổi PT còn lại, lịch tập luyện sắp tới và thông báo từ hệ thống.
+* **Quản lý lịch:** Theo dõi lịch tập cá nhân, đặt lịch/hủy lịch/đổi lịch tập với PT trực tuyến.
+* **Gói tập:** Xem chi tiết gói tập hiện tại, lịch sử thanh toán, hóa đơn và gửi yêu cầu thay đổi/gia hạn gói tập.
+* **Đánh giá dịch vụ:** Gửi phản hồi, khiếu nại hoặc đánh giá chất lượng dịch vụ của phòng gym và PT.
+* **Hồ sơ cá nhân:** Cập nhật thông tin liên hệ, chỉ số cơ thể, mục tiêu tập luyện và cài đặt nhận thông báo.
+
+### 3. Cổng Huấn Luyện Viên (PT/Trainer Portal)
+* **Quản lý học viên:** Theo dõi danh sách hội viên đang phụ trách, xem chỉ số cơ thể, bệnh lý và tiến độ tập luyện của họ.
+* **Lịch dạy:** Xem lịch dạy trong tuần, nhận hoặc từ chối các yêu cầu book lịch tập từ học viên.
+* **Giáo án tập luyện & Dinh dưỡng:** Xây dựng và cập nhật kế hoạch tập luyện (Workout Plan) cũng như thực đơn dinh dưỡng (Meal Plan) riêng biệt cho từng học viên.
+* **Đánh giá tiến độ:** Chấm điểm, nhận xét định kỳ dựa trên các chỉ số đo lường khách quan và chủ quan.
+
+### 4. Cổng Nhân Viên (Staff Portal)
+* **Vận hành quầy lễ tân:** Check-in hội viên bằng mã/email, thêm hội viên mới tại quầy, quản lý thông tin hội viên.
+* **Xử lý gia hạn & Thanh toán:** Duyệt/tạo hóa đơn, xác nhận thanh toán trực tiếp hoặc trực tuyến, ghi nhận lịch sử giao dịch.
+* **Quản lý phản hồi:** Tiếp nhận ý kiến đóng góp, khiếu nại của khách hàng để điều phối xử lý kịp thời.
+* **Giám sát thiết bị:** Theo dõi tình trạng máy tập, báo cáo hư hỏng hoặc yêu cầu bảo trì thiết bị tại các phòng tập.
+
+### 5. Cổng Admin/Chủ Phòng Gym (Admin/Owner Portal)
+* **Báo cáo tài chính & Doanh thu:** Biểu đồ doanh thu chi tiết theo thời gian, theo loại gói tập, thống kê dòng tiền.
+* **Phân tích hội viên:** Thống kê tỷ lệ giữ chân hội viên, lượng hội viên mới, tần suất tập luyện trung bình.
+* **Quản trị nhân sự:** Quản lý thông tin nhân viên & PT, phân chia ca làm việc (Shift Scheduling), tính lương (Payroll/Payslips) và đánh giá hiệu suất làm việc (Performance Reviews).
+* **Quản lý cơ sở vật chất:** Giám sát thiết bị, lịch bảo trì định kỳ, danh sách phòng tập (Rooms).
+* **Cấu hình hệ thống:** Quản lý danh mục gói tập, tạo chương trình khuyến mãi/ưu đãi (Promotions).
+
+---
+
+## 🛠️ Công Nghệ Sử Dụng (Tech Stack)
+
+### Frontend
+* **React 19** & **Vite 8**
+* **React Router 7** (Quản lý định tuyến và phân quyền route guard)
+* **Tailwind CSS 4** (Thiết kế giao diện hiện đại, responsive tốt)
+* **Recharts** (Vẽ biểu đồ thống kê tài chính, dữ liệu hội viên sinh động)
+* **Lucide React** (Bộ icon hiện đại)
+* **Motion** (Tạo các hiệu ứng chuyển động mượt mà)
+
+### Backend
+* **Node.js (Custom HTTP Server):** Xử lý nghiệp vụ phức tạp, gửi email mã xác thực qua SMTP (Nodemailer), tạo hóa đơn PDF.
+* **Claude API (Anthropic AI SDK):** Trợ lý ảo AI hỗ trợ tư vấn lộ trình tập luyện, dinh dưỡng và giải đáp thắc mắc.
+
+### Speech-to-Text Service (Dịch vụ Giọng nói)
+* **FastAPI (Python):** RESTful API hiệu năng cao.
+* **FunASR SenseVoiceSmall:** Mô hình AI chuyển đổi giọng nói thành văn bản cực nhanh, độ chính xác cao và hỗ trợ đa ngôn ngữ.
+
+### Database (Cơ sở dữ liệu)
+* **Supabase (PostgreSQL):** Quản lý dữ liệu người dùng, bảo mật qua Row Level Security (RLS) và xử lý dữ liệu thông qua các Stored Procedures (RPC).
+
+---
+
+## 📁 Cấu Trúc Thư Mục Dự Án
 
 ```text
 Gymster/
-|-- frontend/              # Ứng dụng React/Vite chính
-|   |-- src/
-|   |   |-- components/    # Component dùng chung cho auth/layout/theme
-|   |   |-- pages/         # Landing, Auth, Onboarding
-|   |   |-- roles/         # Portal theo vai trò: admin, staff, pt, member
-|   |   |-- routes/        # Route guard và route tổng
-|   |   |-- services/      # API/service layer, Supabase client
-|   |   |-- styles/        # Global styles và design tokens
-|   |   `-- test_data/     # Tài khoản/demo data fallback
-|   |-- .env.example
-|   `-- package.json
-|-- database/              # SQL schema, seed và Supabase helper scripts
-|-- source_figma/          # Source UI tham khảo từ Figma cho từng portal
-|-- skills.md              # Quy ước làm việc cho AI coding agents
-|-- package.json           # Script root delegate vào frontend
-`-- README.md
+├── frontend/              # Mã nguồn giao diện chính (React/Vite)
+│   ├── src/
+│   │   ├── components/    # Components dùng chung (Auth, Layout, Theme, UI)
+│   │   ├── pages/         # Trang Landing, Auth, Onboarding
+│   │   ├── roles/         # Trang chức năng phân chia theo vai trò (admin, staff, pt, member)
+│   │   ├── routes/        # Cấu hình routes, bảo mật Route Guards
+│   │   ├── services/      # Lớp gọi API & cấu hình Supabase Client
+│   │   ├── styles/        # CSS global và cấu hình thiết kế
+│   │   └── test_data/     # Dữ liệu giả lập (mock data) dùng khi offline
+│   ├── .env.example       # Mẫu biến môi trường của frontend
+│   └── package.json       # Dependencies và scripts của frontend
+├── backend/               # Server điều phối API & dịch vụ AI
+│   ├── services/          # Các dịch vụ backend xử lý Auth, PDF, AI, Staff, Equipment...
+│   ├── scripts/           # Các script đồng bộ tài khoản auth Supabase
+│   ├── tests/             # Bài test chất lượng backend (Vitest)
+│   ├── .env.example       # Mẫu biến môi trường của backend
+│   └── package.json       # Dependencies của backend
+├── database/              # Schema SQL, Seed mẫu và nâng cấp DB
+│   ├── demo/              # Bộ cài đặt demo độc lập, tinh gọn
+│   ├── schema.sql         # Cấu trúc bảng, trigger và khóa ngoại chính
+│   ├── seed.sql           # Dữ liệu mẫu đồ sộ để phát triển và test
+│   └── *.sql              # Các nâng cấp tính năng riêng lẻ (payment, schedule, AI...)
+├── speech_service/        # Dịch vụ Speech-to-Text dùng Python FastAPI
+│   ├── app.py             # Server FastAPI nhận file âm thanh và trả về text
+│   ├── requirements.txt   # Các thư viện Python cần thiết
+│   └── tests/             # Bài test dịch vụ speech
+├── api/                   # Serverless Functions phục vụ deploy Vercel
+├── vercel.json            # Cấu hình định tuyến và deploy Vercel
+├── package.json           # Scripts quản lý chung ở thư mục gốc
+└── skills.md              # Quy ước phát triển dành cho AI coding agents
 ```
 
-## Yêu Cầu Môi Trường
+---
 
-- Node.js và npm
-- Supabase project nếu muốn chạy với database thật
-- Trình duyệt hiện đại
+## 🚀 Hướng Dẫn Cài Đặt & Chạy Local
 
-## Cài Đặt
-
-Clone project và cài dependency:
-
+### 1. Cài đặt các gói phụ thuộc (Dependencies)
+Chạy lệnh sau tại thư mục gốc để cài đặt dependencies cho cả thư mục gốc và frontend:
 ```bash
 npm install
 npm --prefix frontend install
 ```
 
-Tạo file môi trường cho frontend:
+Nếu bạn chạy cả backend cục bộ, cài đặt dependencies trong `backend/`:
+```bash
+npm --prefix backend install
+```
 
+### 2. Thiết lập Biến Môi Trường (Environment Variables)
+
+#### Cấu hình cho Frontend:
+Sao chép file cấu hình mẫu tại `frontend/`:
 ```bash
 cp frontend/.env.example frontend/.env.local
-```
-
-Trên PowerShell có thể dùng:
-
-```powershell
+# Hoặc trên Windows PowerShell:
 Copy-Item frontend/.env.example frontend/.env.local
 ```
-
-Cập nhật `frontend/.env.local`:
-
+Mở file `frontend/.env.local` và cập nhật thông số kết nối Supabase của bạn:
 ```env
 VITE_SUPABASE_URL=your_supabase_project_url
 VITE_SUPABASE_PUBLISHABLE_KEY=your_supabase_publishable_key
 ```
 
-Nếu thiếu hai biến này, app vẫn khởi động nhưng các chức năng phụ thuộc Supabase sẽ báo chưa được cấu hình.
-
-## Chạy Local
-
-Từ root project:
-
+#### Cấu hình cho Backend:
+Tương tự, tạo file cấu hình cho `backend/`:
 ```bash
-npm run dev
+cp backend/.env.example backend/.env
+# Hoặc trên Windows PowerShell:
+Copy-Item backend/.env.example backend/.env
 ```
-
-Hoặc chạy trực tiếp trong frontend:
-
-```bash
-npm --prefix frontend run dev
-```
-
-Các script khác:
-
-```bash
-npm run build
-npm run preview
-npm run lint
-```
-
-## Member Registration
-
-Member email/password registration creates the account directly through the backend. It does not send or require an email verification code.
-
-Configure the backend Supabase credentials in `backend/.env`:
-
+Cập nhật thông tin tại `backend/.env`:
 ```env
+ANTHROPIC_API_KEY=your_claude_api_key_here
 SUPABASE_URL=your_supabase_project_url
 SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
-```
 
-Start both servers while developing:
-
-```bash
-npm run dev:backend
-npm run dev
-```
-
-Alternatively, start the backend from its own package:
-
-```bash
-npm --prefix backend run dev
-```
-
-Google/Facebook OAuth registration continues to use the existing Supabase OAuth flow.
-
-### Production deploy on Vercel
-
-Deploy from the repository root, not from the `frontend/` subfolder, so Vercel can include both:
-
-- static frontend build output from `frontend/dist`
-- serverless auth functions from `api/auth/*`
-
-In Vercel Project Settings, set:
-
-- Root Directory: project root / repository root
-- Build Command: `npm run build`
-- Output Directory: `frontend/dist`
-
-Add `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` in Vercel Project Settings -> Environment Variables.
-
-SMTP variables are only needed if the password-reset email-code feature is enabled:
-
-```env
-SMTP_HOST=smtp.resend.com
+# (Tùy chọn) Cấu hình SMTP để gửi mã xác nhận/quên mật khẩu qua Email:
+AUTH_CODE_SECRET=change_this_to_a_long_random_secret
+SMTP_HOST=smtp.example.com
 SMTP_PORT=587
 SMTP_SECURE=false
-SMTP_USER=resend
-SMTP_PASS=your_resend_api_key
-MAIL_FROM="Gymster <no-reply@your-verified-domain.com>"
-AUTH_CODE_SECRET=change_this_to_a_long_random_secret
+SMTP_USER=your_smtp_username
+SMTP_PASS=your_smtp_password
+MAIL_FROM="Gymster <no-reply@gymster.vn>"
 ```
 
-Verify your sending domain in the email provider before using it in `MAIL_FROM`.
+### 3. Chạy các dịch vụ ở chế độ phát triển (Development Mode)
 
-## Database Và Supabase
+Chạy đồng thời các dịch vụ từ thư mục gốc:
 
-Thư mục `database/` chứa các file SQL chính:
+* **Chạy Frontend (React Vite) & Backend đồng thời:**
+  ```bash
+  # Khởi động backend server
+  npm run dev:backend
 
-- `schema.sql`: tạo bảng, constraint, foreign key, index, trigger và một số compatibility columns cho frontend.
-- `seed.sql`: dữ liệu mẫu cho users, employees, trainers, packages, members, payments, invoices, workout sessions, notifications và các bảng portal mở rộng.
-- `member_activation_rpc.sql`: RPC kích hoạt tài khoản hội viên.
-- `storage_pics_policies.sql`: policy cho bucket/avatar `pics`.
-- `production_cleanup.sql`: script dọn dẹp/production hardening tham khảo.
+  # Khởi động frontend
+  npm run dev
+  ```
+  *(Hoặc chạy trực tiếp frontend bằng: `npm --prefix frontend run dev`)*
 
-Với database demo mới, chạy SQL trong Supabase SQL Editor theo đúng thứ tự:
+* **Chạy dịch vụ Speech-to-Text (FastAPI):**
+  *(Yêu cầu môi trường Python ảo venv đã được tạo và cài đặt các thư viện trong `speech_service/requirements.txt`)*
+  ```bash
+  npm run dev:speech
+  ```
 
-1. `database/reset_demo_schema.sql` (xóa toàn bộ dữ liệu trong schema `public`)
-2. `database/schema.sql`
-3. `database/member_payment_verification_upgrade.sql`
-4. `database/seed.sql`
-5. `database/demo_payment_checkout_upgrade.sql`
-6. `database/verify_demo_setup.sql` (kiểm tra chỉ đọc, không thay đổi dữ liệu)
+---
 
-Không chạy `database/employee_schedules_weekly_upgrade.sql` sau `schema.sql`
-trên database mới vì cấu trúc lịch tuần đã có sẵn trong schema chính. Các file
-upgrade khác chỉ dùng khi nâng cấp database cũ; xem thứ tự chi tiết trong
-`database/README.md`.
+## 💾 Thiết Lập Cơ Sở Dữ Liệu (Supabase / PostgreSQL)
 
-Chi tiết mapping bảng theo từng portal nằm trong `database/README.md`.
+Để thiết lập cơ sở dữ liệu mẫu, hãy đăng nhập vào trang quản trị Supabase, truy cập **SQL Editor** và chạy các file SQL trong thư mục `database/` theo đúng trình tự sau:
 
-## Route Chính
+1. `database/reset_demo_schema.sql` *(Xóa toàn bộ schema `public` hiện tại để làm sạch dữ liệu).*
+2. `database/schema.sql` *(Tạo cấu trúc bảng, RLS rules, triggers).*
+3. `database/member_payment_verification_upgrade.sql` *(Tạo bucket và RPC duyệt thanh toán).*
+4. `database/seed.sql` *(Đổ dữ liệu mẫu đầy đủ).*
+5. `database/demo_payment_checkout_upgrade.sql` *(Tạo RPC xử lý thanh toán demo).*
+6. `database/verify_demo_setup.sql` *(Kiểm tra toàn bộ cấu trúc DB hoạt động đúng).*
 
-- `/`: Landing page
-- `/login`: Đăng nhập
-- `/register`: Đăng ký
-- `/auth/callback`: OAuth callback
-- `/auth/complete-profile`: Hoàn tất profile sau OAuth
-- `/onboarding/status`: Trạng thái đăng ký hội viên
-- `/onboarding/packages`: Chọn gói tập
-- `/onboarding/trainers`: Chọn PT
-- `/onboarding/payment`: Thanh toán onboarding
-- `/onboarding/success`: Hoàn tất onboarding
-- `/admin/*`: Portal admin/owner
-- `/staff/*`: Portal nhân viên
-- `/pt/*`: Portal PT/trainer
-- `/member/*`: Portal hội viên
+> ⚠️ **Lưu ý:** Không chạy file `employee_schedules_weekly_upgrade.sql` trên cơ sở dữ liệu mới vì cấu trúc này đã có sẵn trong file `schema.sql` chính.
 
-Route guard sẽ điều hướng người dùng theo role. Role `owner` được map về admin, role `trainer` được map về PT.
+---
 
-## Tài Khoản Demo
+## 🧪 Hệ Thống Kiểm Thử (Testing)
 
-Seed database có sẵn một số tài khoản mẫu:
+Dự án tích hợp đầy đủ các bài test từ Unit Test đến End-to-End (E2E):
 
-| Role | Email | Username | Password |
-| --- | --- | --- | --- |
-| Admin | `admin@gymster.local` | `admin01` | `Admin@123` |
-| Staff | `staff@gymster.local` | `staff00` | `Staff@123` |
-| Trainer/PT | `trainer@gymster.local` | `trainer00` | `Trainer@123` |
-| Member | `member@gymster.local` | `member00` | `Member@123` |
+* **Test Backend:**
+  ```bash
+  npm run test:backend
+  ```
+* **Test Dịch Vụ Giọng Nói (Speech Service):**
+  ```bash
+  npm run test:speech
+  ```
+* **Test Frontend (Unit & Integration):**
+  ```bash
+  npm --prefix frontend run test
+  ```
+* **Test End-to-End (Playwright):**
+  ```bash
+  # Chạy test E2E không đầu (headless)
+  npm --prefix frontend run test:e2e
+  
+  # Chạy test E2E với giao diện trực quan (UI Mode)
+  npm --prefix frontend run test:e2e:ui
+  ```
 
-Trong `frontend/src/test_data/users.json` cũng có fallback demo users cho các luồng cũ. Lưu ý file fallback hiện có một số chữ tiếng Việt bị mojibake; nên ưu tiên dữ liệu seed Supabase khi test nghiệp vụ thật.
+---
 
-## Quy Ước Phát Triển
+## 👥 Tài Khoản Demo Hệ Thống
 
-- Giữ thay đổi gọn trong module/portal liên quan.
-- Ưu tiên viết logic truy xuất dữ liệu trong `frontend/src/services` thay vì gọi Supabase trực tiếp trong component.
-- Không xóa mock/fallback data khi chưa có yêu cầu rõ.
-- Giao diện theo phong cách premium gym dark red/black đang có.
-- UI text hiện tại ưu tiên tiếng Anh, trừ khi task yêu cầu tiếng Việt.
-- Khi sửa UI, kiểm tra responsive và các trang portal khác để tránh vỡ route/role guard.
-- Nếu cập nhật file design system `DESIGN.md` trong tương lai, chạy:
+Để thuận tiện cho việc đánh giá các tính năng portal phân quyền, hệ thống đã cài sẵn các tài khoản demo sau:
 
-```bash
-npx "@google/design.md" lint DESIGN.md
-```
+| Vai Trò | Email Đăng Nhập | Tên Tài Khoản | Mật Khẩu |
+| :--- | :--- | :--- | :--- |
+| **Admin / Owner** | `admin@gymster.local` | `admin01` | `Admin@123` |
+| **Nhân Viên (Staff)** | `staff@gymster.local` | `staff00` | `Staff@123` |
+| **Huấn Luyện Viên (PT)** | `trainer@gymster.local` | `trainer00` | `Trainer@123` |
+| **Hội Viên (Member)** | `member@gymster.local` | `member00` | `Member@123` |
 
-## Ghi Chú Hiện Trạng
+---
 
-- Project frontend đang dùng cả `.jsx` và `.tsx`.
-- Supabase Auth đã có luồng OAuth/callback, đồng thời app vẫn lưu current user/session metadata trong localStorage cho route guard hiện tại.
-- Một số service đã có fallback khi Supabase chưa cấu hình, nhưng các chức năng database đầy đủ cần `.env.local` hợp lệ và SQL schema/seed đã được chạy.
-- `source_figma/` là source tham khảo UI theo từng portal, không phải app chính để chạy production.
+## 🌐 Deploy Lên Production (Vercel)
+
+Dự án hỗ trợ deploy toàn bộ (cả Frontend và Serverless API) trực tiếp lên Vercel từ **thư mục gốc**:
+
+1. Tạo một dự án mới trên Vercel liên kết với Repository này.
+2. Thiết lập cấu hình dự án trên Vercel:
+   * **Root Directory:** Thư mục gốc dự án (Repository Root).
+   * **Build Command:** `npm run build`
+   * **Output Directory:** `frontend/dist`
+3. Thêm các biến môi trường cần thiết vào Vercel (đặc biệt là các key kết nối Supabase và API Key Claude: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `ANTHROPIC_API_KEY`).
+
+---
+
+## ✍️ Quy Ước Phát Triển Cho Lập Trình Viên
+
+* **Design System:** Tuân thủ chặt chẽ tông màu chủ đạo **Đỏ đậm/Đen (Dark Red/Black)** mang phong cách thể thao, cao cấp. Tránh đưa các màu mặc định như xanh nước biển, tím vào UI.
+* **Giao Tiếp Dữ Liệu:** Tập trung toàn bộ logic lấy và cập nhật dữ liệu vào thư mục `frontend/src/services`. Hạn chế tối đa việc gọi trực tiếp client Supabase bên trong các component UI.
+* **Nội dung hiển thị:** Các chữ hiển thị mặc định trên giao diện là tiếng Anh (trừ khi có yêu cầu cụ thể hiển thị tiếng Việt).
+* **Đồng bộ hóa:** Luôn kiểm tra tính tương thích trên thiết bị di động (Responsive) khi thay đổi layout các portal.

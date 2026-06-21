@@ -53,6 +53,70 @@ function makeMessage(role: ChatMessage['role'], text: string, type?: string): Ch
   };
 }
 
+function renderInlineAiText(text: string) {
+  const parts = String(text || '').split(/(\*\*[^*]+\*\*|`[^`]+`)/g);
+  return parts.map((part, index) => {
+    if (part.startsWith('**') && part.endsWith('**')) {
+      return (
+        <span key={`${part}-${index}`} className="font-black text-[#EF233C]">
+          {part.slice(2, -2)}
+        </span>
+      );
+    }
+    if (part.startsWith('`') && part.endsWith('`')) {
+      return (
+        <span key={`${part}-${index}`} className="rounded bg-slate-900/10 px-1 font-mono text-[0.92em] text-[#EF233C]">
+          {part.slice(1, -1)}
+        </span>
+      );
+    }
+    return <span key={`${part}-${index}`}>{part}</span>;
+  });
+}
+
+function renderAiMessageText(text: string) {
+  const lines = String(text || '').split(/\r?\n/);
+  return (
+    <div className="space-y-1 whitespace-normal">
+      {lines.map((line, index) => {
+        const trimmed = line.trim();
+        if (!trimmed) return <div key={`blank-${index}`} className="h-2" />;
+
+        const heading = trimmed.match(/^#{1,6}\s+(.+)$/);
+        if (heading) {
+          return (
+            <div key={`${line}-${index}`} className="font-black text-[#EF233C]">
+              {renderInlineAiText(heading[1])}
+            </div>
+          );
+        }
+
+        const bullet = trimmed.match(/^[-*]\s+(.+)$/);
+        if (bullet) {
+          return (
+            <div key={`${line}-${index}`} className="flex gap-2">
+              <span className="mt-[0.65em] h-1.5 w-1.5 shrink-0 rounded-full bg-[#EF233C]" />
+              <span>{renderInlineAiText(bullet[1])}</span>
+            </div>
+          );
+        }
+
+        const numbered = trimmed.match(/^(\d+)[.)]\s+(.+)$/);
+        if (numbered) {
+          return (
+            <div key={`${line}-${index}`} className="flex gap-2">
+              <span className="min-w-5 font-black text-[#EF233C]">{numbered[1]}.</span>
+              <span>{renderInlineAiText(numbered[2])}</span>
+            </div>
+          );
+        }
+
+        return <div key={`${line}-${index}`}>{renderInlineAiText(trimmed)}</div>;
+      })}
+    </div>
+  );
+}
+
 export function StaffAIAssistantChat() {
   const [isOpen, setIsOpen] = useState(false);
   const [input, setInput] = useState('');
@@ -241,7 +305,7 @@ export function StaffAIAssistantChat() {
                           : 'border border-white/10 bg-white text-slate-700'
                   }`}
                 >
-                  {message.text}
+                  {message.role === 'assistant' ? renderAiMessageText(message.text) : message.text}
                 </div>
               </div>
             ))}

@@ -741,6 +741,70 @@ async function resolvePackageDateRange(memberPackageId, startDate, endDate) {
   };
 }
 
+function selectedSlotsToSchedule(selectedSlots = []) {
+  const dayLabels = {
+    sunday: "Sunday",
+    monday: "Monday",
+    tuesday: "Tuesday",
+    wednesday: "Wednesday",
+    thursday: "Thursday",
+    friday: "Friday",
+    saturday: "Saturday",
+  };
+
+  return (Array.isArray(selectedSlots) ? selectedSlots : [])
+    .map((slot) => {
+      if (slot?.label) return slot.label;
+      const dayLabel = dayLabels[String(slot?.dayKey || "").toLowerCase()];
+      if (!dayLabel || !slot?.startTime || !slot?.endTime) return "";
+      return `${dayLabel}, ${slot.startTime} - ${slot.endTime}`;
+    })
+    .filter(Boolean)
+    .join(" & ");
+}
+
+async function ensureWorkoutSessionsForActivePtPackages(memberId, existingRows = []) {
+  const { data: packages, error } = await supabase
+    .from("member_packages")
+    .select("member_package_id,package_id,member_id,trainer_id,status,start_date,end_date,selected_schedule,selected_slots")
+    .eq("member_id", memberId)
+    .eq("status", "active")
+    .not("trainer_id", "is", null);
+
+  if (error || !packages?.length) {
+    if (error) console.warn("[Gymster system] Failed to inspect active PT packages:", error);
+    return false;
+  }
+
+  const packagesWithSessions = new Set((existingRows || []).map((row) => row.member_package_id).filter(Boolean));
+  let createdAny = false;
+
+  for (const memberPackage of packages) {
+    if (packagesWithSessions.has(memberPackage.member_package_id)) continue;
+
+    const selectedSchedule = memberPackage.selected_schedule || selectedSlotsToSchedule(memberPackage.selected_slots);
+    if (!selectedSchedule) continue;
+
+    const { data, error: createError } = await createWorkoutSessionsForSchedule({
+      memberId,
+      trainerId: memberPackage.trainer_id,
+      packageId: memberPackage.package_id,
+      memberPackageId: memberPackage.member_package_id,
+      selectedSchedule,
+      startDate: memberPackage.start_date,
+      endDate: memberPackage.end_date,
+    });
+
+    if (createError) {
+      console.warn("[Gymster system] Failed to backfill active PT schedule:", createError);
+    } else if (data?.length) {
+      createdAny = true;
+    }
+  }
+
+  return createdAny;
+}
+
 export async function createWorkoutSessionsForSchedule(data) {
   if (!supabase) {
     const error = new Error("Missing h\u1ec7 th\u1ed1ng environment variables.");
@@ -800,16 +864,25 @@ export async function getWorkoutSessionsForMember(currentUser) {
     return { data: [], error: null };
   }
 
-  const { data, error } = await selectWorkoutSessions("member_id", memberId);
+  let { data, error } = await selectWorkoutSessions("member_id", memberId);
 
   if (error) {
     console.error("[Gymster hệ thống] Failed to load member workout sessions:", error);
     return { data: [], error };
   }
 
+  const createdMissingSessions = await ensureWorkoutSessionsForActivePtPackages(memberId, data || []);
+  if (createdMissingSessions) {
+    ({ data, error } = await selectWorkoutSessions("member_id", memberId));
+    if (error) {
+      console.error("[Gymster system] Failed to reload member workout sessions:", error);
+      return { data: [], error };
+    }
+  }
+
   const databaseRows = await enrichWorkoutSessions(data || []);
   return {
-    data: databaseRows.filter((row) => !isCancelledWorkoutStatus(row.status) && row.isPtSession),
+    data: databaseRows.filter((row) => !isCancelledWorkoutStatus(row.status)),
     error: null,
   };
 }

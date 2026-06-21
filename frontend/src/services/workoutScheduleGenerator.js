@@ -8,6 +8,38 @@ const dayIndexes = {
   saturday: 6,
 };
 
+const vietnameseDayIndexes = {
+  "chu nhat": 0,
+  "cn": 0,
+  "thu 2": 1,
+  "thu hai": 1,
+  "thu 3": 2,
+  "thu ba": 2,
+  "thu 4": 3,
+  "thu tu": 3,
+  "thu 5": 4,
+  "thu nam": 4,
+  "thu 6": 5,
+  "thu sau": 5,
+  "thu 7": 6,
+  "thu bay": 6,
+};
+
+function normalizeDayText(day) {
+  return String(day || "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/g, "d")
+    .replace(/\s+/g, " ");
+}
+
+function parseDayIndex(day) {
+  const normalizedDay = normalizeDayText(day);
+  return dayIndexes[normalizedDay] ?? vietnameseDayIndexes[normalizedDay];
+}
+
 function toLocalDate(value) {
   if (value instanceof Date) {
     return new Date(value.getFullYear(), value.getMonth(), value.getDate());
@@ -32,8 +64,7 @@ function parseSingleSchedulePart(schedule) {
   const [startTime = "07:00", endTime = "08:00"] = timeText.split("-").map((value) => value.trim());
   const days = daysText
     .split("/")
-    .map((day) => day.trim().toLowerCase())
-    .map((day) => dayIndexes[day])
+    .map(parseDayIndex)
     .filter((day) => day !== undefined);
 
   return { days, startTime, endTime };

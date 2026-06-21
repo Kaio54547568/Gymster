@@ -22,14 +22,23 @@ import {
   checkEmployeeCodeUnique,
   createAdminStaff,
   getAdminStaffDetail,
+  updateAdminStaff,
 } from "./services/adminStaffService.js";
 import {
   createEquipment,
   deleteEquipment,
   getEquipmentStats,
   listEquipments,
+  retireEquipment,
   updateEquipment,
 } from "./services/equipmentService.js";
+import {
+  createRoom,
+  deleteRoom,
+  getRoomStats,
+  listRooms,
+  updateRoom,
+} from "./services/roomService.js";
 import {
   getProgressForMember,
   listProgressMembers,
@@ -493,6 +502,18 @@ const server = http.createServer(async (request, response) => {
     return;
   }
 
+  if (request.method === "GET" && ["/api/rooms", "/rooms"].includes(url.pathname)) {
+    const result = await listRooms();
+    sendJson(response, result.ok ? 200 : result.status || 400, result);
+    return;
+  }
+
+  if (request.method === "GET" && ["/api/rooms/stats", "/rooms/stats"].includes(url.pathname)) {
+    const result = await getRoomStats();
+    sendJson(response, result.ok ? 200 : result.status || 400, result);
+    return;
+  }
+
   if (request.method === "GET" && ["/api/progress/members", "/progress/members"].includes(url.pathname)) {
     const result = await listProgressMembers(url.searchParams.get("trainerId") || url.searchParams.get("trainer_id") || "");
     sendJson(response, result.ok ? 200 : result.status || 400, result);
@@ -562,6 +583,19 @@ const server = http.createServer(async (request, response) => {
       return;
     }
     const result = await createEquipment(payload);
+    sendJson(response, result.ok ? 200 : result.status || 400, result);
+    return;
+  }
+
+  if (request.method === "POST" && ["/api/rooms", "/rooms"].includes(url.pathname)) {
+    let payload;
+    try {
+      payload = await readJsonBody(request);
+    } catch (error) {
+      sendJson(response, 400, { ok: false, message: error.message });
+      return;
+    }
+    const result = await createRoom(payload);
     sendJson(response, result.ok ? 200 : result.status || 400, result);
     return;
   }
@@ -749,7 +783,7 @@ const server = http.createServer(async (request, response) => {
       return;
     }
     try {
-      const result = await checkInMember(auth.client, auth.employee, payload.memberId, payload.date);
+      const result = await checkInMember(auth.client, auth.employee, payload.memberId, payload.date, new Date(), payload.workoutSessionId || payload.workout_session_id || "");
       sendJson(response, result.ok ? 200 : result.status || 400, result);
     } catch (error) {
       sendJson(response, 500, { ok: false, message: error.message || "Check-in could not be completed." });
@@ -832,6 +866,35 @@ const server = http.createServer(async (request, response) => {
       return;
     }
     const result = await updateEquipment(id, payload);
+    sendJson(response, result.ok ? 200 : result.status || 400, result);
+    return;
+  }
+
+  if (request.method === "POST" && (url.pathname.startsWith("/api/equipments/") || url.pathname.startsWith("/equipments/")) && url.pathname.endsWith("/retire")) {
+    const prefix = url.pathname.startsWith("/api/equipments/") ? "/api/equipments/" : "/equipments/";
+    const id = decodeURIComponent(url.pathname.replace(prefix, "").replace("/retire", ""));
+    const result = await retireEquipment(id);
+    sendJson(response, result.ok ? 200 : result.status || 400, result);
+    return;
+  }
+
+  if ((request.method === "PUT" || request.method === "DELETE") && (url.pathname.startsWith("/api/rooms/") || url.pathname.startsWith("/rooms/"))) {
+    const prefix = url.pathname.startsWith("/api/rooms/") ? "/api/rooms/" : "/rooms/";
+    const id = decodeURIComponent(url.pathname.replace(prefix, ""));
+    if (request.method === "DELETE") {
+      const result = await deleteRoom(id);
+      sendJson(response, result.ok ? 200 : result.status || 400, result);
+      return;
+    }
+
+    let payload;
+    try {
+      payload = await readJsonBody(request);
+    } catch (error) {
+      sendJson(response, 400, { ok: false, message: error.message });
+      return;
+    }
+    const result = await updateRoom(id, payload);
     sendJson(response, result.ok ? 200 : result.status || 400, result);
     return;
   }
@@ -940,6 +1003,25 @@ const server = http.createServer(async (request, response) => {
       url.pathname.replace("/api/admin/staff/", "").replace("/schedule", ""),
     );
     const result = await replaceStaffSchedule(employeeId, payload.selections || []);
+    sendJson(response, result.ok ? 200 : result.status || 400, result);
+    return;
+  }
+
+  if (request.method === "PUT" && url.pathname.startsWith("/api/admin/staff/")) {
+    const auth = await authenticateRequest(request, ["admin", "owner"]);
+    if (!auth.ok) {
+      sendJson(response, auth.status, auth);
+      return;
+    }
+    let payload;
+    try {
+      payload = await readJsonBody(request);
+    } catch (error) {
+      sendJson(response, 400, { ok: false, message: error.message });
+      return;
+    }
+    const id = decodeURIComponent(url.pathname.replace("/api/admin/staff/", ""));
+    const result = await updateAdminStaff(id, payload);
     sendJson(response, result.ok ? 200 : result.status || 400, result);
     return;
   }

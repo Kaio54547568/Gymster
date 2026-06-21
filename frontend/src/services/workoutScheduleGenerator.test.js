@@ -49,3 +49,52 @@ test("generates sessions for compound schedules with different times", () => {
     { sessionDate: "2026-06-03", startTime: "18:00", endTime: "19:00" },
   ]);
 });
+
+test("generates sessions for Vietnamese Friday numeric schedules", () => {
+  expect(
+    generateSessionsForPackageRange({
+      schedule: "Thứ 6, 18:00 - 19:00",
+      startDate: "2026-06-22",
+      endDate: "2026-06-28",
+    })
+  ).toEqual([
+    { sessionDate: "2026-06-26", startTime: "18:00", endTime: "19:00" },
+  ]);
+});
+
+test("generates sessions for English Friday schedules", () => {
+  expect(
+    generateSessionsForPackageRange({
+      schedule: "Friday, 18:00 - 19:00",
+      startDate: "2026-06-22",
+      endDate: "2026-06-28",
+    })
+  ).toEqual([
+    { sessionDate: "2026-06-26", startTime: "18:00", endTime: "19:00" },
+  ]);
+});
+
+test("generates sessions for Vietnamese Friday text schedules without accents", () => {
+  expect(
+    generateSessionsForPackageRange({
+      schedule: "Thu Sau, 18:00 - 19:00",
+      startDate: "2026-06-22",
+      endDate: "2026-06-28",
+    })
+  ).toEqual([
+    { sessionDate: "2026-06-26", startTime: "18:00", endTime: "19:00" },
+  ]);
+});
+
+test("generates sessions for compound schedules with Vietnamese and English weekdays", () => {
+  expect(
+    generateSessionsForPackageRange({
+      schedule: "Thứ 6, 18:00 - 19:00 & Sunday, 07:00 - 08:00",
+      startDate: "2026-06-22",
+      endDate: "2026-06-28",
+    })
+  ).toEqual([
+    { sessionDate: "2026-06-26", startTime: "18:00", endTime: "19:00" },
+    { sessionDate: "2026-06-28", startTime: "07:00", endTime: "08:00" },
+  ]);
+});

@@ -917,7 +917,7 @@ export function OnboardingPaymentPage() {
       }
 
       const { data: createdSessions } = await createWorkoutSessionsForSchedule({
-        memberId: state.memberId,
+        memberId: activeMemberId,
         memberEmail: currentUser?.email || "",
         trainerId: state.selectedTrainer.id,
         packageId: state.selectedPackage.id,

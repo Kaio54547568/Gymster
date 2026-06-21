@@ -21,6 +21,30 @@ function mapTrainer(row) {
   };
 }
 
+export function applyActiveMemberCounts(trainers = [], activeCountsByTrainerId = {}) {
+  return trainers.map((trainer) => ({
+    ...trainer,
+    currentActiveMembers: Number(activeCountsByTrainerId[trainer.id] ?? trainer.currentActiveMembers ?? 0),
+  }));
+}
+
+async function loadActiveMemberCounts(client, trainerIds = []) {
+  const ids = [...new Set(trainerIds.filter(Boolean))];
+  if (!ids.length) return {};
+
+  const { data, error } = await client
+    .from("trainer_assignments")
+    .select("trainer_id")
+    .in("trainer_id", ids)
+    .eq("status", "active");
+  if (error) throw error;
+
+  return (data || []).reduce((counts, row) => {
+    counts[row.trainer_id] = Number(counts[row.trainer_id] || 0) + 1;
+    return counts;
+  }, {});
+}
+
 export async function listActiveTrainers(client) {
   let result = await client
     .from("trainers")
@@ -37,5 +61,7 @@ export async function listActiveTrainers(client) {
   }
 
   if (result.error) throw result.error;
-  return { ok: true, data: (result.data || []).map(mapTrainer) };
+  const trainers = (result.data || []).map(mapTrainer);
+  const activeCounts = await loadActiveMemberCounts(client, trainers.map((trainer) => trainer.id));
+  return { ok: true, data: applyActiveMemberCounts(trainers, activeCounts) };
 }

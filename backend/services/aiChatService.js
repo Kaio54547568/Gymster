@@ -16,7 +16,7 @@ const CANCEL_WORDS = ["hủy", "huỷ", "huy", "cancel", "không", "khong"];
 const GYM_OPEN_TIME = "08:00";
 const GYM_CLOSE_TIME = "20:00";
 const ACTION_REDIRECT_URLS = {
-  create_booking: null,
+  create_booking: "/member/my-schedule",
   cancel_booking: "/member/my-schedule",
   create_review: "/member/rate-service",
   update_review: "/member/rate-service",
@@ -235,6 +235,7 @@ function requiredDataForIntent(intent, entities) {
 
 function confirmationReply(action) {
   const data = action.data || {};
+  if (action.name === "create_booking") return `Bạn xác nhận muốn đặt lịch tập vào ${data.date} lúc ${data.time} không?`;
   if (action.name === "create_booking") return `Bạn xác nhận muốn gửi yêu cầu đặt lịch bù với PT vào ${data.date} lúc ${data.time} không? AI sẽ kiểm tra số buổi bù còn lại và gửi yêu cầu cho PT, chưa tạo lịch ngay.`;
   if (action.name === "cancel_booking") return `Bạn xác nhận muốn hủy lịch tập ngày ${data.date} không?`;
   if (action.name === "create_review") return `Bạn xác nhận muốn đánh giá buổi tập ${data.date} ${data.rating} sao với nội dung "${data.comment}" không?`;
@@ -244,6 +245,7 @@ function confirmationReply(action) {
 
 function successReply(action, result) {
   const data = action.data || {};
+  if (action.name === "create_booking") return `Đã đặt lịch tập vào ${data.date} lúc ${data.time}. Bạn có thể xem lại trong My Schedule.`;
   if (action.name === "create_booking") return `Đã gửi yêu cầu đặt lịch bù với PT vào ${data.date} lúc ${data.time}. PT sẽ nhận thông báo để đồng ý hoặc từ chối. Lịch chỉ được tạo sau khi PT xác nhận.`;
   if (action.name === "cancel_booking") return `Đã hủy lịch tập ngày ${data.date}.`;
   if (action.name === "create_review") return `Đã lưu đánh giá ${data.rating} sao của bạn.`;
@@ -329,7 +331,8 @@ Gymster's Policies & Rules:
    - Khi PT từ chối yêu cầu đổi lịch (reject reschedule): Không có thay đổi nào về số buổi bù.
 3. Các gói tập PT VIP: gói tập VIP hỗ trợ 2 buổi tập PT một tuần (các ngày không được quá gần nhau hoặc trùng nhau).
 
-Keep answers concise, polite, clear, and in Vietnamese. Avoid listing technical JSON parameters.`;
+Keep answers concise, polite, clear, and in Vietnamese. Avoid listing technical JSON parameters.
+Do not use Markdown syntax such as **bold**, headings, tables, or fenced code blocks. Use plain text with short lines when listing items.`;
 
   try {
     const response = await createClaudeMessage({

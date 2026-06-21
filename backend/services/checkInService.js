@@ -26,13 +26,24 @@ function missingCheckInColumns(error) {
 
 async function mapsFor(client, rows) {
   const memberIds = [...new Set(rows.map((row) => row.member_id))];
-  const packageIds = [...new Set(rows.map((row) => row.package_id))];
+  const memberPackageIds = [...new Set(rows.map((row) => row.member_package_id).filter(Boolean))];
+  const packageIds = [...new Set(rows.map((row) => row.package_id).filter(Boolean))];
   if (!memberIds.length) return { members: {}, users: {}, packages: {} };
-  const [{ data: members, error: memberError }, { data: packages, error: packageError }] = await Promise.all([
+  const [{ data: members, error: memberError }, { data: memberPackages, error: memberPackageError }] = await Promise.all([
     client.from("members").select("member_id,user_id,member_code,full_name,phone_number").in("member_id", memberIds),
-    client.from("packages").select("package_id,package_name").in("package_id", packageIds),
+    memberPackageIds.length
+      ? client.from("member_packages").select("member_package_id,package_id,end_date").in("member_package_id", memberPackageIds)
+      : { data: [], error: null },
   ]);
   if (memberError) throw memberError;
+  if (memberPackageError) throw memberPackageError;
+  const allPackageIds = [...new Set([
+    ...packageIds,
+    ...(memberPackages || []).map((row) => row.package_id).filter(Boolean),
+  ])];
+  const { data: packages, error: packageError } = allPackageIds.length
+    ? await client.from("packages").select("package_id,package_name").in("package_id", allPackageIds)
+    : { data: [], error: null };
   if (packageError) throw packageError;
   const userIds = (members || []).map((row) => row.user_id).filter(Boolean);
   const { data: users, error: userError } = userIds.length
@@ -41,33 +52,32 @@ async function mapsFor(client, rows) {
   if (userError) throw userError;
   return {
     members: Object.fromEntries((members || []).map((row) => [row.member_id, row])),
+    memberPackages: Object.fromEntries((memberPackages || []).map((row) => [row.member_package_id, row])),
     users: Object.fromEntries((users || []).map((row) => [row.user_id, row])),
     packages: Object.fromEntries((packages || []).map((row) => [row.package_id, row])),
   };
+}
+
+export function isCheckInEligibleWorkoutStatus(status) {
+  return !["cancelled", "canceled"].includes(String(status || "").trim().toLowerCase());
 }
 
 export async function listStaffCheckIns(client, date) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date || ""))) {
     return { ok: false, status: 400, message: "A valid date is required." };
   }
-  const { data: packageRows, error: packageError } = await client
-    .from("member_packages")
-    .select("member_package_id,member_id,package_id,start_date,end_date,status")
-    .eq("status", "active")
-    .lte("start_date", date)
-    .gte("end_date", date)
-    .order("created_at", { ascending: false });
-  if (packageError) throw packageError;
+  const { data: sessionRows, error: sessionError } = await client
+    .from("workout_sessions")
+    .select("workout_session_id,member_id,trainer_id,member_package_id,package_id,session_date,start_time,end_time,status,title,session_title,exercise_type")
+    .eq("session_date", date)
+    .order("start_time", { ascending: true });
+  if (sessionError) throw sessionError;
 
-  const activeByMember = new Map();
-  for (const row of packageRows || []) {
-    if (!activeByMember.has(row.member_id)) activeByMember.set(row.member_id, row);
-  }
-  const activeRows = [...activeByMember.values()];
-  const { members, users, packages } = await mapsFor(client, activeRows);
+  const eligibleRows = (sessionRows || []).filter((row) => isCheckInEligibleWorkoutStatus(row.status));
+  const { members, memberPackages, users, packages } = await mapsFor(client, eligibleRows);
   let checkInResult = await client
     .from("member_usage_history")
-    .select("member_usage_history_id,member_id,member_package_id,usage_date,check_in_date")
+    .select("member_usage_history_id,member_id,member_package_id,workout_session_id,usage_date,check_in_date")
     .eq("usage_type", "check_in")
     .eq("check_in_date", date);
   if (missingCheckInColumns(checkInResult.error)) {
@@ -81,22 +91,29 @@ export async function listStaffCheckIns(client, date) {
   }
   if (checkInResult.error) throw checkInResult.error;
   const checkIns = checkInResult.data;
+  const checkedBySession = Object.fromEntries((checkIns || []).filter((row) => row.workout_session_id).map((row) => [row.workout_session_id, row]));
   const checkedByMember = Object.fromEntries((checkIns || []).map((row) => [row.member_id, row]));
 
   return {
     ok: true,
-    data: activeRows.map((row) => {
+    data: eligibleRows.map((row) => {
       const member = members[row.member_id] || {};
+      const memberPackage = memberPackages[row.member_package_id] || {};
       const user = users[member.user_id] || {};
-      const checked = checkedByMember[row.member_id] || null;
+      const checked = checkedBySession[row.workout_session_id] || checkedByMember[row.member_id] || null;
+      const packageId = row.package_id || memberPackage.package_id;
+      const title = row.session_title || row.title || row.exercise_type || "Workout session";
       return {
+        workoutSessionId: row.workout_session_id,
         memberUuid: row.member_id,
         memberId: member.member_code || row.member_id,
         fullName: [user.first_name, user.last_name].filter(Boolean).join(" ").trim() || member.full_name || "Member",
         phoneNum: user.phone_number || member.phone_number || "",
-        currentPackage: packages[row.package_id]?.package_name || "Package",
-        expirationDate: row.end_date,
+        currentPackage: packages[packageId]?.package_name || "Package",
+        expirationDate: memberPackage.end_date || "",
         memberPackageId: row.member_package_id,
+        sessionTitle: title,
+        sessionTime: [String(row.start_time || "").slice(0, 5), String(row.end_time || "").slice(0, 5)].filter(Boolean).join(" - "),
         checkedIn: Boolean(checked),
         checkedInAt: checked?.usage_date || null,
       };
@@ -104,23 +121,25 @@ export async function listStaffCheckIns(client, date) {
   };
 }
 
-export async function checkInMember(client, employee, memberId, date, now = new Date()) {
+async function findEligibleWorkoutSession(client, memberId, date, workoutSessionId = "") {
+  let query = client
+    .from("workout_sessions")
+    .select("workout_session_id,member_id,member_package_id,session_date,status")
+    .eq("member_id", memberId)
+    .eq("session_date", date);
+  if (workoutSessionId) query = query.eq("workout_session_id", workoutSessionId);
+  const { data, error } = await query.order("start_time", { ascending: true }).limit(1);
+  if (error) throw error;
+  return (data || []).find((row) => isCheckInEligibleWorkoutStatus(row.status)) || null;
+}
+
+export async function checkInMember(client, employee, memberId, date, now = new Date(), workoutSessionId = "") {
   if (!isTodayInGymTimezone(date, now)) {
     return { ok: false, status: 400, code: "CHECK_IN_TODAY_ONLY", message: "Check-in is only allowed for today." };
   }
-  const { data: memberPackage, error } = await client
-    .from("member_packages")
-    .select("member_package_id,member_id,package_id,status,start_date,end_date")
-    .eq("member_id", memberId)
-    .eq("status", "active")
-    .lte("start_date", date)
-    .gte("end_date", date)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (error) throw error;
-  if (!memberPackage) {
-    return { ok: false, status: 409, code: "NO_ACTIVE_PACKAGE", message: "Member does not have an active package." };
+  const workoutSession = await findEligibleWorkoutSession(client, memberId, date, workoutSessionId);
+  if (!workoutSession) {
+    return { ok: false, status: 409, code: "NO_BOOKED_SESSION", message: "Member does not have a booked workout session for this day." };
   }
   const bounds = dayBounds(date);
   const { data: existing, error: existingError } = await client
@@ -138,18 +157,19 @@ export async function checkInMember(client, employee, memberId, date, now = new 
 
   const insertPayload = {
     member_id: memberId,
-    member_package_id: memberPackage.member_package_id,
+    member_package_id: workoutSession.member_package_id,
+    workout_session_id: workoutSession.workout_session_id,
     usage_type: "check_in",
     usage_date: now.toISOString(),
     check_in_date: date,
     checked_in_by_employee_id: employee?.employee_id || null,
     description: "Staff check-in at the gym.",
   };
-  let insertResult = await client.from("member_usage_history").insert(insertPayload).select("member_usage_history_id,usage_date,check_in_date").single();
+  let insertResult = await client.from("member_usage_history").insert(insertPayload).select("member_usage_history_id,usage_date,check_in_date,workout_session_id").single();
   if (missingCheckInColumns(insertResult.error)) {
     delete insertPayload.check_in_date;
     delete insertPayload.checked_in_by_employee_id;
-    insertResult = await client.from("member_usage_history").insert(insertPayload).select("member_usage_history_id,usage_date").single();
+    insertResult = await client.from("member_usage_history").insert(insertPayload).select("member_usage_history_id,usage_date,workout_session_id").single();
   }
   const { data, error: insertError } = insertResult;
   if (insertError?.code === "23505") {
@@ -169,7 +189,7 @@ export async function getMemberCheckInHistory(client, userId) {
   if (!member) return { ok: false, status: 404, message: "Member profile was not found." };
   let historyResult = await client
     .from("member_usage_history")
-    .select("member_usage_history_id,member_package_id,usage_date,check_in_date,description")
+    .select("member_usage_history_id,member_package_id,workout_session_id,usage_date,check_in_date,description")
     .eq("member_id", member.member_id)
     .eq("usage_type", "check_in")
     .order("usage_date", { ascending: false });
@@ -187,6 +207,7 @@ export async function getMemberCheckInHistory(client, userId) {
     ok: true,
     data: (data || []).map((row) => ({
       id: row.member_usage_history_id,
+      workoutSessionId: row.workout_session_id || "",
       date: row.check_in_date || gymDate(new Date(row.usage_date)),
       checkedInAt: row.usage_date,
       description: row.description || "",

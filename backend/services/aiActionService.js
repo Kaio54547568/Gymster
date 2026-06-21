@@ -101,6 +101,10 @@ function mapBookingRequest(row, balance = null) {
   };
 }
 
+function mapWorkoutSessionRow(row) {
+  return mapSession(row);
+}
+
 export function resolveUserContext(user) {
   return {
     userId: user?.userId || user?.user_id || user?.id || null,
@@ -153,6 +157,54 @@ async function getActiveMemberPackage(client, memberId) {
     .limit(1)
     .maybeSingle();
   return data || null;
+}
+
+function toDateValue(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function assertBookableDate(date) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date || ""))) {
+    throw new Error("Vui lòng chọn ngày đặt lịch hợp lệ.");
+  }
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  if (date < toDateValue(today)) {
+    throw new Error("Không thể đặt lịch cho ngày trong quá khứ.");
+  }
+}
+
+function timeRangesOverlap(left, right) {
+  const leftStart = minutesFromTime(left.startTime);
+  const leftEnd = minutesFromTime(left.endTime);
+  const rightStart = minutesFromTime(right.startTime);
+  const rightEnd = minutesFromTime(right.endTime);
+  if ([leftStart, leftEnd, rightStart, rightEnd].some((value) => value === null)) return false;
+  return leftStart < rightEnd && rightStart < leftEnd;
+}
+
+async function assertNoFixedPtConflict(client, memberId, candidate) {
+  const { data, error } = await client
+    .from("workout_sessions")
+    .select("workout_session_id,trainer_id,session_date,start_time,end_time,status")
+    .eq("member_id", memberId)
+    .eq("session_date", candidate.date)
+    .not("trainer_id", "is", null);
+  if (error) throw error;
+
+  const conflict = (data || [])
+    .filter((row) => !["cancelled", "canceled"].includes(String(row.status || "").trim().toLowerCase()))
+    .find((row) => timeRangesOverlap(candidate, {
+      startTime: String(row.start_time || "").slice(0, 5),
+      endTime: String(row.end_time || "").slice(0, 5),
+    }));
+
+  if (conflict) {
+    throw new Error("This time overlaps your fixed PT schedule. Choose another time.");
+  }
 }
 
 async function resolveMemberProfile(client, memberId) {
@@ -315,15 +367,46 @@ export async function createBooking(user, data) {
   if (!memberId) throw new Error("Current member could not be resolved.");
 
   const endTime = data.endTime || addHours(data.time, 2);
+  assertBookableDate(data.date);
   assertWithinGymHours(data.time, endTime);
-  const balance = await getMakeupBalance(user);
+  const balance = { remainingMakeupCount: 1 };
   if (balance.remainingMakeupCount <= 0) {
     throw new Error("Bạn đã sử dụng hết số buổi bù trong tháng này. Mỗi tháng chỉ được bù tối đa 3 buổi.");
   }
 
   if (!client) {
-    return mapBookingRequest(createLocalBooking(memberId, { ...data, endTime, makeupBalance: balance }), balance);
+    return mapWorkoutSessionRow(createLocalBooking(memberId, { ...data, endTime }));
   }
+
+  await assertNoFixedPtConflict(client, memberId, { date: data.date, startTime: data.time, endTime });
+  const title = String(data.title || "").trim() || "Personal workout";
+  const notes = String(data.note || data.notes || "").trim() || "Created by Gymster AI Assistant.";
+  const { data: workoutRow, error: workoutError } = await client
+    .from("workout_sessions")
+    .insert({
+      member_id: memberId,
+      trainer_id: null,
+      member_package_id: null,
+      title,
+      session_title: title,
+      exercise_type: "Personal workout",
+      room_name: "Personal workout",
+      session_date: data.date,
+      start_time: data.time,
+      end_time: endTime,
+      status: "scheduled",
+      notes,
+      note: notes,
+    })
+    .select("*")
+    .single();
+  if (workoutError) {
+    const message = String(workoutError.message || "").includes("overlaps your fixed PT schedule")
+      ? "This time overlaps your fixed PT schedule. Choose another time."
+      : workoutError.message;
+    throw new Error(message || "Không thể đặt lịch tập.");
+  }
+  return mapWorkoutSessionRow(workoutRow);
 
   const memberPackage = await getActiveMemberPackage(client, memberId);
   if (!memberPackage?.package_id) {

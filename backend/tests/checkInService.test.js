@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isTodayInGymTimezone } from "../services/checkInService.js";
+import { isCheckInEligibleWorkoutStatus, isTodayInGymTimezone } from "../services/checkInService.js";
 
 describe("isTodayInGymTimezone", () => {
   it("only allows check-in for the current gym date", () => {
@@ -7,5 +7,14 @@ describe("isTodayInGymTimezone", () => {
     expect(isTodayInGymTimezone("2026-06-20", now)).toBe(true);
     expect(isTodayInGymTimezone("2026-06-19", now)).toBe(false);
     expect(isTodayInGymTimezone("2026-06-21", now)).toBe(false);
+  });
+});
+
+describe("isCheckInEligibleWorkoutStatus", () => {
+  it("allows booked/fixed sessions but rejects cancelled sessions", () => {
+    expect(isCheckInEligibleWorkoutStatus("scheduled")).toBe(true);
+    expect(isCheckInEligibleWorkoutStatus("completed")).toBe(true);
+    expect(isCheckInEligibleWorkoutStatus("cancelled")).toBe(false);
+    expect(isCheckInEligibleWorkoutStatus("canceled")).toBe(false);
   });
 });

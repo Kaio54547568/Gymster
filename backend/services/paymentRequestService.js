@@ -180,6 +180,26 @@ export function validateDemoCheckoutSelection({
     : { ok: false, message: "The selected PT schedule is invalid." };
 }
 
+async function countActiveTrainerAssignments(client, trainerId) {
+  if (!trainerId) return 0;
+  const { count, error } = await client
+    .from("trainer_assignments")
+    .select("trainer_assignment_id", { count: "exact", head: true })
+    .eq("trainer_id", trainerId)
+    .eq("status", "active");
+  if (error) throw error;
+  return Number(count || 0);
+}
+
+async function syncTrainerActiveMemberCount(client, trainerId) {
+  const activeCount = await countActiveTrainerAssignments(client, trainerId);
+  await client
+    .from("trainers")
+    .update({ current_active_members: activeCount, updated_at: new Date().toISOString() })
+    .eq("trainer_id", trainerId);
+  return activeCount;
+}
+
 function mapActiveSessionUser(user, member) {
   const fullNameValue = [user?.first_name, user?.last_name].filter(Boolean).join(" ").trim()
     || user?.full_name
@@ -244,6 +264,10 @@ export async function completeDemoPayment(payload = {}) {
       if (!trainer || !["active", "full"].includes(trainer.status)) {
         return { ok: false, status: 400, message: "The selected trainer is unavailable." };
       }
+      const currentActiveMembers = await syncTrainerActiveMemberCount(client, trainerId);
+      if (Number(trainer.max_active_members || 0) > 0 && currentActiveMembers >= Number(trainer.max_active_members || 0)) {
+        return { ok: false, status: 409, message: "The selected trainer is full." };
+      }
     }
 
     const checkoutKey = String(payload.checkoutKey || payload.checkout_key || crypto.randomUUID()).trim();
@@ -283,6 +307,10 @@ export async function completeDemoPayment(payload = {}) {
     ]);
     if (paymentError || packageError || userError || memberError) {
       throw paymentError || packageError || userError || memberError;
+    }
+
+    if (String(memberPackage.status || "").toLowerCase() === "active") {
+      await createAssignmentAndSessions(client, memberPackage);
     }
 
     const { data: workoutSessions, error: sessionsError } = await client
@@ -709,20 +737,14 @@ export async function listStaffPaymentRequests() {
   }
 }
 
-async function createAssignmentAndSessions(client, memberPackage) {
-  if (!memberPackage?.trainer_id) return;
-  await client.from("trainer_assignments").upsert({
-    trainer_id: memberPackage.trainer_id,
-    member_id: memberPackage.member_id,
-    member_package_id: memberPackage.member_package_id,
-    status: "active",
-    notes: "Assigned after staff payment approval.",
-  }, { onConflict: "member_package_id,trainer_id", ignoreDuplicates: true });
-  const slots = Array.isArray(memberPackage.selected_slots) ? memberPackage.selected_slots : [];
-  if (!slots.length || !memberPackage.start_date || !memberPackage.end_date) return;
+export function buildWeeklyWorkoutSessionRows(memberPackage) {
+  const slots = Array.isArray(memberPackage?.selected_slots) ? memberPackage.selected_slots : [];
+  if (!memberPackage?.trainer_id || !slots.length || !memberPackage.start_date || !memberPackage.end_date) return [];
   const dayIndexes = { sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6 };
   const start = new Date(`${memberPackage.start_date}T00:00:00Z`);
   const end = new Date(`${memberPackage.end_date}T00:00:00Z`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start > end) return [];
+
   const rows = [];
   for (const slot of slots) {
     const targetDay = dayIndexes[String(slot.dayKey || "").toLowerCase()];
@@ -746,12 +768,28 @@ async function createAssignmentAndSessions(client, memberPackage) {
       cursor.setUTCDate(cursor.getUTCDate() + 7);
     }
   }
+  return rows;
+}
+
+async function createAssignmentAndSessions(client, memberPackage) {
+  if (!memberPackage?.trainer_id) return;
+  await client.from("trainer_assignments").upsert({
+    trainer_id: memberPackage.trainer_id,
+    member_id: memberPackage.member_id,
+    member_package_id: memberPackage.member_package_id,
+    status: "active",
+    notes: "Assigned after staff payment approval.",
+  }, { onConflict: "member_package_id,trainer_id", ignoreDuplicates: true });
+
+  const rows = buildWeeklyWorkoutSessionRows(memberPackage);
   if (rows.length) {
     await client.from("workout_sessions").upsert(rows, {
       onConflict: "member_package_id,trainer_id,session_date,start_time,end_time",
       ignoreDuplicates: true,
     });
   }
+
+  await syncTrainerActiveMemberCount(client, memberPackage.trainer_id);
 }
 
 export async function listStaffPaymentHistory(authenticatedClient = null) {

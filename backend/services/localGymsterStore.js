@@ -41,24 +41,25 @@ export function listLocalBookings(memberId, { startDate, endDate } = {}) {
 }
 
 export function createLocalBooking(memberId, data) {
-  const requestId = `local-request-${Date.now()}`;
+  const sessionId = `local-session-${Date.now()}`;
   const row = {
-    request_id: requestId,
-    training_request_id: requestId,
+    workout_session_id: sessionId,
+    session_id: sessionId,
     member_id: memberId,
-    trainer_id: data.trainerId || "local-trainer-khoa",
-    requested_date: data.date,
+    trainer_id: null,
+    title: data.title || "Personal workout",
+    session_title: data.title || "Personal workout",
+    exercise_type: "Personal workout",
+    room_name: "Personal workout",
+    session_date: data.date,
     start_time: data.time,
     end_time: data.endTime,
-    requested_schedule: `${data.date} ${data.time} - ${data.endTime}`,
-    request_type: "makeup_pt_session",
-    status: "pending_pt_approval",
+    status: "scheduled",
+    notes: data.note || "Created by Gymster AI Assistant.",
     memberName: data.memberName || "Member",
-    trainerName: "Khoa Le",
-    makeupBalance: data.makeupBalance || null,
     created_at: new Date().toISOString(),
   };
-  state.trainingRequests.push(row);
+  state.bookings.push(row);
   return row;
 }
 

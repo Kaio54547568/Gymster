@@ -1,11 +1,33 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { CalendarCheck, RefreshCw } from 'lucide-react';
 import { getMyCheckInHistory } from '../../../services/checkInApi';
+
+function toMonthInputValue(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  return `${year}-${month}`;
+}
+
+function getCheckInMonth(row: any) {
+  const dateValue = String(row?.date || row?.checkedInAt || '');
+  return dateValue.slice(0, 7);
+}
 
 export default function CheckInHistoryPage() {
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [selectedMonth, setSelectedMonth] = useState(() => toMonthInputValue());
+
+  const monthlyRows = useMemo(
+    () => rows.filter((row) => getCheckInMonth(row) === selectedMonth),
+    [rows, selectedMonth],
+  );
+  const selectedMonthLabel = useMemo(() => {
+    const date = new Date(`${selectedMonth}-01T00:00:00`);
+    if (Number.isNaN(date.getTime())) return selectedMonth;
+    return date.toLocaleDateString('vi-VN', { month: 'long', year: 'numeric' });
+  }, [selectedMonth]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -32,13 +54,36 @@ export default function CheckInHistoryPage() {
           </button>
         </div>
       ) : null}
+      <div className="rounded-2xl border border-border bg-card p-5">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <div className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">Monthly check-ins</div>
+            <div className="mt-2 text-3xl font-black text-white">{monthlyRows.length}</div>
+            <p className="mt-1 text-sm font-semibold text-muted-foreground">Total check-ins in {selectedMonthLabel}</p>
+          </div>
+          <div className="rounded-2xl bg-emerald-500/10 p-4 text-emerald-400">
+            <CalendarCheck className="h-7 w-7" />
+          </div>
+        </div>
+      </div>
       <div className="overflow-hidden rounded-2xl border border-border bg-card">
-        <div className="border-b border-border px-5 py-4 text-lg font-black">Attendance log</div>
+        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-border px-5 py-4">
+          <div className="text-lg font-black">Attendance log</div>
+          <label className="flex items-center gap-3 text-sm font-bold text-muted-foreground">
+            Month
+            <input
+              type="month"
+              value={selectedMonth}
+              onChange={(event) => setSelectedMonth(event.target.value || toMonthInputValue())}
+              className="rounded-xl border border-border bg-background px-3 py-2 text-sm font-bold text-white outline-none transition focus:border-primary"
+            />
+          </label>
+        </div>
         {loading ? (
           <div className="p-10 text-center font-bold text-muted-foreground">Loading check-in history...</div>
-        ) : rows.length ? (
+        ) : monthlyRows.length ? (
           <div className="divide-y divide-border">
-            {rows.map((row) => (
+            {monthlyRows.map((row) => (
               <div key={row.id} className="flex items-center justify-between gap-4 p-5">
                 <div className="flex items-center gap-4">
                   <div className="rounded-xl bg-emerald-500/10 p-3 text-emerald-400"><CalendarCheck className="h-5 w-5" /></div>
@@ -51,6 +96,8 @@ export default function CheckInHistoryPage() {
               </div>
             ))}
           </div>
+        ) : rows.length ? (
+          <div className="p-10 text-center font-bold text-muted-foreground">No check-ins found for {selectedMonthLabel}.</div>
         ) : (
           <div className="p-10 text-center font-bold text-muted-foreground">No check-in history yet.</div>
         )}

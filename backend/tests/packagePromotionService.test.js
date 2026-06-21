@@ -23,6 +23,8 @@ describe("buildPriceSnapshot", () => {
       discountAmount: 150_000,
       finalAmount: 850_000,
       amount: 850_000,
+      unitPrice: null,
+      purchasedSessions: null,
       appliedAt: "2026-06-19T00:00:00.000Z",
     });
   });

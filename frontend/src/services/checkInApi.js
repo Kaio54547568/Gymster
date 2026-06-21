@@ -4,10 +4,10 @@ export function getStaffCheckInList(date) {
   return authenticatedJson(`/api/staff/check-ins?date=${encodeURIComponent(date)}`);
 }
 
-export function recordStaffCheckIn(memberId, date) {
+export function recordStaffCheckIn(memberId, date, workoutSessionId = "") {
   return authenticatedJson("/api/staff/check-ins", {
     method: "POST",
-    body: JSON.stringify({ memberId, date }),
+    body: JSON.stringify({ memberId, date, workoutSessionId }),
   });
 }
 

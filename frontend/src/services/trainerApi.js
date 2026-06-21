@@ -75,6 +75,33 @@ function mapTrainerRow(row) {
   };
 }
 
+function applyActiveMemberCounts(trainers = [], activeCountsByTrainerId = {}) {
+  return trainers.map((trainer) => ({
+    ...trainer,
+    currentActiveMembers: Number(activeCountsByTrainerId[trainer.id] ?? trainer.currentActiveMembers ?? 0),
+  }));
+}
+
+async function fetchActiveMemberCounts(trainerIds = []) {
+  const ids = [...new Set(trainerIds.filter(Boolean))];
+  if (!ids.length) return {};
+
+  const { data, error } = await supabase
+    .from("trainer_assignments")
+    .select("trainer_id")
+    .in("trainer_id", ids)
+    .eq("status", "active");
+  if (error) {
+    console.warn("[Gymster system] Failed to load active trainer assignment counts:", error);
+    return {};
+  }
+
+  return (data || []).reduce((counts, row) => {
+    counts[row.trainer_id] = Number(counts[row.trainer_id] || 0) + 1;
+    return counts;
+  }, {});
+}
+
 async function fetchDirectTrainerRows() {
   return supabase
     .from("trainers")
@@ -132,8 +159,11 @@ export async function fetchTrainersFromSupabase() {
     return { data: [], error };
   }
 
+  const trainers = Array.isArray(data) ? data.map(mapTrainerRow) : [];
+  const activeCounts = await fetchActiveMemberCounts(trainers.map((trainer) => trainer.id));
+
   return {
-    data: Array.isArray(data) ? data.map(mapTrainerRow) : [],
+    data: applyActiveMemberCounts(trainers, activeCounts),
     error: null,
   };
 }

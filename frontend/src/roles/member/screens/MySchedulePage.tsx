@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { Plus, X } from 'lucide-react';
+import { CheckCircle, Plus, X } from 'lucide-react';
 import { getCurrentUser } from '../../../services/authService';
 import {
   cancelWorkoutSessionForMember,
@@ -14,6 +14,7 @@ import { getCurrentMemberPackageForUser } from '../../../services/memberPackageA
 import { createTrainingRequest } from '../../../services/trainingRequestApi';
 import { getTrainerOpenScheduleSlots } from '../../../services/trainerAvailabilityApi';
 import { getAllowedLeaveDaysForPackage } from '../../../services/packageEntitlement';
+import { getMyCheckInHistory } from '../../../services/checkInApi';
 import Section from '../components/Section';
 import { currentPackage } from '../domain/memberConstants';
 import { useMemberTrainingRequests } from '../hooks/useMemberTrainingRequests';
@@ -61,6 +62,8 @@ export default function MySchedulePage() {
   const [scheduleSessions, setScheduleSessions] = useState<ScheduleSession[]>([]);
   const [isLoadingSessions, setIsLoadingSessions] = useState(true);
   const [sessionLoadMessage, setSessionLoadMessage] = useState('');
+  const [checkedInSessionIds, setCheckedInSessionIds] = useState<Set<string>>(() => new Set());
+  const [checkedInDates, setCheckedInDates] = useState<Set<string>>(() => new Set());
   const [showAddWorkout, setShowAddWorkout] = useState(false);
   const [rescheduleSession, setRescheduleSession] = useState<ScheduleSession | null>(null);
   const [isMakeupModalOpen, setIsMakeupModalOpen] = useState(false);
@@ -376,16 +379,31 @@ export default function MySchedulePage() {
           setIsLoadingSessions(false);
         });
     };
+    const loadCheckIns = () => {
+      getMyCheckInHistory()
+        .then(({ data, error }) => {
+          if (!isMounted || error) return;
+          const rows = Array.isArray(data) ? data : [];
+          setCheckedInSessionIds(new Set(rows.map((row: any) => row.workoutSessionId).filter(Boolean)));
+          setCheckedInDates(new Set(rows.map((row: any) => row.date).filter(Boolean)));
+        })
+        .catch(() => undefined);
+    };
 
     loadSessions();
+    loadCheckIns();
     const loadMakeupSummary = () => setMakeupSummary(getMakeupSessionSummary(getCurrentUser()));
     loadMakeupSummary();
     window.addEventListener('gymster:schedule-updated', loadSessions);
+    window.addEventListener('gymster:check-in-updated', loadCheckIns);
+    window.addEventListener('focus', loadCheckIns);
     window.addEventListener('gymster:makeup-updated', loadMakeupSummary);
 
     return () => {
       isMounted = false;
       window.removeEventListener('gymster:schedule-updated', loadSessions);
+      window.removeEventListener('gymster:check-in-updated', loadCheckIns);
+      window.removeEventListener('focus', loadCheckIns);
       window.removeEventListener('gymster:makeup-updated', loadMakeupSummary);
     };
   }, []);
@@ -397,6 +415,19 @@ export default function MySchedulePage() {
     if (status === 'Scheduled') return 'bg-[#EF233C]/15 text-[#EF233C] ring-1 ring-[#EF233C]/25';
     if (status === 'Completed') return 'bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-400/25';
     return 'bg-red-500/15 text-red-300 ring-1 ring-red-400/25';
+  };
+
+  const isSessionCheckedIn = (session: ScheduleSession) => {
+    return checkedInSessionIds.has(session.id) || checkedInDates.has(session.dateIso);
+  };
+
+  const renderCheckInBadge = (session: ScheduleSession, className = 'absolute left-2 top-2') => {
+    if (!isSessionCheckedIn(session)) return null;
+    return (
+      <span className={`${className} z-20 flex size-5 items-center justify-center rounded-full bg-emerald-500 text-white shadow-[0_0_14px_rgba(16,185,129,0.45)] ring-1 ring-emerald-200/60`} title="Checked in">
+        <CheckCircle className="h-3.5 w-3.5" />
+      </span>
+    );
   };
 
   const getEventPosition = (session: ScheduleSession) => {
@@ -553,7 +584,8 @@ export default function MySchedulePage() {
                     type="button"
                     onClick={() => setSelectedSession(session)}
                   >
-                    <div className="truncate text-sm font-black text-white">{session.title}</div>
+                    {renderCheckInBadge(session)}
+                    <div className={`truncate text-sm font-black text-white ${isSessionCheckedIn(session) ? 'pl-6' : ''}`}>{session.title}</div>
                     <div className="mt-1 text-xs text-white/70">{session.time}</div>
                     <div className="mt-1 truncate text-xs text-white/45">{session.room}</div>
                     {session.isPtSession && <span className="absolute bottom-2 right-2 rounded-full bg-amber-400/15 px-2 py-0.5 text-[10px] font-black text-amber-300 ring-1 ring-amber-300/30">PT</span>}
@@ -588,7 +620,7 @@ export default function MySchedulePage() {
                             key={session.id}
                             type="button"
                             onClick={() => setSelectedSession(session)}
-                            className={`w-full truncate rounded-md px-2 py-1 text-left text-[11px] font-black text-white transition hover:brightness-110 ${
+                            className={`relative w-full truncate rounded-md px-2 py-1 text-left text-[11px] font-black text-white transition hover:brightness-110 ${
                               session.status === 'Completed'
                                 ? 'bg-emerald-500/70'
                                 : session.status === 'Incomplete'
@@ -597,7 +629,8 @@ export default function MySchedulePage() {
                             }`}
                             title={`${session.title} - ${session.time}`}
                           >
-                            {session.title}
+                            {renderCheckInBadge(session, 'absolute left-1 top-1')}
+                            <span className={isSessionCheckedIn(session) ? 'pl-5' : ''}>{session.title}</span>
                           </button>
                         ))}
                         {events.length > 3 && <div className="px-2 text-[11px] font-bold text-white/45">+{events.length - 3} more</div>}
@@ -617,8 +650,9 @@ export default function MySchedulePage() {
                 type="button"
                 onClick={() => setSelectedSession(session)}
               >
+                {renderCheckInBadge(session, 'absolute left-3 top-3')}
                 <div>
-                  <div className="font-black text-white">{session.title}</div>
+                  <div className={`font-black text-white ${isSessionCheckedIn(session) ? 'pl-7' : ''}`}>{session.title}</div>
                   <div className="mt-1 text-sm text-white/50">{session.date} - {session.time} - {session.room}</div>
                 </div>
                 <span className={`rounded-full px-3 py-1 text-xs font-black ${getStatusClass(session.status)}`}>{session.status}</span>
@@ -639,8 +673,9 @@ export default function MySchedulePage() {
                 type="button"
                 onClick={() => setSelectedSession(session)}
               >
+                {renderCheckInBadge(session, 'absolute left-3 top-3')}
                 <div className="flex items-start justify-between gap-3">
-                  <div className="font-black text-white">{session.title}</div>
+                  <div className={`font-black text-white ${isSessionCheckedIn(session) ? 'pl-7' : ''}`}>{session.title}</div>
                   <span className={`rounded-full px-3 py-1 text-xs font-black ${getStatusClass(session.status)}`}>{session.status}</span>
                 </div>
                 <div className="mt-4 space-y-2 text-sm text-white/55">
